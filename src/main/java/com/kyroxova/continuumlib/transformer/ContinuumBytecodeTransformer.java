@@ -160,6 +160,20 @@ public final class ContinuumBytecodeTransformer {
             }
         }
 
+        // 9. Modern Screen bridges (>= 1.20)
+        if (targetSpec != null && targetSpec.getVersion().isAtLeast(MCVersion.of("1.20"))) {
+            if (injectModernScreenBridges(classNode)) {
+                modified = true;
+            }
+        }
+
+        // 10. Modern LootParams bridges (>= 1.20)
+        if (targetSpec != null && targetSpec.getVersion().isAtLeast(MCVersion.of("1.20"))) {
+            if (injectModernLootBridges(classNode)) {
+                modified = true;
+            }
+        }
+
         return modified;
     }
 
@@ -783,6 +797,192 @@ public final class ContinuumBytecodeTransformer {
             il.add(new InsnNode(Opcodes.RETURN));
             mn.maxStack = 5;
             mn.maxLocals = 5;
+            classNode.methods.add(mn);
+            modified = true;
+        }
+
+        return modified;
+    }
+
+    private boolean injectModernScreenBridges(ClassNode classNode) {
+        if (classNode.methods == null) return false;
+        boolean modified = false;
+
+        MethodNode legacyRender = null;
+        boolean hasModernRender = false;
+
+        MethodNode legacyRenderBg = null;
+        boolean hasModernRenderBg = false;
+
+        MethodNode legacyRenderLabels = null;
+        boolean hasModernRenderLabels = false;
+
+        MethodNode legacyRenderTooltip = null;
+        boolean hasModernRenderTooltip = false;
+
+        for (MethodNode method : classNode.methods) {
+            if ("render".equals(method.name)) {
+                if ("(Lcom/mojang/blaze3d/vertex/PoseStack;IIF)V".equals(method.desc)) {
+                    legacyRender = method;
+                } else if ("(Lnet/minecraft/client/gui/GuiGraphics;IIF)V".equals(method.desc)) {
+                    hasModernRender = true;
+                }
+            } else if ("renderBg".equals(method.name)) {
+                if ("(Lcom/mojang/blaze3d/vertex/PoseStack;FII)V".equals(method.desc)) {
+                    legacyRenderBg = method;
+                } else if ("(Lnet/minecraft/client/gui/GuiGraphics;FII)V".equals(method.desc)) {
+                    hasModernRenderBg = true;
+                }
+            } else if ("renderLabels".equals(method.name)) {
+                if ("(Lcom/mojang/blaze3d/vertex/PoseStack;II)V".equals(method.desc)) {
+                    legacyRenderLabels = method;
+                } else if ("(Lnet/minecraft/client/gui/GuiGraphics;II)V".equals(method.desc)) {
+                    hasModernRenderLabels = true;
+                }
+            } else if ("renderTooltip".equals(method.name)) {
+                if ("(Lcom/mojang/blaze3d/vertex/PoseStack;II)V".equals(method.desc)) {
+                    legacyRenderTooltip = method;
+                } else if ("(Lnet/minecraft/client/gui/GuiGraphics;II)V".equals(method.desc)) {
+                    hasModernRenderTooltip = true;
+                }
+            }
+        }
+
+        // Bridge Screen.render(GuiGraphics, int, int, float) -> render(PoseStack, int, int, float)
+        if (legacyRender != null && !hasModernRender) {
+            MethodNode mn = new MethodNode(
+                    Opcodes.ACC_PUBLIC | Opcodes.ACC_SYNTHETIC,
+                    "render",
+                    "(Lnet/minecraft/client/gui/GuiGraphics;IIF)V",
+                    null,
+                    null
+            );
+            InsnList il = mn.instructions;
+            il.add(new VarInsnNode(Opcodes.ALOAD, 0)); // this
+            il.add(new VarInsnNode(Opcodes.ALOAD, 1)); // GuiGraphics
+            il.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "com/kyroxova/continuumlib/shims/ScreenRenderingShim", "extractPose", "(Ljava/lang/Object;)Ljava/lang/Object;", false));
+            il.add(new TypeInsnNode(Opcodes.CHECKCAST, "com/mojang/blaze3d/vertex/PoseStack"));
+            il.add(new VarInsnNode(Opcodes.ILOAD, 2)); // mouseX
+            il.add(new VarInsnNode(Opcodes.ILOAD, 3)); // mouseY
+            il.add(new VarInsnNode(Opcodes.FLOAD, 4)); // partialTicks
+            il.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, classNode.name, "render", legacyRender.desc, false));
+            il.add(new InsnNode(Opcodes.RETURN));
+            mn.maxStack = 5;
+            mn.maxLocals = 5;
+            classNode.methods.add(mn);
+            modified = true;
+        }
+
+        // Bridge Screen.renderBg(GuiGraphics, float, int, int) -> renderBg(PoseStack, float, int, int)
+        if (legacyRenderBg != null && !hasModernRenderBg) {
+            MethodNode mn = new MethodNode(
+                    Opcodes.ACC_PROTECTED | Opcodes.ACC_SYNTHETIC,
+                    "renderBg",
+                    "(Lnet/minecraft/client/gui/GuiGraphics;FII)V",
+                    null,
+                    null
+            );
+            InsnList il = mn.instructions;
+            il.add(new VarInsnNode(Opcodes.ALOAD, 0)); // this
+            il.add(new VarInsnNode(Opcodes.ALOAD, 1)); // GuiGraphics
+            il.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "com/kyroxova/continuumlib/shims/ScreenRenderingShim", "extractPose", "(Ljava/lang/Object;)Ljava/lang/Object;", false));
+            il.add(new TypeInsnNode(Opcodes.CHECKCAST, "com/mojang/blaze3d/vertex/PoseStack"));
+            il.add(new VarInsnNode(Opcodes.FLOAD, 2)); // partialTicks
+            il.add(new VarInsnNode(Opcodes.ILOAD, 3)); // mouseX
+            il.add(new VarInsnNode(Opcodes.ILOAD, 4)); // mouseY
+            il.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, classNode.name, "renderBg", legacyRenderBg.desc, false));
+            il.add(new InsnNode(Opcodes.RETURN));
+            mn.maxStack = 5;
+            mn.maxLocals = 5;
+            classNode.methods.add(mn);
+            modified = true;
+        }
+
+        // Bridge Screen.renderLabels(GuiGraphics, int, int) -> renderLabels(PoseStack, int, int)
+        if (legacyRenderLabels != null && !hasModernRenderLabels) {
+            MethodNode mn = new MethodNode(
+                    Opcodes.ACC_PROTECTED | Opcodes.ACC_SYNTHETIC,
+                    "renderLabels",
+                    "(Lnet/minecraft/client/gui/GuiGraphics;II)V",
+                    null,
+                    null
+            );
+            InsnList il = mn.instructions;
+            il.add(new VarInsnNode(Opcodes.ALOAD, 0)); // this
+            il.add(new VarInsnNode(Opcodes.ALOAD, 1)); // GuiGraphics
+            il.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "com/kyroxova/continuumlib/shims/ScreenRenderingShim", "extractPose", "(Ljava/lang/Object;)Ljava/lang/Object;", false));
+            il.add(new TypeInsnNode(Opcodes.CHECKCAST, "com/mojang/blaze3d/vertex/PoseStack"));
+            il.add(new VarInsnNode(Opcodes.ILOAD, 2)); // mouseX
+            il.add(new VarInsnNode(Opcodes.ILOAD, 3)); // mouseY
+            il.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, classNode.name, "renderLabels", legacyRenderLabels.desc, false));
+            il.add(new InsnNode(Opcodes.RETURN));
+            mn.maxStack = 4;
+            mn.maxLocals = 4;
+            classNode.methods.add(mn);
+            modified = true;
+        }
+
+        // Bridge Screen.renderTooltip(GuiGraphics, int, int) -> renderTooltip(PoseStack, int, int)
+        if (legacyRenderTooltip != null && !hasModernRenderTooltip) {
+            MethodNode mn = new MethodNode(
+                    Opcodes.ACC_PROTECTED | Opcodes.ACC_SYNTHETIC,
+                    "renderTooltip",
+                    "(Lnet/minecraft/client/gui/GuiGraphics;II)V",
+                    null,
+                    null
+            );
+            InsnList il = mn.instructions;
+            il.add(new VarInsnNode(Opcodes.ALOAD, 0)); // this
+            il.add(new VarInsnNode(Opcodes.ALOAD, 1)); // GuiGraphics
+            il.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "com/kyroxova/continuumlib/shims/ScreenRenderingShim", "extractPose", "(Ljava/lang/Object;)Ljava/lang/Object;", false));
+            il.add(new TypeInsnNode(Opcodes.CHECKCAST, "com/mojang/blaze3d/vertex/PoseStack"));
+            il.add(new VarInsnNode(Opcodes.ILOAD, 2)); // mouseX
+            il.add(new VarInsnNode(Opcodes.ILOAD, 3)); // mouseY
+            il.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, classNode.name, "renderTooltip", legacyRenderTooltip.desc, false));
+            il.add(new InsnNode(Opcodes.RETURN));
+            mn.maxStack = 4;
+            mn.maxLocals = 4;
+            classNode.methods.add(mn);
+            modified = true;
+        }
+
+        return modified;
+    }
+
+    private boolean injectModernLootBridges(ClassNode classNode) {
+        if (classNode.methods == null) return false;
+        boolean modified = false;
+
+        MethodNode legacyGetDrops = null;
+        boolean hasModernGetDrops = false;
+
+        for (MethodNode method : classNode.methods) {
+            if ("getDrops".equals(method.name)) {
+                if ("(Lnet/minecraft/world/level/block/state/BlockState;Lnet/minecraft/world/level/storage/loot/LootContext$Builder;)Ljava/util/List;".equals(method.desc)) {
+                    legacyGetDrops = method;
+                } else if ("(Lnet/minecraft/world/level/block/state/BlockState;Lnet/minecraft/world/level/storage/loot/LootParams$Builder;)Ljava/util/List;".equals(method.desc)) {
+                    hasModernGetDrops = true;
+                }
+            }
+        }
+
+        if (legacyGetDrops != null && !hasModernGetDrops) {
+            MethodNode mn = new MethodNode(
+                    Opcodes.ACC_PUBLIC | Opcodes.ACC_SYNTHETIC,
+                    "getDrops",
+                    "(Lnet/minecraft/world/level/block/state/BlockState;Lnet/minecraft/world/level/storage/loot/LootParams$Builder;)Ljava/util/List;",
+                    null,
+                    null
+            );
+            InsnList il = mn.instructions;
+            il.add(new VarInsnNode(Opcodes.ALOAD, 0)); // this
+            il.add(new VarInsnNode(Opcodes.ALOAD, 1)); // BlockState
+            il.add(new VarInsnNode(Opcodes.ALOAD, 2)); // LootParams.Builder
+            il.add(new TypeInsnNode(Opcodes.CHECKCAST, "net/minecraft/world/level/storage/loot/LootContext$Builder"));
+            il.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, classNode.name, "getDrops", legacyGetDrops.desc, false));
+            il.add(new InsnNode(Opcodes.ARETURN));
+            mn.maxStack = 3;
+            mn.maxLocals = 3;
             classNode.methods.add(mn);
             modified = true;
         }
