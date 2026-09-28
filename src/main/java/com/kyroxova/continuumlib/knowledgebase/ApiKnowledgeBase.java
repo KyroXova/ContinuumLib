@@ -53,5 +53,8 @@ public final class ApiKnowledgeBase {
         NetworkRulesCatalog.register(this);
         LifecycleAndEventRulesCatalog.register(this);
         ReflectionAndDistRulesCatalog.register(this);
+        ClientRenderingAndGuiCatalog.register(this);
+        MathAndVectorsCatalog.register(this);
+        CapabilityAndStorageCatalog.register(this);
     }
 }
