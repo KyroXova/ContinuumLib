@@ -27,13 +27,21 @@ dependencies {
     // Google Gson for configuration and rule catalog parsing (built-in across all MC versions)
     implementation 'com.google.code.gson:gson:2.10.1'
 
+    // Gradle Plugin API for continuum-gradle
+    compileOnly gradleApi()
+
     // Testing suite
     testImplementation platform('org.junit:junit-bom:5.10.2')
     testImplementation 'org.junit.jupiter:junit-jupiter'
+    testImplementation gradleTestKit()
 }
 
 tasks.named('test') {
     useJUnitPlatform()
+    jvmArgs(
+        '--add-opens', 'java.base/java.lang=ALL-UNNAMED',
+        '--add-opens', 'java.base/java.util=ALL-UNNAMED'
+    )
 }
 
 tasks.withType(JavaCompile).configureEach {

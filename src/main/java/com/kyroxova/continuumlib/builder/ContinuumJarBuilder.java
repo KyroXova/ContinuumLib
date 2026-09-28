@@ -32,6 +32,24 @@ public final class ContinuumJarBuilder {
     }
 
     /**
+     * Builds a specific target JAR from an existing JAR file.
+     */
+    public File buildTargetJar(TargetSpec target, File inputJarFile, File outputDirectoryRoot) throws IOException {
+        Map<String, byte[]> inputFiles = new java.util.HashMap<>();
+        try (java.util.jar.JarFile jf = new java.util.jar.JarFile(inputJarFile)) {
+            java.util.Enumeration<java.util.jar.JarEntry> entries = jf.entries();
+            while (entries.hasMoreElements()) {
+                java.util.jar.JarEntry entry = entries.nextElement();
+                if (entry.isDirectory()) continue;
+                try (java.io.InputStream is = jf.getInputStream(entry)) {
+                    inputFiles.put(entry.getName(), is.readAllBytes());
+                }
+            }
+        }
+        return buildTargetJar(target, inputFiles, outputDirectoryRoot);
+    }
+
+    /**
      * Builds a specific target JAR from compiled input classes and resources.
      *
      * @param target the target specification (e.g. 1.20.4 NeoForge)
