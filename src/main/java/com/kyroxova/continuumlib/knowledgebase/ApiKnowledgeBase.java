@@ -62,5 +62,6 @@ public final class ApiKnowledgeBase {
         TagAndResourceRulesCatalog.register(this);
         SoundAndMusicRulesCatalog.register(this);
         DataPackPathRulesCatalog.register(this);
+        CommandAndMenuRulesCatalog.register(this);
     }
 }
