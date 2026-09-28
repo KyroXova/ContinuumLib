@@ -1,0 +1,8 @@
+{
+  "supported_loaders": [
+    "forge",
+    "neoforge",
+    "fabric",
+    "quilt"
+  ]
+}

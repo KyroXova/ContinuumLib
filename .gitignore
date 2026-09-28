@@ -1,0 +1,24 @@
+# Gradle & Build Artifacts
+.gradle/
+build/
+bin/
+out/
+
+# IDE files
+.idea/
+*.iml
+*.ipr
+*.iws
+.project
+.classpath
+.settings/
+.vscode/
+
+# Personal Documentation (Internal only, not pushed to git)
+docs/
+
+# OS specific
+Thumbs.db
+Desktop.ini
+.DS_Store
+
