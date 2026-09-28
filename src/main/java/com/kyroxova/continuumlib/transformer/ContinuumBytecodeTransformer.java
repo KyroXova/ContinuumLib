@@ -153,6 +153,13 @@ public final class ContinuumBytecodeTransformer {
             }
         }
 
+        // 8. Modern RandomSource tick bridges (>= 1.19)
+        if (targetSpec != null && targetSpec.getVersion().isAtLeast(MCVersion.of("1.19"))) {
+            if (injectModernRandomTickBridges(classNode)) {
+                modified = true;
+            }
+        }
+
         return modified;
     }
 
@@ -667,6 +674,116 @@ public final class ContinuumBytecodeTransformer {
             remNode.maxStack = 2;
             remNode.maxLocals = 2;
             classNode.methods.add(remNode);
+            modified = true;
+        }
+
+        return modified;
+    }
+
+    private boolean injectModernRandomTickBridges(ClassNode classNode) {
+        if (classNode.methods == null) return false;
+        boolean modified = false;
+
+        MethodNode legacyAnimateTick = null;
+        boolean hasModernAnimateTick = false;
+
+        MethodNode legacyRandomTick = null;
+        boolean hasModernRandomTick = false;
+
+        MethodNode legacyTick = null;
+        boolean hasModernTick = false;
+
+        for (MethodNode method : classNode.methods) {
+            if ("animateTick".equals(method.name)) {
+                if ("(Lnet/minecraft/world/level/block/state/BlockState;Lnet/minecraft/world/level/Level;Lnet/minecraft/core/BlockPos;Ljava/util/Random;)V".equals(method.desc)) {
+                    legacyAnimateTick = method;
+                } else if ("(Lnet/minecraft/world/level/block/state/BlockState;Lnet/minecraft/world/level/Level;Lnet/minecraft/core/BlockPos;Lnet/minecraft/util/RandomSource;)V".equals(method.desc)) {
+                    hasModernAnimateTick = true;
+                }
+            } else if ("randomTick".equals(method.name)) {
+                if ("(Lnet/minecraft/world/level/block/state/BlockState;Lnet/minecraft/server/level/ServerLevel;Lnet/minecraft/core/BlockPos;Ljava/util/Random;)V".equals(method.desc)) {
+                    legacyRandomTick = method;
+                } else if ("(Lnet/minecraft/world/level/block/state/BlockState;Lnet/minecraft/server/level/ServerLevel;Lnet/minecraft/core/BlockPos;Lnet/minecraft/util/RandomSource;)V".equals(method.desc)) {
+                    hasModernRandomTick = true;
+                }
+            } else if ("tick".equals(method.name)) {
+                if ("(Lnet/minecraft/world/level/block/state/BlockState;Lnet/minecraft/server/level/ServerLevel;Lnet/minecraft/core/BlockPos;Ljava/util/Random;)V".equals(method.desc)) {
+                    legacyTick = method;
+                } else if ("(Lnet/minecraft/world/level/block/state/BlockState;Lnet/minecraft/server/level/ServerLevel;Lnet/minecraft/core/BlockPos;Lnet/minecraft/util/RandomSource;)V".equals(method.desc)) {
+                    hasModernTick = true;
+                }
+            }
+        }
+
+        // Inject animateTick bridge
+        if (legacyAnimateTick != null && !hasModernAnimateTick) {
+            MethodNode mn = new MethodNode(
+                    Opcodes.ACC_PUBLIC | Opcodes.ACC_SYNTHETIC,
+                    "animateTick",
+                    "(Lnet/minecraft/world/level/block/state/BlockState;Lnet/minecraft/world/level/Level;Lnet/minecraft/core/BlockPos;Lnet/minecraft/util/RandomSource;)V",
+                    null,
+                    null
+            );
+            InsnList il = mn.instructions;
+            il.add(new VarInsnNode(Opcodes.ALOAD, 0)); // this
+            il.add(new VarInsnNode(Opcodes.ALOAD, 1)); // state
+            il.add(new VarInsnNode(Opcodes.ALOAD, 2)); // level
+            il.add(new VarInsnNode(Opcodes.ALOAD, 3)); // pos
+            il.add(new VarInsnNode(Opcodes.ALOAD, 4)); // RandomSource
+            il.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "com/kyroxova/continuumlib/shims/RandomShim", "toLegacyRandom", "(Ljava/lang/Object;)Ljava/util/Random;", false));
+            il.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, classNode.name, "animateTick", legacyAnimateTick.desc, false));
+            il.add(new InsnNode(Opcodes.RETURN));
+            mn.maxStack = 5;
+            mn.maxLocals = 5;
+            classNode.methods.add(mn);
+            modified = true;
+        }
+
+        // Inject randomTick bridge
+        if (legacyRandomTick != null && !hasModernRandomTick) {
+            MethodNode mn = new MethodNode(
+                    Opcodes.ACC_PUBLIC | Opcodes.ACC_SYNTHETIC,
+                    "randomTick",
+                    "(Lnet/minecraft/world/level/block/state/BlockState;Lnet/minecraft/server/level/ServerLevel;Lnet/minecraft/core/BlockPos;Lnet/minecraft/util/RandomSource;)V",
+                    null,
+                    null
+            );
+            InsnList il = mn.instructions;
+            il.add(new VarInsnNode(Opcodes.ALOAD, 0)); // this
+            il.add(new VarInsnNode(Opcodes.ALOAD, 1)); // state
+            il.add(new VarInsnNode(Opcodes.ALOAD, 2)); // serverLevel
+            il.add(new VarInsnNode(Opcodes.ALOAD, 3)); // pos
+            il.add(new VarInsnNode(Opcodes.ALOAD, 4)); // RandomSource
+            il.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "com/kyroxova/continuumlib/shims/RandomShim", "toLegacyRandom", "(Ljava/lang/Object;)Ljava/util/Random;", false));
+            il.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, classNode.name, "randomTick", legacyRandomTick.desc, false));
+            il.add(new InsnNode(Opcodes.RETURN));
+            mn.maxStack = 5;
+            mn.maxLocals = 5;
+            classNode.methods.add(mn);
+            modified = true;
+        }
+
+        // Inject tick bridge
+        if (legacyTick != null && !hasModernTick) {
+            MethodNode mn = new MethodNode(
+                    Opcodes.ACC_PUBLIC | Opcodes.ACC_SYNTHETIC,
+                    "tick",
+                    "(Lnet/minecraft/world/level/block/state/BlockState;Lnet/minecraft/server/level/ServerLevel;Lnet/minecraft/core/BlockPos;Lnet/minecraft/util/RandomSource;)V",
+                    null,
+                    null
+            );
+            InsnList il = mn.instructions;
+            il.add(new VarInsnNode(Opcodes.ALOAD, 0)); // this
+            il.add(new VarInsnNode(Opcodes.ALOAD, 1)); // state
+            il.add(new VarInsnNode(Opcodes.ALOAD, 2)); // serverLevel
+            il.add(new VarInsnNode(Opcodes.ALOAD, 3)); // pos
+            il.add(new VarInsnNode(Opcodes.ALOAD, 4)); // RandomSource
+            il.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "com/kyroxova/continuumlib/shims/RandomShim", "toLegacyRandom", "(Ljava/lang/Object;)Ljava/util/Random;", false));
+            il.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, classNode.name, "tick", legacyTick.desc, false));
+            il.add(new InsnNode(Opcodes.RETURN));
+            mn.maxStack = 5;
+            mn.maxLocals = 5;
+            classNode.methods.add(mn);
             modified = true;
         }
 
