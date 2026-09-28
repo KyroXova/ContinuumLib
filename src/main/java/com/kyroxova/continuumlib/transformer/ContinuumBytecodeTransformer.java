@@ -146,6 +146,13 @@ public final class ContinuumBytecodeTransformer {
             }
         }
 
+        // 7. Modern synthetic bridges for Recipe (>= 1.20.5)
+        if (targetSpec != null && targetSpec.getVersion().isAtLeast(MCVersion.of("1.20.5"))) {
+            if (injectModernRecipeBridges(classNode)) {
+                modified = true;
+            }
+        }
+
         return modified;
     }
 
@@ -456,6 +463,213 @@ public final class ContinuumBytecodeTransformer {
                 }
             }
         }
+        return modified;
+    }
+
+    private boolean injectModernRecipeBridges(ClassNode classNode) {
+        if (classNode.methods == null) return false;
+        boolean modified = false;
+
+        MethodNode legacyAssemble = null;
+        String legacyContainerType = null;
+        boolean hasModernAssembleCraftingInput = false;
+        boolean hasModernAssembleRecipeInput = false;
+
+        MethodNode legacyMatches = null;
+        boolean hasModernMatchesCraftingInput = false;
+        boolean hasModernMatchesRecipeInput = false;
+
+        MethodNode legacyGetResultItem = null;
+        boolean hasModernGetResultItem = false;
+
+        MethodNode legacyGetRemainingItems = null;
+        boolean hasModernGetRemainingItemsCrafting = false;
+
+        for (MethodNode method : classNode.methods) {
+            // Check assemble
+            if ("assemble".equals(method.name)) {
+                if ("(Lnet/minecraft/world/Container;)Lnet/minecraft/world/item/ItemStack;".equals(method.desc)) {
+                    legacyAssemble = method;
+                    legacyContainerType = "net/minecraft/world/Container";
+                } else if ("(Lnet/minecraft/world/inventory/CraftingContainer;)Lnet/minecraft/world/item/ItemStack;".equals(method.desc)) {
+                    legacyAssemble = method;
+                    legacyContainerType = "net/minecraft/world/inventory/CraftingContainer";
+                } else if ("(Lnet/minecraft/world/item/crafting/CraftingInput;Lnet/minecraft/core/HolderLookup$Provider;)Lnet/minecraft/world/item/ItemStack;".equals(method.desc)) {
+                    hasModernAssembleCraftingInput = true;
+                } else if ("(Lnet/minecraft/world/item/crafting/RecipeInput;Lnet/minecraft/core/HolderLookup$Provider;)Lnet/minecraft/world/item/ItemStack;".equals(method.desc)) {
+                    hasModernAssembleRecipeInput = true;
+                }
+            }
+
+            // Check matches
+            if ("matches".equals(method.name)) {
+                if ("(Lnet/minecraft/world/Container;Lnet/minecraft/world/level/Level;)Z".equals(method.desc)
+                        || "(Lnet/minecraft/world/inventory/CraftingContainer;Lnet/minecraft/world/level/Level;)Z".equals(method.desc)) {
+                    legacyMatches = method;
+                } else if ("(Lnet/minecraft/world/item/crafting/CraftingInput;Lnet/minecraft/world/level/Level;)Z".equals(method.desc)) {
+                    hasModernMatchesCraftingInput = true;
+                } else if ("(Lnet/minecraft/world/item/crafting/RecipeInput;Lnet/minecraft/world/level/Level;)Z".equals(method.desc)) {
+                    hasModernMatchesRecipeInput = true;
+                }
+            }
+
+            // Check getResultItem
+            if ("getResultItem".equals(method.name)) {
+                if ("()Lnet/minecraft/world/item/ItemStack;".equals(method.desc)) {
+                    legacyGetResultItem = method;
+                } else if ("(Lnet/minecraft/core/HolderLookup$Provider;)Lnet/minecraft/world/item/ItemStack;".equals(method.desc)) {
+                    hasModernGetResultItem = true;
+                }
+            }
+
+            // Check getRemainingItems
+            if ("getRemainingItems".equals(method.name)) {
+                if (method.desc != null && (method.desc.startsWith("(Lnet/minecraft/world/Container;)") || method.desc.startsWith("(Lnet/minecraft/world/inventory/CraftingContainer;)"))) {
+                    legacyGetRemainingItems = method;
+                } else if ("(Lnet/minecraft/world/item/crafting/CraftingInput;)Lnet/minecraft/core/NonNullList;".equals(method.desc)) {
+                    hasModernGetRemainingItemsCrafting = true;
+                }
+            }
+        }
+
+        // 1. Inject assemble(CraftingInput, HolderLookup.Provider)
+        if (legacyAssemble != null) {
+            String targetContainer = legacyContainerType != null ? legacyContainerType : "net/minecraft/world/Container";
+
+            if (!hasModernAssembleCraftingInput) {
+                MethodNode assembleNode = new MethodNode(
+                        Opcodes.ACC_PUBLIC | Opcodes.ACC_SYNTHETIC,
+                        "assemble",
+                        "(Lnet/minecraft/world/item/crafting/CraftingInput;Lnet/minecraft/core/HolderLookup$Provider;)Lnet/minecraft/world/item/ItemStack;",
+                        null,
+                        null
+                );
+                InsnList il = assembleNode.instructions;
+                il.add(new VarInsnNode(Opcodes.ALOAD, 0)); // this
+                il.add(new VarInsnNode(Opcodes.ALOAD, 1)); // CraftingInput
+                il.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "com/kyroxova/continuumlib/shims/RecipeShim", "wrapInput", "(Ljava/lang/Object;)Ljava/lang/Object;", false));
+                il.add(new TypeInsnNode(Opcodes.CHECKCAST, targetContainer));
+                il.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, classNode.name, "assemble", legacyAssemble.desc, false));
+                il.add(new InsnNode(Opcodes.ARETURN));
+                assembleNode.maxStack = 3;
+                assembleNode.maxLocals = 3;
+                classNode.methods.add(assembleNode);
+                modified = true;
+            }
+
+            if (!hasModernAssembleRecipeInput) {
+                MethodNode assembleNode = new MethodNode(
+                        Opcodes.ACC_PUBLIC | Opcodes.ACC_SYNTHETIC,
+                        "assemble",
+                        "(Lnet/minecraft/world/item/crafting/RecipeInput;Lnet/minecraft/core/HolderLookup$Provider;)Lnet/minecraft/world/item/ItemStack;",
+                        null,
+                        null
+                );
+                InsnList il = assembleNode.instructions;
+                il.add(new VarInsnNode(Opcodes.ALOAD, 0)); // this
+                il.add(new VarInsnNode(Opcodes.ALOAD, 1)); // RecipeInput
+                il.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "com/kyroxova/continuumlib/shims/RecipeShim", "wrapInput", "(Ljava/lang/Object;)Ljava/lang/Object;", false));
+                il.add(new TypeInsnNode(Opcodes.CHECKCAST, targetContainer));
+                il.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, classNode.name, "assemble", legacyAssemble.desc, false));
+                il.add(new InsnNode(Opcodes.ARETURN));
+                assembleNode.maxStack = 3;
+                assembleNode.maxLocals = 3;
+                classNode.methods.add(assembleNode);
+                modified = true;
+            }
+        }
+
+        // 2. Inject matches(CraftingInput, Level)
+        if (legacyMatches != null) {
+            String targetContainer = legacyContainerType != null ? legacyContainerType : "net/minecraft/world/Container";
+
+            if (!hasModernMatchesCraftingInput) {
+                MethodNode matchesNode = new MethodNode(
+                        Opcodes.ACC_PUBLIC | Opcodes.ACC_SYNTHETIC,
+                        "matches",
+                        "(Lnet/minecraft/world/item/crafting/CraftingInput;Lnet/minecraft/world/level/Level;)Z",
+                        null,
+                        null
+                );
+                InsnList il = matchesNode.instructions;
+                il.add(new VarInsnNode(Opcodes.ALOAD, 0)); // this
+                il.add(new VarInsnNode(Opcodes.ALOAD, 1)); // CraftingInput
+                il.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "com/kyroxova/continuumlib/shims/RecipeShim", "wrapInput", "(Ljava/lang/Object;)Ljava/lang/Object;", false));
+                il.add(new TypeInsnNode(Opcodes.CHECKCAST, targetContainer));
+                il.add(new VarInsnNode(Opcodes.ALOAD, 2)); // Level
+                il.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, classNode.name, "matches", legacyMatches.desc, false));
+                il.add(new InsnNode(Opcodes.IRETURN));
+                matchesNode.maxStack = 3;
+                matchesNode.maxLocals = 3;
+                classNode.methods.add(matchesNode);
+                modified = true;
+            }
+
+            if (!hasModernMatchesRecipeInput) {
+                MethodNode matchesNode = new MethodNode(
+                        Opcodes.ACC_PUBLIC | Opcodes.ACC_SYNTHETIC,
+                        "matches",
+                        "(Lnet/minecraft/world/item/crafting/RecipeInput;Lnet/minecraft/world/level/Level;)Z",
+                        null,
+                        null
+                );
+                InsnList il = matchesNode.instructions;
+                il.add(new VarInsnNode(Opcodes.ALOAD, 0)); // this
+                il.add(new VarInsnNode(Opcodes.ALOAD, 1)); // RecipeInput
+                il.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "com/kyroxova/continuumlib/shims/RecipeShim", "wrapInput", "(Ljava/lang/Object;)Ljava/lang/Object;", false));
+                il.add(new TypeInsnNode(Opcodes.CHECKCAST, targetContainer));
+                il.add(new VarInsnNode(Opcodes.ALOAD, 2)); // Level
+                il.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, classNode.name, "matches", legacyMatches.desc, false));
+                il.add(new InsnNode(Opcodes.IRETURN));
+                matchesNode.maxStack = 3;
+                matchesNode.maxLocals = 3;
+                classNode.methods.add(matchesNode);
+                modified = true;
+            }
+        }
+
+        // 3. Inject getResultItem(HolderLookup.Provider)
+        if (legacyGetResultItem != null && !hasModernGetResultItem) {
+            MethodNode resultNode = new MethodNode(
+                    Opcodes.ACC_PUBLIC | Opcodes.ACC_SYNTHETIC,
+                    "getResultItem",
+                    "(Lnet/minecraft/core/HolderLookup$Provider;)Lnet/minecraft/world/item/ItemStack;",
+                    null,
+                    null
+            );
+            InsnList il = resultNode.instructions;
+            il.add(new VarInsnNode(Opcodes.ALOAD, 0)); // this
+            il.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, classNode.name, "getResultItem", "()Lnet/minecraft/world/item/ItemStack;", false));
+            il.add(new InsnNode(Opcodes.ARETURN));
+            resultNode.maxStack = 1;
+            resultNode.maxLocals = 2;
+            classNode.methods.add(resultNode);
+            modified = true;
+        }
+
+        // 4. Inject getRemainingItems(CraftingInput)
+        if (legacyGetRemainingItems != null && !hasModernGetRemainingItemsCrafting) {
+            String targetContainer = legacyContainerType != null ? legacyContainerType : "net/minecraft/world/Container";
+            MethodNode remNode = new MethodNode(
+                    Opcodes.ACC_PUBLIC | Opcodes.ACC_SYNTHETIC,
+                    "getRemainingItems",
+                    "(Lnet/minecraft/world/item/crafting/CraftingInput;)Lnet/minecraft/core/NonNullList;",
+                    null,
+                    null
+            );
+            InsnList il = remNode.instructions;
+            il.add(new VarInsnNode(Opcodes.ALOAD, 0)); // this
+            il.add(new VarInsnNode(Opcodes.ALOAD, 1)); // CraftingInput
+            il.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "com/kyroxova/continuumlib/shims/RecipeShim", "wrapInput", "(Ljava/lang/Object;)Ljava/lang/Object;", false));
+            il.add(new TypeInsnNode(Opcodes.CHECKCAST, targetContainer));
+            il.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, classNode.name, "getRemainingItems", legacyGetRemainingItems.desc, false));
+            il.add(new InsnNode(Opcodes.ARETURN));
+            remNode.maxStack = 2;
+            remNode.maxLocals = 2;
+            classNode.methods.add(remNode);
+            modified = true;
+        }
+
         return modified;
     }
 }

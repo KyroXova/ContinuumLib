@@ -46,11 +46,10 @@ public final class ResourceLocationShim {
     }
 
     /**
-     * Normalizes plural/singular path variations (e.g., recipes/ -> recipe/)
+     * Normalizes plural/singular path variations between 1.20.6 and 1.21+.
      */
-    private static String normalizePath(String path) {
+    public static String normalizePath(String path) {
         if (path == null) return null;
-        // In 1.21+, recipe/ is used instead of recipes/
         if (path.startsWith("recipes/")) {
             return "recipe/" + path.substring(8);
         }
@@ -59,6 +58,59 @@ public final class ResourceLocationShim {
         }
         if (path.startsWith("structures/")) {
             return "structure/" + path.substring(11);
+        }
+        if (path.startsWith("advancements/")) {
+            return "advancement/" + path.substring(13);
+        }
+        if (path.startsWith("tags/blocks/")) {
+            return "tags/block/" + path.substring(12);
+        }
+        if (path.startsWith("tags/items/")) {
+            return "tags/item/" + path.substring(11);
+        }
+        if (path.startsWith("tags/fluids/")) {
+            return "tags/fluid/" + path.substring(12);
+        }
+        if (path.startsWith("tags/entity_types/")) {
+            return "tags/entity_type/" + path.substring(18);
+        }
+        if (path.startsWith("tags/game_events/")) {
+            return "tags/game_event/" + path.substring(17);
+        }
+        return path;
+    }
+
+    /**
+     * Denormalizes singular paths back to legacy plural paths for <= 1.20.6 targets.
+     */
+    public static String denormalizePath(String path) {
+        if (path == null) return null;
+        if (path.startsWith("recipe/")) {
+            return "recipes/" + path.substring(7);
+        }
+        if (path.startsWith("loot_table/")) {
+            return "loot_tables/" + path.substring(11);
+        }
+        if (path.startsWith("structure/")) {
+            return "structures/" + path.substring(10);
+        }
+        if (path.startsWith("advancement/")) {
+            return "advancements/" + path.substring(12);
+        }
+        if (path.startsWith("tags/block/")) {
+            return "tags/blocks/" + path.substring(11);
+        }
+        if (path.startsWith("tags/item/")) {
+            return "tags/items/" + path.substring(10);
+        }
+        if (path.startsWith("tags/fluid/")) {
+            return "tags/fluids/" + path.substring(11);
+        }
+        if (path.startsWith("tags/entity_type/")) {
+            return "tags/entity_types/" + path.substring(17);
+        }
+        if (path.startsWith("tags/game_event/")) {
+            return "tags/game_events/" + path.substring(16);
         }
         return path;
     }
