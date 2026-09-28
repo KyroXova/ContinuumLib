@@ -56,5 +56,9 @@ public final class ApiKnowledgeBase {
         ClientRenderingAndGuiCatalog.register(this);
         MathAndVectorsCatalog.register(this);
         CapabilityAndStorageCatalog.register(this);
+        DamageAndCombatRulesCatalog.register(this);
+        FluidAndAttributesRulesCatalog.register(this);
+        EnchantmentAndLootRulesCatalog.register(this);
+        TagAndResourceRulesCatalog.register(this);
     }
 }
