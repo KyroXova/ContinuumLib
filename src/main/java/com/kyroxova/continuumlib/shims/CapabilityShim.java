@@ -3,8 +3,11 @@ package com.kyroxova.continuumlib.shims;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
+import java.util.Collections;
 import java.util.Map;
+import java.util.NoSuchElementException;
 import java.util.Optional;
+import java.util.WeakHashMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -31,7 +34,8 @@ public final class CapabilityShim {
     public static final int MB_PER_BUCKET = 1000;
 
     // Persistent storage for NeoForge Data Attachments on platforms without native IAttachmentHolder (Forge/Fabric)
-    private static final Map<Object, Map<Object, Object>> ATTACHMENT_DATA = new ConcurrentHashMap<>();
+    private static final Map<Object, Map<Object, Object>> ATTACHMENT_DATA =
+            Collections.synchronizedMap(new WeakHashMap<>());
 
     private CapabilityShim() {}
 
@@ -271,6 +275,27 @@ public final class CapabilityShim {
         } catch (Throwable ignored) {}
 
         return null;
+    }
+
+    /**
+     * Resolves a NeoForge BlockCapability query matching instance call stack [cap, level, pos, context].
+     */
+    public static Object findBlockCapability(Object cap, Object level, Object pos, Object context) {
+        return getBlockCapability(level, pos, cap, context);
+    }
+
+    /**
+     * Resolves a NeoForge EntityCapability query matching instance call stack [cap, entity, context].
+     */
+    public static Object findEntityCapability(Object cap, Object entity, Object context) {
+        return getEntityCapability(entity, cap, context);
+    }
+
+    /**
+     * Resolves a NeoForge ItemCapability query matching instance call stack [cap, stack, context].
+     */
+    public static Object findItemCapability(Object cap, Object stack, Object context) {
+        return getItemCapability(stack, cap, context);
     }
 
     /**
@@ -576,13 +601,19 @@ public final class CapabilityShim {
                 if (valid && value != null) return value;
                 return (args[0] instanceof Supplier<?> supp) ? supp.get() : null;
             }
-            if ("orElseThrow".equals(name) && args != null && args.length == 1) {
-                if (valid && value != null) return value;
-                if (args[0] instanceof Supplier<?> supp) {
-                    Object ex = supp.get();
-                    if (ex instanceof Throwable thr) throw thr;
+            if ("orElseThrow".equals(name)) {
+                if (args == null || args.length == 0) {
+                    if (valid && value != null) return value;
+                    throw new NoSuchElementException("No value present in LazyOptional");
                 }
-                throw new NullPointerException("Value not present");
+                if (args.length == 1) {
+                    if (valid && value != null) return value;
+                    if (args[0] instanceof Supplier<?> supp) {
+                        Object ex = supp.get();
+                        if (ex instanceof Throwable thr) throw thr;
+                    }
+                    throw new NullPointerException("Value not present");
+                }
             }
             if ("resolve".equals(name)) {
                 return (valid && value != null) ? Optional.of(value) : Optional.empty();

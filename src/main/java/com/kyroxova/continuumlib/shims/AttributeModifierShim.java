@@ -216,6 +216,14 @@ public final class AttributeModifierShim {
         return supplierOrBuilder;
     }
 
+    /**
+     * Polyfill for EntityAttributeCreationEvent.put(EntityType, AttributeSupplier)
+     * Consumes [event, entityType, supplier] from operand stack and returns void.
+     */
+    public static void putDefaultAttributes(Object event, Object entityType, Object supplier) {
+        registerDefaultAttributes(entityType, supplier);
+    }
+
     public static Object getRegisteredAttributes(Object entityType) {
         return entityType != null ? REGISTERED_DEFAULT_ATTRIBUTES.get(entityType) : null;
     }

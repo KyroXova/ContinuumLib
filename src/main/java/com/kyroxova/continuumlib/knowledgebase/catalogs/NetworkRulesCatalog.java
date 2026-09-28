@@ -80,7 +80,7 @@ public final class NetworkRulesCatalog {
                 "net/neoforged/neoforge/network/registration/PayloadRegistrar", "playToClient",
                 null,
                 "com/kyroxova/continuumlib/shims/NetworkShim", "registerPayloadToClient",
-                "(Ljava/lang/Object;Ljava/lang/Object;Ljava/util/function/BiConsumer;)V",
+                "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;Ljava/util/function/BiConsumer;)Ljava/lang/Object;",
                 null, null, LoaderType.FABRIC,
                 "NeoForge PayloadRegistrar.playToClient -> NetworkShim.registerPayloadToClient"
         ));
@@ -89,7 +89,7 @@ public final class NetworkRulesCatalog {
                 "net/neoforged/neoforge/network/registration/PayloadRegistrar", "playToServer",
                 null,
                 "com/kyroxova/continuumlib/shims/NetworkShim", "registerPayloadToServer",
-                "(Ljava/lang/Object;Ljava/lang/Object;Ljava/util/function/BiConsumer;)V",
+                "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;Ljava/util/function/BiConsumer;)Ljava/lang/Object;",
                 null, null, LoaderType.FABRIC,
                 "NeoForge PayloadRegistrar.playToServer -> NetworkShim.registerPayloadToServer"
         ));
@@ -98,7 +98,7 @@ public final class NetworkRulesCatalog {
                 "net/neoforged/neoforge/network/registration/PayloadRegistrar", "playBidirectional",
                 null,
                 "com/kyroxova/continuumlib/shims/NetworkShim", "registerPayloadBidirectional",
-                "(Ljava/lang/Object;Ljava/lang/Object;Ljava/util/function/BiConsumer;)V",
+                "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;Ljava/util/function/BiConsumer;)Ljava/lang/Object;",
                 null, null, LoaderType.FABRIC,
                 "NeoForge PayloadRegistrar.playBidirectional -> NetworkShim.registerPayloadBidirectional"
         ));
@@ -108,7 +108,7 @@ public final class NetworkRulesCatalog {
                 "net/neoforged/neoforge/network/PacketDistributor", "sendToPlayer",
                 "(Lnet/minecraft/server/level/ServerPlayer;Lnet/minecraft/network/protocol/common/custom/CustomPacketPayload;)V",
                 "com/kyroxova/continuumlib/shims/NetworkShim", "sendToPlayer",
-                "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;)V",
+                "(Ljava/lang/Object;Ljava/lang/Object;)V",
                 null, null, LoaderType.FABRIC,
                 "PacketDistributor.sendToPlayer -> NetworkShim.sendToPlayer (Fabric)"
         ));
@@ -117,7 +117,7 @@ public final class NetworkRulesCatalog {
                 "net/neoforged/neoforge/network/PacketDistributor", "sendToServer",
                 "(Lnet/minecraft/network/protocol/common/custom/CustomPacketPayload;)V",
                 "com/kyroxova/continuumlib/shims/NetworkShim", "sendToServer",
-                "(Ljava/lang/Object;Ljava/lang/Object;)V",
+                "(Ljava/lang/Object;)V",
                 null, null, LoaderType.FABRIC,
                 "PacketDistributor.sendToServer -> NetworkShim.sendToServer (Fabric)"
         ));
@@ -127,7 +127,7 @@ public final class NetworkRulesCatalog {
                 "net/fabricmc/fabric/api/networking/v1/ServerPlayNetworking", "send",
                 "(Lnet/minecraft/server/level/ServerPlayer;Lnet/minecraft/network/protocol/common/custom/CustomPacketPayload;)V",
                 "com/kyroxova/continuumlib/shims/NetworkShim", "sendToPlayer",
-                "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;)V",
+                "(Ljava/lang/Object;Ljava/lang/Object;)V",
                 null, null, LoaderType.FORGE,
                 "Fabric ServerPlayNetworking.send -> NetworkShim.sendToPlayer (Forge)"
         ));
@@ -136,7 +136,7 @@ public final class NetworkRulesCatalog {
                 "net/fabricmc/fabric/api/client/networking/v1/ClientPlayNetworking", "send",
                 "(Lnet/minecraft/network/protocol/common/custom/CustomPacketPayload;)V",
                 "com/kyroxova/continuumlib/shims/NetworkShim", "sendToServer",
-                "(Ljava/lang/Object;Ljava/lang/Object;)V",
+                "(Ljava/lang/Object;)V",
                 null, null, LoaderType.FORGE,
                 "Fabric ClientPlayNetworking.send -> NetworkShim.sendToServer (Forge)"
         ));

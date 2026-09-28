@@ -5,6 +5,7 @@ import java.lang.reflect.Method;
 import java.util.Collections;
 import java.util.Map;
 import java.util.Set;
+import java.util.WeakHashMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
@@ -23,6 +24,7 @@ public final class CreativeTabShim {
     // Holds tab item associations (tab key -> set of items / item suppliers / properties)
     private static final Map<Object, Set<Object>> TAB_ITEMS = new ConcurrentHashMap<>();
     private static final Map<String, Object> REGISTERED_TABS = new ConcurrentHashMap<>();
+    private static final Map<Object, Object> PROPERTIES_TO_ITEM = Collections.synchronizedMap(new WeakHashMap<>());
 
     private CreativeTabShim() {}
 
@@ -39,6 +41,16 @@ public final class CreativeTabShim {
             TAB_ITEMS.computeIfAbsent(tabKey, k -> Collections.newSetFromMap(new ConcurrentHashMap<>())).add(properties);
         }
         return properties;
+    }
+
+    /**
+     * Binds an Item or ItemStack instance to its Item.Properties configuration.
+     * Ensures modern tab acceptors receive the constructed Item rather than raw properties.
+     */
+    public static void bindItemToProperties(Object item, Object properties) {
+        if (item != null && properties != null) {
+            PROPERTIES_TO_ITEM.put(properties, item);
+        }
     }
 
     /**
@@ -158,6 +170,41 @@ public final class CreativeTabShim {
     }
 
     /**
+     * Resolves an item object, item supplier, or Item.Properties to an Item or ItemStack instance.
+     * Prevents raw un-resolved Item.Properties from being passed to modern tab acceptors.
+     */
+    public static Object resolveItemOrStack(Object obj) {
+        if (obj == null) return null;
+        if (obj instanceof Supplier<?> supplier) {
+            obj = supplier.get();
+        }
+        if (obj == null) return null;
+
+        // If obj is Item.Properties, check if it was bound to an Item
+        if (PROPERTIES_TO_ITEM.containsKey(obj)) {
+            obj = PROPERTIES_TO_ITEM.get(obj);
+        }
+
+        // Try reflective getters: asItem(), getItem()
+        try {
+            for (Method m : obj.getClass().getMethods()) {
+                if (("asItem".equals(m.getName()) || "getItem".equals(m.getName())) && m.getParameterCount() == 0) {
+                    Object item = m.invoke(obj);
+                    if (item != null) return item;
+                }
+            }
+        } catch (Throwable ignored) {}
+
+        // Check if obj appears to be raw Item.Properties
+        String className = obj.getClass().getName();
+        if (className.contains("Item$Properties") || className.endsWith(".Properties")) {
+            return null;
+        }
+
+        return obj;
+    }
+
+    /**
      * Populates the tab output target with all items registered to this tab.
      */
     public static void populateTab(Object tabKeyOrTab, Object output) {
@@ -165,10 +212,7 @@ public final class CreativeTabShim {
 
         Set<Object> items = getItemsForTab(tabKeyOrTab);
         for (Object itemObj : items) {
-            Object toAccept = itemObj;
-            if (itemObj instanceof Supplier<?> supplier) {
-                toAccept = supplier.get();
-            }
+            Object toAccept = resolveItemOrStack(itemObj);
             if (toAccept == null) continue;
 
             // Try output.accept(item)
@@ -179,6 +223,19 @@ public final class CreativeTabShim {
                         if (paramType.isInstance(toAccept)) {
                             m.invoke(output, toAccept);
                             break;
+                        } else {
+                            try {
+                                Class<?> itemStackClass = Class.forName("net.minecraft.world.item.ItemStack");
+                                if (paramType.isAssignableFrom(itemStackClass)) {
+                                    Class<?> itemLikeClass = Class.forName("net.minecraft.world.level.ItemLike");
+                                    if (itemLikeClass.isInstance(toAccept)) {
+                                        Constructor<?> ctor = itemStackClass.getConstructor(itemLikeClass);
+                                        Object stack = ctor.newInstance(toAccept);
+                                        m.invoke(output, stack);
+                                        break;
+                                    }
+                                }
+                            } catch (Throwable ignored2) {}
                         }
                     }
                 }

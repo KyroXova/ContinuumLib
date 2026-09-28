@@ -98,28 +98,28 @@ public final class CapabilityAndStorageCatalog {
         kb.registerRule(new PolyfillRule(
                 "net/neoforged/neoforge/capabilities/BlockCapability", "find",
                 "(Lnet/minecraft/world/level/Level;Lnet/minecraft/core/BlockPos;Ljava/lang/Object;)Ljava/lang/Object;",
-                "com/kyroxova/continuumlib/shims/CapabilityShim", "getBlockCapability",
+                "com/kyroxova/continuumlib/shims/CapabilityShim", "findBlockCapability",
                 "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
                 null, null, LoaderType.FABRIC,
-                "BlockCapability.find -> CapabilityShim.getBlockCapability (Fabric)"
+                "BlockCapability.find -> CapabilityShim.findBlockCapability (Fabric)"
         ));
 
         kb.registerRule(new PolyfillRule(
                 "net/neoforged/neoforge/capabilities/ItemCapability", "find",
                 "(Lnet/minecraft/world/item/ItemStack;Ljava/lang/Object;)Ljava/lang/Object;",
-                "com/kyroxova/continuumlib/shims/CapabilityShim", "getItemCapability",
+                "com/kyroxova/continuumlib/shims/CapabilityShim", "findItemCapability",
                 "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
                 null, null, LoaderType.FABRIC,
-                "ItemCapability.find -> CapabilityShim.getItemCapability (Fabric)"
+                "ItemCapability.find -> CapabilityShim.findItemCapability (Fabric)"
         ));
 
         kb.registerRule(new PolyfillRule(
                 "net/neoforged/neoforge/capabilities/EntityCapability", "find",
                 "(Lnet/minecraft/world/entity/Entity;Ljava/lang/Object;)Ljava/lang/Object;",
-                "com/kyroxova/continuumlib/shims/CapabilityShim", "getEntityCapability",
+                "com/kyroxova/continuumlib/shims/CapabilityShim", "findEntityCapability",
                 "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
                 null, null, LoaderType.FABRIC,
-                "EntityCapability.find -> CapabilityShim.getEntityCapability (Fabric)"
+                "EntityCapability.find -> CapabilityShim.findEntityCapability (Fabric)"
         ));
     }
 }

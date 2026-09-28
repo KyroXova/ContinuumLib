@@ -4,7 +4,9 @@ import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
+import java.util.Collections;
 import java.util.Map;
+import java.util.WeakHashMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BiConsumer;
 import java.util.function.Function;
@@ -25,7 +27,7 @@ public final class NetworkShim {
 
     private static final Map<String, ChannelDescriptor> REGISTERED_CHANNELS = new ConcurrentHashMap<>();
     private static final Map<String, PayloadEntry> REGISTERED_PAYLOADS = new ConcurrentHashMap<>();
-    private static final Map<Object, Object> BUFFER_REGISTRY_ACCESS = new ConcurrentHashMap<>();
+    private static final Map<Object, Object> BUFFER_REGISTRY_ACCESS = Collections.synchronizedMap(new WeakHashMap<>());
 
     private NetworkShim() {}
 
@@ -80,10 +82,11 @@ public final class NetworkShim {
      */
     public static void registerPayloadToClient(Object id, Object streamCodec, BiConsumer<Object, Object> clientHandler) {
         String payloadId = String.valueOf(id);
-        PayloadEntry existing = REGISTERED_PAYLOADS.get(payloadId);
-        BiConsumer<Object, Object> server = (existing != null) ? existing.serverHandler : null;
-        PayloadEntry entry = new PayloadEntry(payloadId, id, streamCodec, clientHandler, server);
-        REGISTERED_PAYLOADS.put(payloadId, entry);
+        REGISTERED_PAYLOADS.compute(payloadId, (k, existing) -> {
+            BiConsumer<Object, Object> server = (existing != null) ? existing.serverHandler : null;
+            Object codec = (streamCodec != null) ? streamCodec : (existing != null ? existing.streamCodec : null);
+            return new PayloadEntry(payloadId, id, codec, clientHandler, server);
+        });
 
         // 1. NeoForge PayloadRegistrar hook
         try {
@@ -114,14 +117,23 @@ public final class NetworkShim {
     }
 
     /**
+     * Fluent polyfill for NeoForge PayloadRegistrar.playToClient.
+     */
+    public static Object registerPayloadToClient(Object registrar, Object id, Object streamCodec, BiConsumer<Object, Object> clientHandler) {
+        registerPayloadToClient(id, streamCodec, clientHandler);
+        return registrar;
+    }
+
+    /**
      * Registers a modern payload for server-bound packets (playToServer / playC2S).
      */
     public static void registerPayloadToServer(Object id, Object streamCodec, BiConsumer<Object, Object> serverHandler) {
         String payloadId = String.valueOf(id);
-        PayloadEntry existing = REGISTERED_PAYLOADS.get(payloadId);
-        BiConsumer<Object, Object> client = (existing != null) ? existing.clientHandler : null;
-        PayloadEntry entry = new PayloadEntry(payloadId, id, streamCodec, client, serverHandler);
-        REGISTERED_PAYLOADS.put(payloadId, entry);
+        REGISTERED_PAYLOADS.compute(payloadId, (k, existing) -> {
+            BiConsumer<Object, Object> client = (existing != null) ? existing.clientHandler : null;
+            Object codec = (streamCodec != null) ? streamCodec : (existing != null ? existing.streamCodec : null);
+            return new PayloadEntry(payloadId, id, codec, client, serverHandler);
+        });
 
         // Fabric registration
         try {
@@ -146,14 +158,32 @@ public final class NetworkShim {
     }
 
     /**
+     * Fluent polyfill for NeoForge PayloadRegistrar.playToServer.
+     */
+    public static Object registerPayloadToServer(Object registrar, Object id, Object streamCodec, BiConsumer<Object, Object> serverHandler) {
+        registerPayloadToServer(id, streamCodec, serverHandler);
+        return registrar;
+    }
+
+    /**
      * Registers a modern payload bidirectionally.
      */
     public static void registerPayloadBidirectional(Object id, Object streamCodec, BiConsumer<Object, Object> handler) {
         String payloadId = String.valueOf(id);
-        PayloadEntry entry = new PayloadEntry(payloadId, id, streamCodec, handler, handler);
-        REGISTERED_PAYLOADS.put(payloadId, entry);
+        REGISTERED_PAYLOADS.compute(payloadId, (k, existing) -> {
+            Object codec = (streamCodec != null) ? streamCodec : (existing != null ? existing.streamCodec : null);
+            return new PayloadEntry(payloadId, id, codec, handler, handler);
+        });
         registerPayloadToClient(id, streamCodec, handler);
         registerPayloadToServer(id, streamCodec, handler);
+    }
+
+    /**
+     * Fluent polyfill for NeoForge PayloadRegistrar.playBidirectional.
+     */
+    public static Object registerPayloadBidirectional(Object registrar, Object id, Object streamCodec, BiConsumer<Object, Object> handler) {
+        registerPayloadBidirectional(id, streamCodec, handler);
+        return registrar;
     }
 
     /**
@@ -345,10 +375,26 @@ public final class NetworkShim {
     }
 
     /**
+     * Bridges PacketDistributor.sendToServer(payload) and ClientPlayNetworking.send(payload).
+     * Consumes 1 operand [message].
+     */
+    public static void sendToServer(Object message) {
+        sendToServer(null, message);
+    }
+
+    /**
      * Bridges channel.sendTo(message, serverPlayer)
      */
     public static void sendToPlayer(Object channel, Object message, Object serverPlayer) {
         send(channel, serverPlayer, message);
+    }
+
+    /**
+     * Bridges PacketDistributor.sendToPlayer(player, payload) and ServerPlayNetworking.send(player, payload).
+     * Consumes 2 operands [player, message].
+     */
+    public static void sendToPlayer(Object player, Object message) {
+        send(null, player, message);
     }
 
     public static ChannelDescriptor getChannel(String id) {

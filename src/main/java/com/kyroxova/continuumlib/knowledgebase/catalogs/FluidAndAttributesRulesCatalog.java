@@ -75,10 +75,10 @@ public final class FluidAndAttributesRulesCatalog {
         kb.registerRule(new PolyfillRule(
                 "net/minecraftforge/event/entity/EntityAttributeCreationEvent", "put",
                 "(Lnet/minecraft/world/entity/EntityType;Lnet/minecraft/world/entity/ai/attributes/AttributeSupplier;)V",
-                "com/kyroxova/continuumlib/shims/AttributeModifierShim", "registerDefaultAttributes",
-                "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+                "com/kyroxova/continuumlib/shims/AttributeModifierShim", "putDefaultAttributes",
+                "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;)V",
                 null, null, LoaderType.FABRIC,
-                "EntityAttributeCreationEvent.put -> AttributeModifierShim.registerDefaultAttributes (Fabric)"
+                "EntityAttributeCreationEvent.put -> AttributeModifierShim.putDefaultAttributes (Fabric)"
         ));
 
         kb.registerRule(new PolyfillRule(
