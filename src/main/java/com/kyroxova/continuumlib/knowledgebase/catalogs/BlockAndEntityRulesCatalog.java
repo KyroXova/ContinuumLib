@@ -160,5 +160,48 @@ public final class BlockAndEntityRulesCatalog {
                 v1_20_0, null, null,
                 "Entity.getLevel() -> Entity.level() (1.20+)"
         ));
+
+        // 9. Entity level() reverse redirect for <= 1.19.4
+        kb.registerRule(new MethodRedirectRule(
+                "net/minecraft/world/entity/Entity", "level",
+                "()Lnet/minecraft/world/level/Level;",
+                "net/minecraft/world/entity/Entity", "getLevel",
+                "()Lnet/minecraft/world/level/Level;",
+                -1,
+                null, MCVersion.of("1.19.4"), null,
+                "Entity.level() -> Entity.getLevel() (<= 1.19.4)"
+        ));
+
+        // 10. Entity onGround() vs isOnGround()
+        kb.registerRule(new MethodRedirectRule(
+                "net/minecraft/world/entity/Entity", "isOnGround",
+                "()Z",
+                "net/minecraft/world/entity/Entity", "onGround",
+                "()Z",
+                -1,
+                v1_20_0, null, null,
+                "Entity.isOnGround() -> Entity.onGround() (1.20+)"
+        ));
+
+        kb.registerRule(new MethodRedirectRule(
+                "net/minecraft/world/entity/Entity", "onGround",
+                "()Z",
+                "net/minecraft/world/entity/Entity", "isOnGround",
+                "()Z",
+                -1,
+                null, MCVersion.of("1.19.4"), null,
+                "Entity.onGround() -> Entity.isOnGround() (<= 1.19.4)"
+        ));
+
+        // 11. Entity.getCommandSenderWorld() -> level() (1.20+)
+        kb.registerRule(new MethodRedirectRule(
+                "net/minecraft/world/entity/Entity", "getCommandSenderWorld",
+                "()Lnet/minecraft/world/level/Level;",
+                "net/minecraft/world/entity/Entity", "level",
+                "()Lnet/minecraft/world/level/Level;",
+                -1,
+                v1_20_0, null, null,
+                "Entity.getCommandSenderWorld() -> Entity.level() (1.20+)"
+        ));
     }
 }

@@ -28,11 +28,10 @@ public final class RegistryShim {
         try {
             // Check if modern Fabric Registry is present
             Class<?> registryClass = Class.forName("net.minecraft.core.Registry");
-            Class<?> resourceLocationClass = Class.forName("net.minecraft.resources.ResourceLocation");
-            Object id = resourceLocationClass.getConstructor(String.class, String.class).newInstance(modId, name);
+            Object id = ResourceLocationShim.create(modId, name);
 
             // Register into Fabric Registry
-            Method registerMethod = registryClass.getMethod("register", registryClass, resourceLocationClass, Object.class);
+            Method registerMethod = registryClass.getMethod("register", registryClass, Class.forName("net.minecraft.resources.ResourceLocation"), Object.class);
             Object registeredValue = supplier.get();
             registerMethod.invoke(null, registryType, id, registeredValue);
 
@@ -46,17 +45,76 @@ public final class RegistryShim {
     }
 
     /**
-     * Resolves a RegistryObject or DeferredHolder safely.
+     * Resolves a RegistryObject, DeferredHolder, RegistryDelegate, or Holder safely.
      */
     public static Object resolveHolder(Object holder) {
+        return getValue(holder);
+    }
+
+    /**
+     * Gets the underlying object value from a Supplier, RegistryObject, DeferredHolder, or Holder.
+     */
+    public static Object getValue(Object holder) {
+        if (holder == null) return null;
         if (holder instanceof Supplier<?> supplier) {
             return supplier.get();
         }
         try {
+            // Try get()
             Method getMethod = holder.getClass().getMethod("get");
             return getMethod.invoke(holder);
+        } catch (NoSuchMethodException e) {
+            try {
+                // Try value() (modern Holder)
+                Method valueMethod = holder.getClass().getMethod("value");
+                return valueMethod.invoke(holder);
+            } catch (Throwable t) {
+                throw new RuntimeException("Failed to resolve registry holder value: " + holder, t);
+            }
         } catch (Throwable t) {
             throw new RuntimeException("Failed to resolve registry holder: " + holder, t);
         }
+    }
+
+    /**
+     * Gets the ResourceLocation ID from a RegistryObject, DeferredHolder, or Holder.
+     */
+    public static Object getId(Object holder) {
+        if (holder == null) return null;
+        try {
+            // 1. Try getId()
+            Method getId = holder.getClass().getMethod("getId");
+            return getId.invoke(holder);
+        } catch (Throwable ignored) {}
+
+        try {
+            // 2. Try getKey().location()
+            Method getKey = holder.getClass().getMethod("getKey");
+            Object key = getKey.invoke(holder);
+            if (key != null) {
+                Method location = key.getClass().getMethod("location");
+                return location.invoke(key);
+            }
+        } catch (Throwable ignored) {}
+
+        return null;
+    }
+
+    /**
+     * Checks if a holder/delegate is currently bound or present.
+     */
+    public static boolean isPresent(Object holder) {
+        if (holder == null) return false;
+        try {
+            Method isPresent = holder.getClass().getMethod("isPresent");
+            return (boolean) isPresent.invoke(holder);
+        } catch (Throwable ignored) {}
+
+        try {
+            Method isBound = holder.getClass().getMethod("isBound");
+            return (boolean) isBound.invoke(holder);
+        } catch (Throwable ignored) {}
+
+        return true;
     }
 }

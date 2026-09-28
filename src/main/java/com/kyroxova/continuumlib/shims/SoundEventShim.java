@@ -38,4 +38,33 @@ public final class SoundEventShim {
         }
         return null;
     }
+
+    public static Object createVariableRangeEvent(Object resourceLocation) {
+        return create(resourceLocation);
+    }
+
+    public static Object createFixedRangeEvent(Object resourceLocation, float range) {
+        if (resourceLocation == null) return null;
+        try {
+            Class<?> soundClass = Class.forName("net.minecraft.sounds.SoundEvent");
+
+            // Attempt 1: Modern SoundEvent.createFixedRangeEvent(ResourceLocation, float)
+            try {
+                Method createFixed = soundClass.getMethod("createFixedRangeEvent", Class.forName("net.minecraft.resources.ResourceLocation"), float.class);
+                return createFixed.invoke(null, resourceLocation, range);
+            } catch (NoSuchMethodException ignored) {}
+
+            // Attempt 2: Legacy Constructor new SoundEvent(ResourceLocation, float)
+            try {
+                Constructor<?> ctor = soundClass.getConstructor(Class.forName("net.minecraft.resources.ResourceLocation"), float.class);
+                return ctor.newInstance(resourceLocation, range);
+            } catch (NoSuchMethodException ignored) {}
+
+            // Fallback: standard create
+            return create(resourceLocation);
+        } catch (Throwable t) {
+            LOGGER.fine("[SoundEventShim] Error creating fixed range SoundEvent: " + t.getMessage());
+            return null;
+        }
+    }
 }

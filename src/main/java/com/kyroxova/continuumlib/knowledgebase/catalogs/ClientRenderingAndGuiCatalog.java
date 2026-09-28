@@ -53,5 +53,43 @@ public final class ClientRenderingAndGuiCatalog {
                 v1_20_0, null, null,
                 "GuiComponent.fill -> GuiComponentShim.fill"
         ));
+
+        // 5. GuiComponent.drawCenteredString (1.20+)
+        kb.registerRule(new PolyfillRule(
+                "net/minecraft/client/gui/GuiComponent", "drawCenteredString",
+                "(Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/gui/Font;Ljava/lang/String;III)V",
+                "com/kyroxova/continuumlib/shims/GuiComponentShim", "drawCenteredString",
+                "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;III)V",
+                v1_20_0, null, null,
+                "GuiComponent.drawCenteredString(String) -> GuiComponentShim.drawCenteredString"
+        ));
+
+        kb.registerRule(new PolyfillRule(
+                "net/minecraft/client/gui/GuiComponent", "drawCenteredString",
+                "(Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/gui/Font;Lnet/minecraft/network/chat/Component;III)V",
+                "com/kyroxova/continuumlib/shims/GuiComponentShim", "drawCenteredString",
+                "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;III)V",
+                v1_20_0, null, null,
+                "GuiComponent.drawCenteredString(Component) -> GuiComponentShim.drawCenteredString"
+        ));
+
+        // 6. ItemRenderer.renderGuiItem -> ScreenRenderingShim.renderGuiItem (1.20+)
+        kb.registerRule(new PolyfillRule(
+                "net/minecraft/client/renderer/entity/ItemRenderer", "renderGuiItem",
+                "(Lnet/minecraft/world/item/ItemStack;II)V",
+                "com/kyroxova/continuumlib/shims/ScreenRenderingShim", "renderGuiItem",
+                "(Ljava/lang/Object;Ljava/lang/Object;II)V",
+                v1_20_0, null, null,
+                "ItemRenderer.renderGuiItem -> ScreenRenderingShim.renderGuiItem"
+        ));
+
+        kb.registerRule(new PolyfillRule(
+                "net/minecraft/client/renderer/entity/ItemRenderer", "renderGuiItemDecorations",
+                "(Lnet/minecraft/client/gui/Font;Lnet/minecraft/world/item/ItemStack;II)V",
+                "com/kyroxova/continuumlib/shims/ScreenRenderingShim", "renderGuiItemDecorations",
+                "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;II)V",
+                v1_20_0, null, null,
+                "ItemRenderer.renderGuiItemDecorations -> ScreenRenderingShim.renderGuiItemDecorations"
+        ));
     }
 }

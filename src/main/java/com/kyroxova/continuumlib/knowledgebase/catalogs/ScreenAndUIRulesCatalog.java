@@ -70,5 +70,35 @@ public final class ScreenAndUIRulesCatalog {
                 v1_20_0, null, null,
                 "Screen.renderComponentTooltip(PoseStack) -> ScreenRenderingShim.renderComponentTooltip"
         ));
+
+        // 5. Screen.renderBackground(PoseStack) -> ScreenRenderingShim.renderBackground
+        kb.registerRule(new PolyfillRule(
+                "net/minecraft/client/gui/screens/Screen", "renderBackground",
+                "(Lcom/mojang/blaze3d/vertex/PoseStack;)V",
+                "com/kyroxova/continuumlib/shims/ScreenRenderingShim", "renderBackground",
+                "(Ljava/lang/Object;Ljava/lang/Object;)V",
+                v1_20_0, null, null,
+                "Screen.renderBackground(PoseStack) -> ScreenRenderingShim.renderBackground"
+        ));
+
+        // 6. Screen.renderTooltip(PoseStack, ItemStack, int, int)
+        kb.registerRule(new PolyfillRule(
+                "net/minecraft/client/gui/screens/Screen", "renderTooltip",
+                "(Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/world/item/ItemStack;II)V",
+                "com/kyroxova/continuumlib/shims/ScreenRenderingShim", "renderTooltip",
+                "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;II)V",
+                v1_20_0, null, null,
+                "Screen.renderTooltip(PoseStack, ItemStack) -> ScreenRenderingShim.renderTooltip"
+        ));
+
+        // 7. Screen.renderTooltip(PoseStack, Component, int, int)
+        kb.registerRule(new PolyfillRule(
+                "net/minecraft/client/gui/screens/Screen", "renderTooltip",
+                "(Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/network/chat/Component;II)V",
+                "com/kyroxova/continuumlib/shims/ScreenRenderingShim", "renderTooltip",
+                "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;II)V",
+                v1_20_0, null, null,
+                "Screen.renderTooltip(PoseStack, Component) -> ScreenRenderingShim.renderTooltip"
+        ));
     }
 }

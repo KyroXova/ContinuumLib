@@ -113,14 +113,31 @@ public final class RegistryRulesCatalog {
                 "DeferredRegister -> NeoForge DeferredRegister"
         ));
 
-        // 5. ResourceLocation constructor changes in 1.20.5+ / 1.21+ / 26.x
+        // 5. Legacy RegistryDelegate redirects
+        MCVersion v1_20_0 = MCVersion.of("1.20");
+        kb.registerRule(new ClassRedirectRule(
+                "net/minecraftforge/registries/RegistryDelegate",
+                "net/minecraftforge/registries/RegistryObject",
+                v1_19_3, null, LoaderType.FORGE,
+                "RegistryDelegate -> RegistryObject (Forge)"
+        ));
+
+        kb.registerRule(new ClassRedirectRule(
+                "net/minecraftforge/registries/RegistryDelegate",
+                "net/neoforged/neoforge/registries/DeferredHolder",
+                v1_20_0, null, LoaderType.NEOFORGE,
+                "RegistryDelegate -> DeferredHolder (NeoForge)"
+        ));
+
+        // 6. ResourceLocation constructor polyfills for 1.20.5 - 1.20.6
+        MCVersion v1_20_6 = MCVersion.of("1.20.6");
         kb.registerRule(new PolyfillRule(
                 "net/minecraft/resources/ResourceLocation", "<init>",
                 "(Ljava/lang/String;Ljava/lang/String;)V",
                 "com/kyroxova/continuumlib/shims/ResourceLocationShim", "create",
                 "(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/Object;",
-                v1_20_5, null, null,
-                "ResourceLocation(namespace, path) constructor polyfill for 1.20.5+ / 1.21+ / 26.x"
+                v1_20_5, v1_20_6, null,
+                "ResourceLocation(namespace, path) constructor polyfill for 1.20.5 - 1.20.6"
         ));
 
         kb.registerRule(new PolyfillRule(
@@ -128,11 +145,11 @@ public final class RegistryRulesCatalog {
                 "(Ljava/lang/String;)V",
                 "com/kyroxova/continuumlib/shims/ResourceLocationShim", "parse",
                 "(Ljava/lang/String;)Ljava/lang/Object;",
-                v1_20_5, null, null,
-                "ResourceLocation(location) constructor polyfill for 1.20.5+ / 1.21+ / 26.x"
+                v1_20_5, v1_20_6, null,
+                "ResourceLocation(location) constructor polyfill for 1.20.5 - 1.20.6"
         ));
 
-        // 6. ResourceLocation parse(String) polyfill for <= 1.20.4 targets
+        // 7. ResourceLocation parse(String) polyfill for <= 1.20.4 targets
         kb.registerRule(new PolyfillRule(
                 "net/minecraft/resources/ResourceLocation", "parse",
                 "(Ljava/lang/String;)Lnet/minecraft/resources/ResourceLocation;",

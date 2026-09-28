@@ -31,5 +31,47 @@ public final class TagAndResourceRulesCatalog {
                 v1_18_2, null, null,
                 "ItemTags.create -> TagShim.createItemTag"
         ));
+
+        // 3. FluidTags.create(ResourceLocation)
+        kb.registerRule(new PolyfillRule(
+                "net/minecraft/tags/FluidTags", "create",
+                "(Lnet/minecraft/resources/ResourceLocation;)Lnet/minecraft/tags/TagKey;",
+                "com/kyroxova/continuumlib/shims/TagShim", "createFluidTag",
+                "(Ljava/lang/Object;)Ljava/lang/Object;",
+                v1_18_2, null, null,
+                "FluidTags.create -> TagShim.createFluidTag"
+        ));
+
+        // 4. EntityTypeTags.create(ResourceLocation)
+        kb.registerRule(new PolyfillRule(
+                "net/minecraft/tags/EntityTypeTags", "create",
+                "(Lnet/minecraft/resources/ResourceLocation;)Lnet/minecraft/tags/TagKey;",
+                "com/kyroxova/continuumlib/shims/TagShim", "createEntityTypeTag",
+                "(Ljava/lang/Object;)Ljava/lang/Object;",
+                v1_18_2, null, null,
+                "EntityTypeTags.create -> TagShim.createEntityTypeTag"
+        ));
+
+        MCVersion v1_21 = MCVersion.of("1.21");
+
+        // 5. ResourceLocation.<init>(String, String) -> fromNamespaceAndPath (1.21+)
+        kb.registerRule(new PolyfillRule(
+                "net/minecraft/resources/ResourceLocation", "<init>",
+                "(Ljava/lang/String;Ljava/lang/String;)V",
+                "net/minecraft/resources/ResourceLocation", "fromNamespaceAndPath",
+                "(Ljava/lang/String;Ljava/lang/String;)Lnet/minecraft/resources/ResourceLocation;",
+                v1_21, null, null,
+                "ResourceLocation.<init>(String, String) -> ResourceLocation.fromNamespaceAndPath(String, String)"
+        ));
+
+        // 6. ResourceLocation.<init>(String) -> parse (1.21+)
+        kb.registerRule(new PolyfillRule(
+                "net/minecraft/resources/ResourceLocation", "<init>",
+                "(Ljava/lang/String;)V",
+                "net/minecraft/resources/ResourceLocation", "parse",
+                "(Ljava/lang/String;)Lnet/minecraft/resources/ResourceLocation;",
+                v1_21, null, null,
+                "ResourceLocation.<init>(String) -> ResourceLocation.parse(String)"
+        ));
     }
 }

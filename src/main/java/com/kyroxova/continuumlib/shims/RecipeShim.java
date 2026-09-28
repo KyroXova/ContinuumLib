@@ -108,7 +108,7 @@ public final class RecipeShim {
     }
 
     /**
-     * Wraps a modern RecipeOutput into a legacy Consumer<FinishedRecipe>.
+     * Adapts or wraps a modern RecipeOutput into a legacy Consumer<FinishedRecipe> / Consumer<Object>.
      */
     @SuppressWarnings("unchecked")
     public static Consumer<Object> wrapOutput(Object recipeOutput) {
@@ -121,18 +121,21 @@ public final class RecipeShim {
                 // Call recipeOutput.accept(...) via reflection
                 for (Method m : recipeOutput.getClass().getMethods()) {
                     if ("accept".equals(m.getName())) {
+                        try {
+                            m.setAccessible(true);
+                        } catch (Throwable ignored) {}
                         if (m.getParameterCount() == 3) {
                             // accept(ResourceLocation id, Recipe<?> recipe, AdvancementHolder advancement)
-                            Method getIdMethod = finishedRecipe.getClass().getMethod("getId");
-                            Object id = getIdMethod.invoke(finishedRecipe);
+                            Object id = resolveRecipeId(finishedRecipe);
                             m.invoke(recipeOutput, id, finishedRecipe, null);
                             return;
                         } else if (m.getParameterCount() == 2) {
-                            Method getIdMethod = finishedRecipe.getClass().getMethod("getId");
-                            Object id = getIdMethod.invoke(finishedRecipe);
+                            // accept(ResourceLocation id, Recipe<?> recipe)
+                            Object id = resolveRecipeId(finishedRecipe);
                             m.invoke(recipeOutput, id, finishedRecipe);
                             return;
                         } else if (m.getParameterCount() == 1) {
+                            // accept(FinishedRecipe recipe)
                             m.invoke(recipeOutput, finishedRecipe);
                             return;
                         }
@@ -142,6 +145,65 @@ public final class RecipeShim {
                 LOGGER.fine("[RecipeShim] Error in wrapOutput accept: " + t.getMessage());
             }
         };
+    }
+
+    /**
+     * Universal alias for wrapOutput: adapts RecipeOutput into Consumer<FinishedRecipe> / Consumer<Object>.
+     */
+    public static Consumer<Object> adaptRecipeOutput(Object recipeOutput) {
+        return wrapOutput(recipeOutput);
+    }
+
+    /**
+     * Wraps a legacy Consumer into a modern RecipeOutput proxy (1.20.5+ / 1.21+).
+     */
+    @SuppressWarnings("unchecked")
+    public static Object adaptToRecipeOutput(Object consumerOrOutput) {
+        if (consumerOrOutput == null) return null;
+        if (!(consumerOrOutput instanceof Consumer<?> consumer)) {
+            return consumerOrOutput;
+        }
+
+        try {
+            Class<?> recipeOutputClass = Class.forName("net.minecraft.data.recipes.RecipeOutput");
+            return Proxy.newProxyInstance(
+                    RecipeShim.class.getClassLoader(),
+                    new Class<?>[]{recipeOutputClass},
+                    (proxy, method, args) -> {
+                        if ("accept".equals(method.getName()) && args != null) {
+                            if (args.length >= 2 && args[1] != null) {
+                                ((Consumer<Object>) consumer).accept(args[1]);
+                            } else if (args.length == 1 && args[0] != null) {
+                                ((Consumer<Object>) consumer).accept(args[0]);
+                            }
+                        }
+                        return null;
+                    }
+            );
+        } catch (Throwable t) {
+            return consumerOrOutput;
+        }
+    }
+
+    private static Object resolveRecipeId(Object finishedRecipe) {
+        if (finishedRecipe == null) return null;
+        try {
+            Method getId = finishedRecipe.getClass().getMethod("getId");
+            try {
+                getId.setAccessible(true);
+            } catch (Throwable ignored) {}
+            return getId.invoke(finishedRecipe);
+        } catch (Throwable ignored) {}
+
+        try {
+            Method idMethod = finishedRecipe.getClass().getMethod("id");
+            try {
+                idMethod.setAccessible(true);
+            } catch (Throwable ignored) {}
+            return idMethod.invoke(finishedRecipe);
+        } catch (Throwable ignored) {}
+
+        return null;
     }
 
     /**

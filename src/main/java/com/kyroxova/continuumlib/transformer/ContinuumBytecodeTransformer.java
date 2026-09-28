@@ -185,13 +185,52 @@ public final class ContinuumBytecodeTransformer {
             // Check Method Invocations
             if (insn instanceof MethodInsnNode minsn) {
                 // A. Check Polyfill Rules first
-                for (PolyfillRule pr : polyfillRules) {
+                for (int i = polyfillRules.size() - 1; i >= 0; i--) {
+                    PolyfillRule pr = polyfillRules.get(i);
                     if (pr.matches(minsn.owner, minsn.name, minsn.desc)) {
+                        String originalOwner = minsn.owner;
+                        boolean isConstructor = "<init>".equals(minsn.name) && minsn.getOpcode() == Opcodes.INVOKESPECIAL;
+                        if (isConstructor) {
+                            // Strip preceding NEW and DUP opcodes for polyfilled constructor
+                            AbstractInsnNode curr = minsn.getPrevious();
+                            TypeInsnNode targetNew = null;
+                            InsnNode targetDup = null;
+                            int depth = 0;
+                            while (curr != null) {
+                                if (curr.getOpcode() == Opcodes.INVOKESPECIAL && curr instanceof MethodInsnNode subMin && "<init>".equals(subMin.name) && subMin.owner.equals(originalOwner)) {
+                                    depth++;
+                                } else if (curr.getOpcode() == Opcodes.DUP) {
+                                    AbstractInsnNode prev = curr.getPrevious();
+                                    while (prev != null && prev.getOpcode() < 0) {
+                                        prev = prev.getPrevious();
+                                    }
+                                    if (prev instanceof TypeInsnNode tnode
+                                            && tnode.getOpcode() == Opcodes.NEW
+                                            && tnode.desc.equals(originalOwner)) {
+                                        if (depth == 0) {
+                                            targetDup = (InsnNode) curr;
+                                            targetNew = tnode;
+                                            break;
+                                        } else {
+                                            depth--;
+                                        }
+                                    }
+                                }
+                                curr = curr.getPrevious();
+                            }
+                            if (targetNew != null && targetDup != null) {
+                                instructions.remove(targetNew);
+                                instructions.remove(targetDup);
+                            }
+                        }
                         minsn.setOpcode(Opcodes.INVOKESTATIC);
                         minsn.owner = pr.getShimOwner();
                         minsn.name = pr.getShimName();
                         minsn.desc = pr.getShimDesc();
                         minsn.itf = false;
+                        if (isConstructor && !pr.getShimDesc().endsWith("L" + originalOwner + ";")) {
+                            instructions.insert(minsn, new TypeInsnNode(Opcodes.CHECKCAST, originalOwner));
+                        }
                         modified = true;
                         break;
                     }
@@ -227,26 +266,49 @@ public final class ContinuumBytecodeTransformer {
 
             // Check Field Instructions
             else if (insn instanceof FieldInsnNode finsn) {
-                for (FieldRedirectRule fr : fieldRedirects) {
-                    if (fr.matches(finsn.owner, finsn.name, finsn.desc)) {
-                        finsn.owner = fr.getTargetOwner();
-                        finsn.name = fr.getTargetName();
-                        if (fr.getTargetDesc() != null) {
-                            finsn.desc = remapDescriptor(fr.getTargetDesc());
+                boolean fieldPolyfilled = false;
+                if (finsn.getOpcode() == Opcodes.GETSTATIC) {
+                    for (int i = polyfillRules.size() - 1; i >= 0; i--) {
+                        PolyfillRule pr = polyfillRules.get(i);
+                        if (pr.matches(finsn.owner, finsn.name, finsn.desc)
+                                || pr.matches(finsn.owner, finsn.name, "()" + finsn.desc)) {
+                            MethodInsnNode staticCall = new MethodInsnNode(
+                                    Opcodes.INVOKESTATIC,
+                                    pr.getShimOwner(),
+                                    pr.getShimName(),
+                                    pr.getShimDesc(),
+                                    false
+                            );
+                            instructions.set(finsn, staticCall);
+                            fieldPolyfilled = true;
+                            modified = true;
+                            break;
                         }
-                        modified = true;
-                        break;
                     }
                 }
 
-                if (classRedirects.containsKey(finsn.owner)) {
-                    finsn.owner = classRedirects.get(finsn.owner);
-                    modified = true;
-                }
-                String remappedDesc = remapDescriptor(finsn.desc);
-                if (!remappedDesc.equals(finsn.desc)) {
-                    finsn.desc = remappedDesc;
-                    modified = true;
+                if (!fieldPolyfilled) {
+                    for (FieldRedirectRule fr : fieldRedirects) {
+                        if (fr.matches(finsn.owner, finsn.name, finsn.desc)) {
+                            finsn.owner = fr.getTargetOwner();
+                            finsn.name = fr.getTargetName();
+                            if (fr.getTargetDesc() != null) {
+                                finsn.desc = remapDescriptor(fr.getTargetDesc());
+                            }
+                            modified = true;
+                            break;
+                        }
+                    }
+
+                    if (classRedirects.containsKey(finsn.owner)) {
+                        finsn.owner = classRedirects.get(finsn.owner);
+                        modified = true;
+                    }
+                    String remappedDesc = remapDescriptor(finsn.desc);
+                    if (!remappedDesc.equals(finsn.desc)) {
+                        finsn.desc = remappedDesc;
+                        modified = true;
+                    }
                 }
             }
 
@@ -292,7 +354,10 @@ public final class ContinuumBytecodeTransformer {
         for (MethodNode method : classNode.methods) {
             if ("use".equals(method.name) && "(Lnet/minecraft/world/level/block/state/BlockState;Lnet/minecraft/world/level/Level;Lnet/minecraft/core/BlockPos;Lnet/minecraft/world/entity/player/Player;Lnet/minecraft/world/InteractionHand;Lnet/minecraft/world/phys/BlockHitResult;)Lnet/minecraft/world/InteractionResult;".equals(method.desc)) {
                 legacyUseMethod = method;
-            } else if ("useItemOn".equals(method.name) && "(Lnet/minecraft/world/item/ItemStack;Lnet/minecraft/world/level/block/state/BlockState;Lnet/minecraft/world/level/Level;Lnet/minecraft/core/BlockPos;Lnet/minecraft/world/entity/player/Player;Lnet/minecraft/world/InteractionHand;Lnet/minecraft/world/phys/BlockHitResult;)Lnet/minecraft/world/ItemInteractionResult;".equals(method.desc)) {
+            } else if ("useItemOn".equals(method.name) && (
+                    "(Lnet/minecraft/world/item/ItemStack;Lnet/minecraft/world/level/block/state/BlockState;Lnet/minecraft/world/level/Level;Lnet/minecraft/core/BlockPos;Lnet/minecraft/world/entity/player/Player;Lnet/minecraft/world/InteractionHand;Lnet/minecraft/world/phys/BlockHitResult;)Lnet/minecraft/world/ItemInteractionResult;".equals(method.desc)
+                    || "(Lnet/minecraft/world/item/ItemStack;Lnet/minecraft/world/level/block/state/BlockState;Lnet/minecraft/world/level/Level;Lnet/minecraft/core/BlockPos;Lnet/minecraft/world/entity/player/Player;Lnet/minecraft/world/InteractionHand;Lnet/minecraft/world/phys/BlockHitResult;)Lnet/minecraft/world/InteractionResult;".equals(method.desc)
+            )) {
                 hasUseItemOn = true;
             } else if ("useWithoutItem".equals(method.name) && "(Lnet/minecraft/world/level/block/state/BlockState;Lnet/minecraft/world/level/Level;Lnet/minecraft/core/BlockPos;Lnet/minecraft/world/entity/player/Player;Lnet/minecraft/world/phys/BlockHitResult;)Lnet/minecraft/world/InteractionResult;".equals(method.desc)) {
                 hasUseWithoutItem = true;
@@ -309,29 +374,54 @@ public final class ContinuumBytecodeTransformer {
 
         // Bridge Block.use -> useItemOn
         if (legacyUseMethod != null && !hasUseItemOn) {
-            MethodNode useItemOnNode = new MethodNode(
-                    Opcodes.ACC_PUBLIC | Opcodes.ACC_SYNTHETIC,
-                    "useItemOn",
-                    "(Lnet/minecraft/world/item/ItemStack;Lnet/minecraft/world/level/block/state/BlockState;Lnet/minecraft/world/level/Level;Lnet/minecraft/core/BlockPos;Lnet/minecraft/world/entity/player/Player;Lnet/minecraft/world/InteractionHand;Lnet/minecraft/world/phys/BlockHitResult;)Lnet/minecraft/world/ItemInteractionResult;",
-                    null,
-                    null
-            );
-            InsnList il = useItemOnNode.instructions;
-            il.add(new VarInsnNode(Opcodes.ALOAD, 0)); // this
-            il.add(new VarInsnNode(Opcodes.ALOAD, 2)); // BlockState state
-            il.add(new VarInsnNode(Opcodes.ALOAD, 3)); // Level level
-            il.add(new VarInsnNode(Opcodes.ALOAD, 4)); // BlockPos pos
-            il.add(new VarInsnNode(Opcodes.ALOAD, 5)); // Player player
-            il.add(new VarInsnNode(Opcodes.ALOAD, 6)); // InteractionHand hand
-            il.add(new VarInsnNode(Opcodes.ALOAD, 7)); // BlockHitResult hit
-            il.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, classNode.name, "use", legacyUseMethod.desc, false));
-            il.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "com/kyroxova/continuumlib/shims/BlockInteractionShim", "toItemInteractionResult", "(Ljava/lang/Object;)Ljava/lang/Object;", false));
-            il.add(new TypeInsnNode(Opcodes.CHECKCAST, "net/minecraft/world/ItemInteractionResult"));
-            il.add(new InsnNode(Opcodes.ARETURN));
-            useItemOnNode.maxStack = 8;
-            useItemOnNode.maxLocals = 8;
-            classNode.methods.add(useItemOnNode);
-            modified = true;
+            boolean isModernInteractionResult = targetSpec != null && targetSpec.getVersion().isAtLeast(MCVersion.of("1.21.2"));
+            if (isModernInteractionResult) {
+                MethodNode useItemOnNode = new MethodNode(
+                        Opcodes.ACC_PUBLIC | Opcodes.ACC_SYNTHETIC,
+                        "useItemOn",
+                        "(Lnet/minecraft/world/item/ItemStack;Lnet/minecraft/world/level/block/state/BlockState;Lnet/minecraft/world/level/Level;Lnet/minecraft/core/BlockPos;Lnet/minecraft/world/entity/player/Player;Lnet/minecraft/world/InteractionHand;Lnet/minecraft/world/phys/BlockHitResult;)Lnet/minecraft/world/InteractionResult;",
+                        null,
+                        null
+                );
+                InsnList il = useItemOnNode.instructions;
+                il.add(new VarInsnNode(Opcodes.ALOAD, 0)); // this
+                il.add(new VarInsnNode(Opcodes.ALOAD, 2)); // BlockState state
+                il.add(new VarInsnNode(Opcodes.ALOAD, 3)); // Level level
+                il.add(new VarInsnNode(Opcodes.ALOAD, 4)); // BlockPos pos
+                il.add(new VarInsnNode(Opcodes.ALOAD, 5)); // Player player
+                il.add(new VarInsnNode(Opcodes.ALOAD, 6)); // InteractionHand hand
+                il.add(new VarInsnNode(Opcodes.ALOAD, 7)); // BlockHitResult hit
+                il.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, classNode.name, "use", legacyUseMethod.desc, false));
+                il.add(new InsnNode(Opcodes.ARETURN));
+                useItemOnNode.maxStack = 7;
+                useItemOnNode.maxLocals = 8;
+                classNode.methods.add(useItemOnNode);
+                modified = true;
+            } else {
+                MethodNode useItemOnNode = new MethodNode(
+                        Opcodes.ACC_PUBLIC | Opcodes.ACC_SYNTHETIC,
+                        "useItemOn",
+                        "(Lnet/minecraft/world/item/ItemStack;Lnet/minecraft/world/level/block/state/BlockState;Lnet/minecraft/world/level/Level;Lnet/minecraft/core/BlockPos;Lnet/minecraft/world/entity/player/Player;Lnet/minecraft/world/InteractionHand;Lnet/minecraft/world/phys/BlockHitResult;)Lnet/minecraft/world/ItemInteractionResult;",
+                        null,
+                        null
+                );
+                InsnList il = useItemOnNode.instructions;
+                il.add(new VarInsnNode(Opcodes.ALOAD, 0)); // this
+                il.add(new VarInsnNode(Opcodes.ALOAD, 2)); // BlockState state
+                il.add(new VarInsnNode(Opcodes.ALOAD, 3)); // Level level
+                il.add(new VarInsnNode(Opcodes.ALOAD, 4)); // BlockPos pos
+                il.add(new VarInsnNode(Opcodes.ALOAD, 5)); // Player player
+                il.add(new VarInsnNode(Opcodes.ALOAD, 6)); // InteractionHand hand
+                il.add(new VarInsnNode(Opcodes.ALOAD, 7)); // BlockHitResult hit
+                il.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, classNode.name, "use", legacyUseMethod.desc, false));
+                il.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "com/kyroxova/continuumlib/shims/BlockInteractionShim", "toItemInteractionResult", "(Ljava/lang/Object;)Ljava/lang/Object;", false));
+                il.add(new TypeInsnNode(Opcodes.CHECKCAST, "net/minecraft/world/ItemInteractionResult"));
+                il.add(new InsnNode(Opcodes.ARETURN));
+                useItemOnNode.maxStack = 8;
+                useItemOnNode.maxLocals = 8;
+                classNode.methods.add(useItemOnNode);
+                modified = true;
+            }
         }
 
         // Bridge Block.use -> useWithoutItem
@@ -506,6 +596,9 @@ public final class ContinuumBytecodeTransformer {
         MethodNode legacyGetRemainingItems = null;
         boolean hasModernGetRemainingItemsCrafting = false;
 
+        MethodNode legacyBuildCraftingRecipes = null;
+        boolean hasModernBuildRecipes = false;
+
         for (MethodNode method : classNode.methods) {
             // Check assemble
             if ("assemble".equals(method.name)) {
@@ -550,6 +643,13 @@ public final class ContinuumBytecodeTransformer {
                 } else if ("(Lnet/minecraft/world/item/crafting/CraftingInput;)Lnet/minecraft/core/NonNullList;".equals(method.desc)) {
                     hasModernGetRemainingItemsCrafting = true;
                 }
+            }
+
+            // Check buildCraftingRecipes / buildRecipes
+            if ("buildCraftingRecipes".equals(method.name) && "(Ljava/util/function/Consumer;)V".equals(method.desc)) {
+                legacyBuildCraftingRecipes = method;
+            } else if ("buildRecipes".equals(method.name) && "(Lnet/minecraft/data/recipes/RecipeOutput;)V".equals(method.desc)) {
+                hasModernBuildRecipes = true;
             }
         }
 
@@ -688,6 +788,39 @@ public final class ContinuumBytecodeTransformer {
             remNode.maxStack = 2;
             remNode.maxLocals = 2;
             classNode.methods.add(remNode);
+            modified = true;
+        }
+
+        // 5. Inject buildRecipes(RecipeOutput) -> buildCraftingRecipes(Consumer)
+        if (legacyBuildCraftingRecipes != null && !hasModernBuildRecipes) {
+            MethodNode buildRecipesNode = new MethodNode(
+                    Opcodes.ACC_PUBLIC | Opcodes.ACC_SYNTHETIC,
+                    "buildRecipes",
+                    "(Lnet/minecraft/data/recipes/RecipeOutput;)V",
+                    null,
+                    null
+            );
+            InsnList il = buildRecipesNode.instructions;
+            il.add(new VarInsnNode(Opcodes.ALOAD, 0)); // this
+            il.add(new VarInsnNode(Opcodes.ALOAD, 1)); // RecipeOutput
+            il.add(new MethodInsnNode(
+                    Opcodes.INVOKESTATIC,
+                    "com/kyroxova/continuumlib/shims/RecipeShim",
+                    "wrapOutput",
+                    "(Ljava/lang/Object;)Ljava/util/function/Consumer;",
+                    false
+            ));
+            il.add(new MethodInsnNode(
+                    Opcodes.INVOKEVIRTUAL,
+                    classNode.name,
+                    "buildCraftingRecipes",
+                    legacyBuildCraftingRecipes.desc,
+                    false
+            ));
+            il.add(new InsnNode(Opcodes.RETURN));
+            buildRecipesNode.maxStack = 2;
+            buildRecipesNode.maxLocals = 2;
+            classNode.methods.add(buildRecipesNode);
             modified = true;
         }
 

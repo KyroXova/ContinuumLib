@@ -137,4 +137,126 @@ public final class ScreenRenderingShim {
             legacyTooltip.invoke(screen, pose, components, mouseX, mouseY);
         } catch (Throwable ignored) {}
     }
+
+    /**
+     * Bridges screen.renderBackground(poseStack) to modern screen.renderBackground(guiGraphics, mouseX, mouseY, partialTick)
+     */
+    public static void renderBackground(Object screen, Object graphicsOrPose) {
+        if (screen == null) return;
+        try {
+            // Modern 1.20.2+: renderBackground(GuiGraphics, int, int, float)
+            for (Method m : screen.getClass().getMethods()) {
+                if ("renderBackground".equals(m.getName()) && m.getParameterCount() == 4) {
+                    m.invoke(screen, graphicsOrPose, 0, 0, 0.0f);
+                    return;
+                }
+            }
+        } catch (Throwable ignored) {}
+
+        try {
+            // Modern 1.20.0-1.20.1: renderBackground(GuiGraphics)
+            for (Method m : screen.getClass().getMethods()) {
+                if ("renderBackground".equals(m.getName()) && m.getParameterCount() == 1) {
+                    m.invoke(screen, graphicsOrPose);
+                    return;
+                }
+            }
+        } catch (Throwable ignored) {}
+
+        try {
+            // Legacy <= 1.19.4: renderBackground(PoseStack)
+            Object pose = extractPose(graphicsOrPose);
+            for (Method m : screen.getClass().getMethods()) {
+                if ("renderBackground".equals(m.getName()) && m.getParameterCount() == 1) {
+                    m.invoke(screen, pose);
+                    return;
+                }
+            }
+        } catch (Throwable ignored) {}
+    }
+
+    /**
+     * Bridges screen.renderTooltip(poseStack, itemStack/component, mouseX, mouseY)
+     */
+    public static void renderTooltip(Object screen, Object graphicsOrPose, Object itemOrComponent, int mouseX, int mouseY) {
+        if (screen == null) return;
+        try {
+            // Modern 1.20+: GuiGraphics.renderTooltip(Font, ItemStack/Component, int, int)
+            for (Method m : graphicsOrPose.getClass().getMethods()) {
+                if ("renderTooltip".equals(m.getName()) && (m.getParameterCount() == 4 || m.getParameterCount() == 3)) {
+                    Method getFont = screen.getClass().getMethod("getFont");
+                    Object font = getFont.invoke(screen);
+                    if (m.getParameterCount() == 4) {
+                        m.invoke(graphicsOrPose, font, itemOrComponent, mouseX, mouseY);
+                    } else {
+                        m.invoke(graphicsOrPose, font, itemOrComponent);
+                    }
+                    return;
+                }
+            }
+        } catch (Throwable ignored) {}
+
+        try {
+            // Legacy <= 1.19.4: Screen.renderTooltip(PoseStack, ItemStack/Component, int, int)
+            Object pose = extractPose(graphicsOrPose);
+            for (Method m : screen.getClass().getMethods()) {
+                if ("renderTooltip".equals(m.getName()) && m.getParameterCount() == 4) {
+                    m.invoke(screen, pose, itemOrComponent, mouseX, mouseY);
+                    return;
+                }
+            }
+        } catch (Throwable ignored) {}
+    }
+
+    /**
+     * Bridges ItemRenderer.renderGuiItem(ItemStack, int, int) to GuiGraphics.renderItem(ItemStack, int, int)
+     */
+    public static void renderGuiItem(Object itemRendererOrGraphics, Object itemStack, int x, int y) {
+        if (itemRendererOrGraphics == null || itemStack == null) return;
+        try {
+            // 1. Try modern GuiGraphics.renderItem(ItemStack, int, int)
+            for (Method m : itemRendererOrGraphics.getClass().getMethods()) {
+                if ("renderItem".equals(m.getName()) && m.getParameterCount() == 3) {
+                    m.invoke(itemRendererOrGraphics, itemStack, x, y);
+                    return;
+                }
+            }
+        } catch (Throwable ignored) {}
+
+        try {
+            // 2. Legacy ItemRenderer.renderGuiItem(ItemStack, int, int)
+            for (Method m : itemRendererOrGraphics.getClass().getMethods()) {
+                if ("renderGuiItem".equals(m.getName()) && m.getParameterCount() == 3) {
+                    m.invoke(itemRendererOrGraphics, itemStack, x, y);
+                    return;
+                }
+            }
+        } catch (Throwable ignored) {}
+    }
+
+    /**
+     * Bridges ItemRenderer.renderGuiItemDecorations(Font, ItemStack, int, int) to GuiGraphics.renderItemDecorations
+     */
+    public static void renderGuiItemDecorations(Object itemRendererOrGraphics, Object font, Object itemStack, int x, int y) {
+        if (itemRendererOrGraphics == null || itemStack == null) return;
+        try {
+            // 1. Try modern GuiGraphics.renderItemDecorations(Font, ItemStack, int, int)
+            for (Method m : itemRendererOrGraphics.getClass().getMethods()) {
+                if ("renderItemDecorations".equals(m.getName()) && m.getParameterCount() == 4) {
+                    m.invoke(itemRendererOrGraphics, font, itemStack, x, y);
+                    return;
+                }
+            }
+        } catch (Throwable ignored) {}
+
+        try {
+            // 2. Legacy ItemRenderer.renderGuiItemDecorations(Font, ItemStack, int, int)
+            for (Method m : itemRendererOrGraphics.getClass().getMethods()) {
+                if ("renderGuiItemDecorations".equals(m.getName()) && m.getParameterCount() == 4) {
+                    m.invoke(itemRendererOrGraphics, font, itemStack, x, y);
+                    return;
+                }
+            }
+        } catch (Throwable ignored) {}
+    }
 }

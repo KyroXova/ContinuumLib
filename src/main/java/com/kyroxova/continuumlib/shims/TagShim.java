@@ -20,6 +20,14 @@ public final class TagShim {
         return createTag("net.minecraft.tags.ItemTags", resourceLocation);
     }
 
+    public static Object createFluidTag(Object resourceLocation) {
+        return createTag("net.minecraft.tags.FluidTags", resourceLocation);
+    }
+
+    public static Object createEntityTypeTag(Object resourceLocation) {
+        return createTag("net.minecraft.tags.EntityTypeTags", resourceLocation);
+    }
+
     private static Object createTag(String tagHolderClassName, Object resourceLocation) {
         if (resourceLocation == null) return null;
 
