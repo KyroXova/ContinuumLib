@@ -69,25 +69,52 @@ public final class BlockEntityShim {
                 Class<?> tagClass = Class.forName("net.minecraft.nbt.CompoundTag");
                 Class<?> providerClass = Class.forName("net.minecraft.core.HolderLookup$Provider");
                 Method modernSave = beClass.getMethod("saveAdditional", tagClass, providerClass);
+                modernSave.setAccessible(true);
                 Object provider = resolveLookupProvider(blockEntity);
                 modernSave.invoke(blockEntity, compoundTag, provider);
                 return;
-            } catch (NoSuchMethodException ignored) {}
+            } catch (Throwable ignored) {}
 
             // Attempt 2: Legacy <= 1.20.4 saveAdditional(CompoundTag)
             try {
-                Class<?> tagClass = Class.forName("net.minecraft.nbt.CompoundTag");
-                Method legacySave = beClass.getMethod("saveAdditional", tagClass);
-                legacySave.invoke(blockEntity, compoundTag);
-                return;
-            } catch (NoSuchMethodException ignored) {}
+                Method legacySave = null;
+                try {
+                    Class<?> tagClass = Class.forName("net.minecraft.nbt.CompoundTag");
+                    legacySave = beClass.getMethod("saveAdditional", tagClass);
+                } catch (Throwable t) {
+                    for (Method m : beClass.getMethods()) {
+                        if ("saveAdditional".equals(m.getName()) && m.getParameterCount() == 1) {
+                            legacySave = m;
+                            break;
+                        }
+                    }
+                }
+                if (legacySave != null) {
+                    legacySave.setAccessible(true);
+                    legacySave.invoke(blockEntity, compoundTag);
+                    return;
+                }
+            } catch (Throwable ignored) {}
 
             // Attempt 3: 1.7.10 / 1.12.2 writeToNBT(NBTTagCompound)
             try {
-                Class<?> nbtClass = Class.forName("net.minecraft.nbt.NBTTagCompound");
-                Method oldSave = beClass.getMethod("writeToNBT", nbtClass);
-                oldSave.invoke(blockEntity, compoundTag);
-            } catch (NoSuchMethodException ignored) {}
+                Method oldSave = null;
+                try {
+                    Class<?> nbtClass = Class.forName("net.minecraft.nbt.NBTTagCompound");
+                    oldSave = beClass.getMethod("writeToNBT", nbtClass);
+                } catch (Throwable t) {
+                    for (Method m : beClass.getMethods()) {
+                        if ("writeToNBT".equals(m.getName()) && m.getParameterCount() == 1) {
+                            oldSave = m;
+                            break;
+                        }
+                    }
+                }
+                if (oldSave != null) {
+                    oldSave.setAccessible(true);
+                    oldSave.invoke(blockEntity, compoundTag);
+                }
+            } catch (Throwable ignored) {}
 
         } catch (Throwable t) {
             LOGGER.fine("[BlockEntityShim] Error in saveAdditional polyfill: " + t.getMessage());
@@ -113,25 +140,52 @@ public final class BlockEntityShim {
                 Class<?> tagClass = Class.forName("net.minecraft.nbt.CompoundTag");
                 Class<?> providerClass = Class.forName("net.minecraft.core.HolderLookup$Provider");
                 Method modernLoad = beClass.getMethod("loadAdditional", tagClass, providerClass);
+                modernLoad.setAccessible(true);
                 Object provider = resolveLookupProvider(blockEntity);
                 modernLoad.invoke(blockEntity, compoundTag, provider);
                 return;
-            } catch (NoSuchMethodException ignored) {}
+            } catch (Throwable ignored) {}
 
             // Attempt 2: Legacy <= 1.20.4 load(CompoundTag)
             try {
-                Class<?> tagClass = Class.forName("net.minecraft.nbt.CompoundTag");
-                Method legacyLoad = beClass.getMethod("load", tagClass);
-                legacyLoad.invoke(blockEntity, compoundTag);
-                return;
-            } catch (NoSuchMethodException ignored) {}
+                Method legacyLoad = null;
+                try {
+                    Class<?> tagClass = Class.forName("net.minecraft.nbt.CompoundTag");
+                    legacyLoad = beClass.getMethod("load", tagClass);
+                } catch (Throwable t) {
+                    for (Method m : beClass.getMethods()) {
+                        if ("load".equals(m.getName()) && m.getParameterCount() == 1) {
+                            legacyLoad = m;
+                            break;
+                        }
+                    }
+                }
+                if (legacyLoad != null) {
+                    legacyLoad.setAccessible(true);
+                    legacyLoad.invoke(blockEntity, compoundTag);
+                    return;
+                }
+            } catch (Throwable ignored) {}
 
             // Attempt 3: 1.7.10 / 1.12.2 readFromNBT(NBTTagCompound)
             try {
-                Class<?> nbtClass = Class.forName("net.minecraft.nbt.NBTTagCompound");
-                Method oldLoad = beClass.getMethod("readFromNBT", nbtClass);
-                oldLoad.invoke(blockEntity, compoundTag);
-            } catch (NoSuchMethodException ignored) {}
+                Method oldLoad = null;
+                try {
+                    Class<?> nbtClass = Class.forName("net.minecraft.nbt.NBTTagCompound");
+                    oldLoad = beClass.getMethod("readFromNBT", nbtClass);
+                } catch (Throwable t) {
+                    for (Method m : beClass.getMethods()) {
+                        if ("readFromNBT".equals(m.getName()) && m.getParameterCount() == 1) {
+                            oldLoad = m;
+                            break;
+                        }
+                    }
+                }
+                if (oldLoad != null) {
+                    oldLoad.setAccessible(true);
+                    oldLoad.invoke(blockEntity, compoundTag);
+                }
+            } catch (Throwable ignored) {}
 
         } catch (Throwable t) {
             LOGGER.fine("[BlockEntityShim] Error in load polyfill: " + t.getMessage());

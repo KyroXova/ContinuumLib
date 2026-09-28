@@ -155,7 +155,7 @@ public final class AttributeModifierShim {
             for (Method m : livingEntity.getClass().getMethods()) {
                 if ("getAttribute".equals(m.getName()) && m.getParameterCount() == 1) {
                     Class<?> paramType = m.getParameterTypes()[0];
-                    if (paramType.isInstance(attributeOrHolder)) {
+                    if (paramType != Object.class && paramType.isInstance(attributeOrHolder)) {
                         return m.invoke(livingEntity, attributeOrHolder);
                     }
                 }
@@ -217,6 +217,6 @@ public final class AttributeModifierShim {
     }
 
     public static Object getRegisteredAttributes(Object entityType) {
-        return REGISTERED_DEFAULT_ATTRIBUTES.get(entityType);
+        return entityType != null ? REGISTERED_DEFAULT_ATTRIBUTES.get(entityType) : null;
     }
 }

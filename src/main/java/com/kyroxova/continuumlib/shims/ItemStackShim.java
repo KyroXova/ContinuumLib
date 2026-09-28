@@ -85,9 +85,22 @@ public final class ItemStackShim {
         if (itemStack == null) return;
         try {
             // 1. Try legacy ItemStack.setTag(CompoundTag) (<= 1.20.4)
-            Method setTagMethod = itemStack.getClass().getMethod("setTag", Class.forName("net.minecraft.nbt.CompoundTag"));
-            setTagMethod.invoke(itemStack, compoundTag);
-        } catch (NoSuchMethodException e) {
+            Method setTagMethod = null;
+            try {
+                Class<?> tagClass = Class.forName("net.minecraft.nbt.CompoundTag");
+                setTagMethod = itemStack.getClass().getMethod("setTag", tagClass);
+            } catch (Throwable t) {
+                for (Method m : itemStack.getClass().getMethods()) {
+                    if ("setTag".equals(m.getName()) && m.getParameterCount() == 1) {
+                        setTagMethod = m;
+                        break;
+                    }
+                }
+            }
+            if (setTagMethod != null) {
+                setTagMethod.invoke(itemStack, compoundTag);
+                return;
+            }
             // 2. Modern 1.20.5+ Data Components
             setCustomDataNbt(itemStack, compoundTag);
         } catch (Throwable ignored) {}
@@ -264,12 +277,13 @@ public final class ItemStackShim {
                 Method getCompound = tag.getClass().getMethod("getCompound", String.class);
                 Object displayTag = getCompound.invoke(tag, "display");
                 if (displayTag == null) {
-                    displayTag = createEmptyCompoundTag();
-                    Method put = tag.getClass().getMethod("put", String.class, Class.forName("net.minecraft.nbt.Tag"));
-                    put.invoke(tag, "display", displayTag);
+                    displayTag = createEmptyCompoundTag(tag);
+                    invokePut(tag, "display", displayTag);
                 }
-                Method putString = displayTag.getClass().getMethod("putString", String.class, String.class);
-                putString.invoke(displayTag, "Name", String.valueOf(value));
+                if (displayTag != null) {
+                    Method putString = displayTag.getClass().getMethod("putString", String.class, String.class);
+                    putString.invoke(displayTag, "Name", String.valueOf(value));
+                }
             } catch (Throwable ignored) {}
             return value;
         }
@@ -279,11 +293,10 @@ public final class ItemStackShim {
             Method getCompound = tag.getClass().getMethod("getCompound", String.class);
             Object compTag = getCompound.invoke(tag, CONTINUUM_COMPONENTS_KEY);
             if (compTag == null) {
-                compTag = createEmptyCompoundTag();
-                Method put = tag.getClass().getMethod("put", String.class, Class.forName("net.minecraft.nbt.Tag"));
-                put.invoke(tag, CONTINUUM_COMPONENTS_KEY, compTag);
+                compTag = createEmptyCompoundTag(tag);
+                invokePut(tag, CONTINUUM_COMPONENTS_KEY, compTag);
             }
-            if (value != null) {
+            if (value != null && compTag != null) {
                 // Store string representation or tag
                 Method putString = compTag.getClass().getMethod("putString", String.class, String.class);
                 putString.invoke(compTag, key, String.valueOf(value));
@@ -412,10 +425,37 @@ public final class ItemStackShim {
     }
 
     private static Object createEmptyCompoundTag() {
+        return createEmptyCompoundTag(null);
+    }
+
+    private static Object createEmptyCompoundTag(Object fallbackLike) {
         try {
             return Class.forName("net.minecraft.nbt.CompoundTag").getConstructor().newInstance();
         } catch (Throwable t) {
+            if (fallbackLike != null) {
+                try {
+                    return fallbackLike.getClass().getDeclaredConstructor().newInstance();
+                } catch (Throwable ignored) {}
+            }
             return null;
         }
+    }
+
+    private static void invokePut(Object parentTag, String key, Object childTag) {
+        if (parentTag == null || childTag == null) return;
+        try {
+            Method put = parentTag.getClass().getMethod("put", String.class, Class.forName("net.minecraft.nbt.Tag"));
+            put.invoke(parentTag, key, childTag);
+            return;
+        } catch (Throwable ignored) {}
+
+        try {
+            for (Method m : parentTag.getClass().getMethods()) {
+                if ("put".equals(m.getName()) && m.getParameterCount() == 2) {
+                    m.invoke(parentTag, key, childTag);
+                    return;
+                }
+            }
+        } catch (Throwable ignored) {}
     }
 }

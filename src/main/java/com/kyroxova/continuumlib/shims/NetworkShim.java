@@ -80,7 +80,9 @@ public final class NetworkShim {
      */
     public static void registerPayloadToClient(Object id, Object streamCodec, BiConsumer<Object, Object> clientHandler) {
         String payloadId = String.valueOf(id);
-        PayloadEntry entry = new PayloadEntry(payloadId, id, streamCodec, clientHandler, null);
+        PayloadEntry existing = REGISTERED_PAYLOADS.get(payloadId);
+        BiConsumer<Object, Object> server = (existing != null) ? existing.serverHandler : null;
+        PayloadEntry entry = new PayloadEntry(payloadId, id, streamCodec, clientHandler, server);
         REGISTERED_PAYLOADS.put(payloadId, entry);
 
         // 1. NeoForge PayloadRegistrar hook
@@ -116,7 +118,9 @@ public final class NetworkShim {
      */
     public static void registerPayloadToServer(Object id, Object streamCodec, BiConsumer<Object, Object> serverHandler) {
         String payloadId = String.valueOf(id);
-        PayloadEntry entry = new PayloadEntry(payloadId, id, streamCodec, null, serverHandler);
+        PayloadEntry existing = REGISTERED_PAYLOADS.get(payloadId);
+        BiConsumer<Object, Object> client = (existing != null) ? existing.clientHandler : null;
+        PayloadEntry entry = new PayloadEntry(payloadId, id, streamCodec, client, serverHandler);
         REGISTERED_PAYLOADS.put(payloadId, entry);
 
         // Fabric registration
@@ -145,6 +149,9 @@ public final class NetworkShim {
      * Registers a modern payload bidirectionally.
      */
     public static void registerPayloadBidirectional(Object id, Object streamCodec, BiConsumer<Object, Object> handler) {
+        String payloadId = String.valueOf(id);
+        PayloadEntry entry = new PayloadEntry(payloadId, id, streamCodec, handler, handler);
+        REGISTERED_PAYLOADS.put(payloadId, entry);
         registerPayloadToClient(id, streamCodec, handler);
         registerPayloadToServer(id, streamCodec, handler);
     }
@@ -270,14 +277,7 @@ public final class NetworkShim {
                 );
             } catch (Throwable ignored) {}
         }
-        return new Object() {
-            public void encode(B buffer, V value) {
-                if (encoder != null) encoder.accept(value, buffer);
-            }
-            public V decode(B buffer) {
-                return (decoder != null) ? decoder.apply(buffer) : null;
-            }
-        };
+        return new StreamCodecAdapter<>(encoder, decoder);
     }
 
     /**
@@ -352,15 +352,33 @@ public final class NetworkShim {
     }
 
     public static ChannelDescriptor getChannel(String id) {
-        return REGISTERED_CHANNELS.get(id);
+        return id != null ? REGISTERED_CHANNELS.get(id) : null;
     }
 
     public static PayloadEntry getPayload(String id) {
-        return REGISTERED_PAYLOADS.get(id);
+        return id != null ? REGISTERED_PAYLOADS.get(id) : null;
     }
 
     public static Map<String, PayloadEntry> getRegisteredPayloads() {
         return REGISTERED_PAYLOADS;
+    }
+
+    public static class StreamCodecAdapter<B, V> {
+        private final BiConsumer<V, B> encoder;
+        private final Function<B, V> decoder;
+
+        public StreamCodecAdapter(BiConsumer<V, B> encoder, Function<B, V> decoder) {
+            this.encoder = encoder;
+            this.decoder = decoder;
+        }
+
+        public void encode(B buffer, V value) {
+            if (encoder != null) encoder.accept(value, buffer);
+        }
+
+        public V decode(B buffer) {
+            return (decoder != null) ? decoder.apply(buffer) : null;
+        }
     }
 
     public static class ChannelDescriptor {
