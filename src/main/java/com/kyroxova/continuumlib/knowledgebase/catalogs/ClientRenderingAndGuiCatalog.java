@@ -1,12 +1,13 @@
 package com.kyroxova.continuumlib.knowledgebase.catalogs;
 
+import com.kyroxova.bootstrapper.environment.LoaderType;
 import com.kyroxova.bootstrapper.environment.MCVersion;
 import com.kyroxova.continuumlib.knowledgebase.ApiKnowledgeBase;
 import com.kyroxova.continuumlib.knowledgebase.rules.ClassRedirectRule;
 import com.kyroxova.continuumlib.knowledgebase.rules.PolyfillRule;
 
 /**
- * Universal Rules for Client Rendering, Render Types, Widgets, and GUI Components.
+ * Universal Rules for Client Rendering, Render Types, Model Loaders, Widgets, and GUI Components.
  */
 public final class ClientRenderingAndGuiCatalog {
 
@@ -26,7 +27,36 @@ public final class ClientRenderingAndGuiCatalog {
                 "ItemBlockRenderTypes.setRenderLayer polyfill for modern clients"
         ));
 
-        // 2. Button constructor -> ButtonShim.create
+        // ItemBlockRenderTypes.setRenderLayer(Fluid, RenderType)
+        kb.registerRule(new PolyfillRule(
+                "net/minecraft/client/renderer/ItemBlockRenderTypes", "setRenderLayer",
+                "(Lnet/minecraft/world/level/material/Fluid;Lnet/minecraft/client/renderer/RenderType;)V",
+                "com/kyroxova/continuumlib/shims/RenderTypeShim", "setFluidRenderLayer",
+                "(Ljava/lang/Object;Ljava/lang/Object;)V",
+                v1_19_0, null, null,
+                "ItemBlockRenderTypes.setRenderLayer(Fluid) polyfill for modern clients"
+        ));
+
+        // 2. Model Loaders: Forge ModelLoaderRegistry -> RenderTypeShim.registerModelLoader
+        kb.registerRule(new PolyfillRule(
+                "net/minecraftforge/client/model/ModelLoaderRegistry", "registerLoader",
+                null,
+                "com/kyroxova/continuumlib/shims/RenderTypeShim", "registerModelLoader",
+                "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+                null, null, LoaderType.FABRIC,
+                "Forge ModelLoaderRegistry.registerLoader -> RenderTypeShim.registerModelLoader (Fabric)"
+        ));
+
+        kb.registerRule(new PolyfillRule(
+                "net/neoforged/neoforge/client/event/ModelEvent$RegisterGeometryLoaders", "register",
+                null,
+                "com/kyroxova/continuumlib/shims/RenderTypeShim", "registerGeometryLoader",
+                "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+                null, null, LoaderType.FABRIC,
+                "NeoForge RegisterGeometryLoaders.register -> RenderTypeShim.registerGeometryLoader (Fabric)"
+        ));
+
+        // 3. Button constructor -> ButtonShim.create
         kb.registerRule(new PolyfillRule(
                 "net/minecraft/client/gui/components/Button", "<init>",
                 "(IIIILnet/minecraft/network/chat/Component;Lnet/minecraft/client/gui/components/Button$OnPress;)V",
@@ -36,7 +66,7 @@ public final class ClientRenderingAndGuiCatalog {
                 "Button constructor -> ButtonShim.create (1.19.3+)"
         ));
 
-        // 3. ItemTransforms.TransformType -> ItemDisplayContext (1.19.4+)
+        // 4. ItemTransforms.TransformType -> ItemDisplayContext (1.19.4+)
         kb.registerRule(new ClassRedirectRule(
                 "net/minecraft/client/renderer/block/model/ItemTransforms$TransformType",
                 "net/minecraft/world/item/ItemDisplayContext",
@@ -44,7 +74,7 @@ public final class ClientRenderingAndGuiCatalog {
                 "ItemTransforms.TransformType -> ItemDisplayContext"
         ));
 
-        // 4. GuiComponent.fill -> GuiComponentShim.fill (1.20+)
+        // 5. GuiComponent.fill -> GuiComponentShim.fill (1.20+)
         kb.registerRule(new PolyfillRule(
                 "net/minecraft/client/gui/GuiComponent", "fill",
                 "(Lcom/mojang/blaze3d/vertex/PoseStack;IIIII)V",
@@ -54,7 +84,7 @@ public final class ClientRenderingAndGuiCatalog {
                 "GuiComponent.fill -> GuiComponentShim.fill"
         ));
 
-        // 5. GuiComponent.drawCenteredString (1.20+)
+        // 6. GuiComponent.drawCenteredString (1.20+)
         kb.registerRule(new PolyfillRule(
                 "net/minecraft/client/gui/GuiComponent", "drawCenteredString",
                 "(Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/client/gui/Font;Ljava/lang/String;III)V",
@@ -73,7 +103,7 @@ public final class ClientRenderingAndGuiCatalog {
                 "GuiComponent.drawCenteredString(Component) -> GuiComponentShim.drawCenteredString"
         ));
 
-        // 6. ItemRenderer.renderGuiItem -> ScreenRenderingShim.renderGuiItem (1.20+)
+        // 7. ItemRenderer.renderGuiItem -> ScreenRenderingShim.renderGuiItem (1.20+)
         kb.registerRule(new PolyfillRule(
                 "net/minecraft/client/renderer/entity/ItemRenderer", "renderGuiItem",
                 "(Lnet/minecraft/world/item/ItemStack;II)V",

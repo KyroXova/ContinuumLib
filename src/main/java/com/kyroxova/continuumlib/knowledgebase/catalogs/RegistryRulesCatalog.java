@@ -73,6 +73,13 @@ public final class RegistryRulesCatalog {
                 "Registry.ENCHANTMENT -> BuiltInRegistries.ENCHANTMENT (1.19.3+)"
         ));
 
+        kb.registerRule(new FieldRedirectRule(
+                "net/minecraft/core/Registry", "ATTRIBUTE", null,
+                "net/minecraft/core/registries/BuiltInRegistries", "ATTRIBUTE", null,
+                v1_19_3, null, null,
+                "Registry.ATTRIBUTE -> BuiltInRegistries.ATTRIBUTE (1.19.3+)"
+        ));
+
         // 2. ForgeRegistries -> BuiltInRegistries field redirects for NeoForge / Fabric
         kb.registerRule(new FieldRedirectRule(
                 "net/minecraftforge/registries/ForgeRegistries", "BLOCKS", null,
@@ -86,6 +93,27 @@ public final class RegistryRulesCatalog {
                 "net/minecraft/core/registries/BuiltInRegistries", "ITEM", null,
                 v1_20_4, null, LoaderType.NEOFORGE,
                 "ForgeRegistries.ITEMS -> BuiltInRegistries.ITEM (NeoForge)"
+        ));
+
+        kb.registerRule(new FieldRedirectRule(
+                "net/minecraftforge/registries/ForgeRegistries", "FLUIDS", null,
+                "net/minecraft/core/registries/BuiltInRegistries", "FLUID", null,
+                v1_20_4, null, LoaderType.NEOFORGE,
+                "ForgeRegistries.FLUIDS -> BuiltInRegistries.FLUID (NeoForge)"
+        ));
+
+        kb.registerRule(new FieldRedirectRule(
+                "net/minecraftforge/registries/ForgeRegistries", "ENTITY_TYPES", null,
+                "net/minecraft/core/registries/BuiltInRegistries", "ENTITY_TYPE", null,
+                v1_20_4, null, LoaderType.NEOFORGE,
+                "ForgeRegistries.ENTITY_TYPES -> BuiltInRegistries.ENTITY_TYPE (NeoForge)"
+        ));
+
+        kb.registerRule(new FieldRedirectRule(
+                "net/minecraftforge/registries/ForgeRegistries", "ATTRIBUTES", null,
+                "net/minecraft/core/registries/BuiltInRegistries", "ATTRIBUTE", null,
+                v1_20_4, null, LoaderType.NEOFORGE,
+                "ForgeRegistries.ATTRIBUTES -> BuiltInRegistries.ATTRIBUTE (NeoForge)"
         ));
 
         // 3. ForgeRegistries.BLOCK_ENTITIES -> BLOCK_ENTITY_TYPES (1.19.3+)
@@ -159,7 +187,7 @@ public final class RegistryRulesCatalog {
                 "ResourceLocation.parse(String) fallback for <= 1.20.4"
         ));
 
-        // 7. Fabric Registry Bridges
+        // 8. Fabric Registry Bridges
         kb.registerRule(new PolyfillRule(
                 "net/minecraftforge/registries/DeferredRegister", "register",
                 "(Ljava/lang/String;Ljava/util/function/Supplier;)Lnet/minecraftforge/registries/RegistryObject;",
@@ -167,6 +195,34 @@ public final class RegistryRulesCatalog {
                 "(Ljava/lang/Object;Ljava/lang/String;Ljava/lang/String;Ljava/util/function/Supplier;)Ljava/lang/Object;",
                 null, null, LoaderType.FABRIC,
                 "Bridge Forge DeferredRegister to Fabric Registry"
+        ));
+
+        // 9. Holder lookup polyfills across versions
+        kb.registerRule(new PolyfillRule(
+                "net/minecraftforge/registries/RegistryObject", "get",
+                "()Ljava/lang/Object;",
+                "com/kyroxova/continuumlib/shims/RegistryShim", "getValue",
+                "(Ljava/lang/Object;)Ljava/lang/Object;",
+                null, null, LoaderType.FABRIC,
+                "RegistryObject.get() -> RegistryShim.getValue"
+        ));
+
+        kb.registerRule(new PolyfillRule(
+                "net/neoforged/neoforge/registries/DeferredHolder", "get",
+                "()Ljava/lang/Object;",
+                "com/kyroxova/continuumlib/shims/RegistryShim", "getValue",
+                "(Ljava/lang/Object;)Ljava/lang/Object;",
+                null, null, LoaderType.FABRIC,
+                "DeferredHolder.get() -> RegistryShim.getValue"
+        ));
+
+        kb.registerRule(new PolyfillRule(
+                "net/minecraft/core/Holder", "value",
+                "()Ljava/lang/Object;",
+                "com/kyroxova/continuumlib/shims/RegistryShim", "getValue",
+                "(Ljava/lang/Object;)Ljava/lang/Object;",
+                null, v1_19_3, null,
+                "Holder.value() -> RegistryShim.getValue (pre-1.19.3)"
         ));
     }
 }

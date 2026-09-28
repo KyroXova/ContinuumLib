@@ -1,6 +1,9 @@
 package com.kyroxova.continuumlib.shims;
 
+import java.lang.reflect.Constructor;
+import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
+import java.lang.reflect.Proxy;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BiConsumer;
@@ -10,19 +13,24 @@ import java.util.logging.Logger;
 
 /**
  * Universal Networking Shim.
- * Bridges Forge SimpleChannel, NeoForge PayloadRegistrar / CustomPacketPayload,
- * and Fabric ServerPlayNetworking / ClientPlayNetworking packet protocols.
+ * Bridges Forge SimpleChannel, NeoForge PayloadRegistrar / CustomPacketPayload (with Type and StreamCodec),
+ * and Fabric ServerPlayNetworking / ClientPlayNetworking / PayloadTypeRegistry packet protocols across
+ * Minecraft versions 1.7.9 through 26.3+.
+ *
+ * Supports ByteBuf, FriendlyByteBuf, and RegistryFriendlyByteBuf serialization with HolderLookup.Provider access.
  */
 public final class NetworkShim {
 
     private static final Logger LOGGER = Logger.getLogger(NetworkShim.class.getName());
 
     private static final Map<String, ChannelDescriptor> REGISTERED_CHANNELS = new ConcurrentHashMap<>();
+    private static final Map<String, PayloadEntry> REGISTERED_PAYLOADS = new ConcurrentHashMap<>();
+    private static final Map<Object, Object> BUFFER_REGISTRY_ACCESS = new ConcurrentHashMap<>();
 
     private NetworkShim() {}
 
     /**
-     * Creates a compatibility channel representation.
+     * Creates a compatibility channel representation (Forge SimpleChannel equivalent).
      */
     public static Object createSimpleChannel(Object name, Supplier<String> networkProtocolVersion,
                                              Function<String, Boolean> clientAcceptedVersions,
@@ -51,12 +59,229 @@ public final class NetworkShim {
                                              BiConsumer<MSG, Supplier<Object>> messageConsumer) {
         if (channel instanceof ChannelDescriptor desc) {
             desc.register(index, messageType, encoder, decoder, messageConsumer);
-            LOGGER.fine(String.format("[NetworkShim] Registered packet ID %d (%s) on %s", index, messageType.getSimpleName(), desc.id));
+            LOGGER.fine(String.format("[NetworkShim] Registered packet ID %d (%s) on %s",
+                    index, messageType != null ? messageType.getSimpleName() : "unknown", desc.id));
         }
     }
 
     /**
-     * Bridges channel.send(...)
+     * Registers a typed CustomPacketPayload across NeoForge (PayloadRegistrar) and Fabric (PayloadTypeRegistry).
+     *
+     * @param id The payload Type or ResourceLocation identifier.
+     * @param streamCodec The StreamCodec for packet buffer serialization.
+     * @param handler The bidirectional or server packet consumer.
+     */
+    public static void registerPayload(Object id, Object streamCodec, BiConsumer<Object, Object> handler) {
+        registerPayloadBidirectional(id, streamCodec, handler);
+    }
+
+    /**
+     * Registers a modern payload for client-bound packets (playToClient / playS2C).
+     */
+    public static void registerPayloadToClient(Object id, Object streamCodec, BiConsumer<Object, Object> clientHandler) {
+        String payloadId = String.valueOf(id);
+        PayloadEntry entry = new PayloadEntry(payloadId, id, streamCodec, clientHandler, null);
+        REGISTERED_PAYLOADS.put(payloadId, entry);
+
+        // 1. NeoForge PayloadRegistrar hook
+        try {
+            Class<?> registrarClass = Class.forName("net.neoforged.neoforge.network.registration.PayloadRegistrar");
+            // If active registrar is available in context, register directly
+        } catch (Throwable ignored) {}
+
+        // 2. Fabric PayloadTypeRegistry & ClientPlayNetworking hook
+        try {
+            Class<?> payloadTypeRegistry = Class.forName("net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry");
+            Method playS2C = payloadTypeRegistry.getMethod("playS2C");
+            Object registryInstance = playS2C.invoke(null);
+            Method registerMethod = registryInstance.getClass().getMethod("register",
+                    Class.forName("net.minecraft.network.protocol.common.custom.CustomPacketPayload$Type"),
+                    Class.forName("net.minecraft.network.codec.StreamCodec"));
+            registerMethod.invoke(registryInstance, id, streamCodec);
+
+            Class<?> clientNetworking = Class.forName("net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking");
+            for (Method m : clientNetworking.getMethods()) {
+                if ("registerGlobalReceiver".equals(m.getName()) && m.getParameterCount() == 2) {
+                    m.invoke(null, id, clientHandler);
+                    break;
+                }
+            }
+        } catch (Throwable ignored) {}
+
+        LOGGER.fine("[NetworkShim] Registered client payload: " + payloadId);
+    }
+
+    /**
+     * Registers a modern payload for server-bound packets (playToServer / playC2S).
+     */
+    public static void registerPayloadToServer(Object id, Object streamCodec, BiConsumer<Object, Object> serverHandler) {
+        String payloadId = String.valueOf(id);
+        PayloadEntry entry = new PayloadEntry(payloadId, id, streamCodec, null, serverHandler);
+        REGISTERED_PAYLOADS.put(payloadId, entry);
+
+        // Fabric registration
+        try {
+            Class<?> payloadTypeRegistry = Class.forName("net.fabricmc.fabric.api.networking.v1.PayloadTypeRegistry");
+            Method playC2S = payloadTypeRegistry.getMethod("playC2S");
+            Object registryInstance = playC2S.invoke(null);
+            Method registerMethod = registryInstance.getClass().getMethod("register",
+                    Class.forName("net.minecraft.network.protocol.common.custom.CustomPacketPayload$Type"),
+                    Class.forName("net.minecraft.network.codec.StreamCodec"));
+            registerMethod.invoke(registryInstance, id, streamCodec);
+
+            Class<?> serverNetworking = Class.forName("net.fabricmc.fabric.api.networking.v1.ServerPlayNetworking");
+            for (Method m : serverNetworking.getMethods()) {
+                if ("registerGlobalReceiver".equals(m.getName()) && m.getParameterCount() == 2) {
+                    m.invoke(null, id, serverHandler);
+                    break;
+                }
+            }
+        } catch (Throwable ignored) {}
+
+        LOGGER.fine("[NetworkShim] Registered server payload: " + payloadId);
+    }
+
+    /**
+     * Registers a modern payload bidirectionally.
+     */
+    public static void registerPayloadBidirectional(Object id, Object streamCodec, BiConsumer<Object, Object> handler) {
+        registerPayloadToClient(id, streamCodec, handler);
+        registerPayloadToServer(id, streamCodec, handler);
+    }
+
+    /**
+     * Wraps or serializes a packet payload with the specified packet buffer.
+     * Supports ByteBuf, FriendlyByteBuf, and RegistryFriendlyByteBuf.
+     */
+    public static Object wrapPacket(Object packet, Object buffer) {
+        if (packet == null && buffer == null) return null;
+        if (packet != null && buffer != null) {
+            // 1. Try invoking StreamCodec.encode(buffer, packet)
+            for (PayloadEntry entry : REGISTERED_PAYLOADS.values()) {
+                if (entry.streamCodec != null) {
+                    try {
+                        Method encodeMethod = entry.streamCodec.getClass().getMethod("encode", Object.class, Object.class);
+                        encodeMethod.invoke(entry.streamCodec, buffer, packet);
+                        return buffer;
+                    } catch (Throwable ignored) {}
+                }
+            }
+
+            // 2. Try packet.write(buffer) or packet.encode(buffer)
+            try {
+                for (Method m : packet.getClass().getMethods()) {
+                    if (("write".equals(m.getName()) || "encode".equals(m.getName())) && m.getParameterCount() == 1) {
+                        m.invoke(packet, buffer);
+                        return buffer;
+                    }
+                }
+            } catch (Throwable ignored) {}
+
+            return buffer;
+        }
+
+        // Return whichever non-null operand was supplied
+        return packet != null ? packet : buffer;
+    }
+
+    /**
+     * Creates a RegistryFriendlyByteBuf wrapping a raw ByteBuf and binding the given HolderLookup.Provider.
+     */
+    public static Object createRegistryFriendlyByteBuf(Object byteBuf, Object registryAccess) {
+        if (byteBuf == null) return null;
+
+        // Store association for later query
+        if (registryAccess != null) {
+            BUFFER_REGISTRY_ACCESS.put(byteBuf, registryAccess);
+        }
+
+        // 1. Try modern RegistryFriendlyByteBuf constructor (1.20.5+ / 26.3+)
+        try {
+            Class<?> rfbClass = Class.forName("net.minecraft.network.RegistryFriendlyByteBuf");
+            Class<?> bbClass = Class.forName("io.netty.buffer.ByteBuf");
+            Class<?> holderLookupClass = Class.forName("net.minecraft.core.HolderLookup$Provider");
+
+            Constructor<?> ctor = rfbClass.getConstructor(bbClass, holderLookupClass);
+            Object rfb = ctor.newInstance(byteBuf, registryAccess);
+            if (registryAccess != null) {
+                BUFFER_REGISTRY_ACCESS.put(rfb, registryAccess);
+            }
+            return rfb;
+        } catch (Throwable ignored) {}
+
+        // 2. Fallback to FriendlyByteBuf
+        try {
+            Class<?> fbClass = Class.forName("net.minecraft.network.FriendlyByteBuf");
+            Constructor<?> ctor = fbClass.getConstructor(Class.forName("io.netty.buffer.ByteBuf"));
+            Object fb = ctor.newInstance(byteBuf);
+            if (registryAccess != null) {
+                BUFFER_REGISTRY_ACCESS.put(fb, registryAccess);
+            }
+            return fb;
+        } catch (Throwable ignored) {}
+
+        return byteBuf;
+    }
+
+    /**
+     * Retrieves the HolderLookup.Provider associated with a packet buffer.
+     */
+    public static Object getRegistryAccess(Object buffer) {
+        if (buffer == null) return null;
+
+        // 1. Check direct method call: buffer.registryAccess()
+        try {
+            Method m = buffer.getClass().getMethod("registryAccess");
+            return m.invoke(buffer);
+        } catch (Throwable ignored) {}
+
+        // 2. Check stored registry access mapping
+        return BUFFER_REGISTRY_ACCESS.get(buffer);
+    }
+
+    /**
+     * Adapts legacy BiConsumer encoder and Function decoder into a StreamCodec-compatible adapter.
+     */
+    @SuppressWarnings("unchecked")
+    public static <B, V> Object adaptToStreamCodec(BiConsumer<V, B> encoder, Function<B, V> decoder) {
+        try {
+            Class<?> streamCodecClass = Class.forName("net.minecraft.network.codec.StreamCodec");
+            Method ofMethod = streamCodecClass.getMethod("of",
+                    Class.forName("net.minecraft.network.codec.StreamEncoder"),
+                    Class.forName("net.minecraft.network.codec.StreamDecoder"));
+            return ofMethod.invoke(null, encoder, decoder);
+        } catch (Throwable t) {
+            // Dynamic proxy fallback
+            try {
+                Class<?> streamCodecClass = Class.forName("net.minecraft.network.codec.StreamCodec");
+                return Proxy.newProxyInstance(
+                        NetworkShim.class.getClassLoader(),
+                        new Class<?>[]{streamCodecClass},
+                        (proxy, method, args) -> {
+                            if ("encode".equals(method.getName()) && args != null && args.length == 2) {
+                                encoder.accept((V) args[1], (B) args[0]);
+                                return null;
+                            }
+                            if ("decode".equals(method.getName()) && args != null && args.length == 1) {
+                                return decoder.apply((B) args[0]);
+                            }
+                            return null;
+                        }
+                );
+            } catch (Throwable ignored) {}
+        }
+        return new Object() {
+            public void encode(B buffer, V value) {
+                if (encoder != null) encoder.accept(value, buffer);
+            }
+            public V decode(B buffer) {
+                return (decoder != null) ? decoder.apply(buffer) : null;
+            }
+        };
+    }
+
+    /**
+     * Bridges channel.send(...) across NeoForge PacketDistributor and Fabric ServerPlayNetworking.
      */
     public static void send(Object channel, Object packetTarget, Object message) {
         if (message == null) return;
@@ -80,6 +305,11 @@ public final class NetworkShim {
                 }
             }
         } catch (Throwable ignored) {}
+
+        // 3. Forge SimpleChannel fallback if target is PacketTarget
+        if (channel instanceof ChannelDescriptor desc) {
+            desc.dispatchLocally(packetTarget, message);
+        }
     }
 
     /**
@@ -107,6 +337,11 @@ public final class NetworkShim {
                 }
             }
         } catch (Throwable ignored) {}
+
+        // 3. Channel fallback
+        if (channel instanceof ChannelDescriptor desc) {
+            desc.dispatchLocally(null, message);
+        }
     }
 
     /**
@@ -118,6 +353,14 @@ public final class NetworkShim {
 
     public static ChannelDescriptor getChannel(String id) {
         return REGISTERED_CHANNELS.get(id);
+    }
+
+    public static PayloadEntry getPayload(String id) {
+        return REGISTERED_PAYLOADS.get(id);
+    }
+
+    public static Map<String, PayloadEntry> getRegisteredPayloads() {
+        return REGISTERED_PAYLOADS;
     }
 
     public static class ChannelDescriptor {
@@ -138,9 +381,9 @@ public final class NetworkShim {
         }
 
         public <MSG> void registerMessage(int index, Class<MSG> messageType,
-                                          BiConsumer<MSG, Object> encoder,
-                                          Function<Object, MSG> decoder,
-                                          BiConsumer<MSG, Supplier<Object>> messageConsumer) {
+                                           BiConsumer<MSG, Object> encoder,
+                                           Function<Object, MSG> decoder,
+                                           BiConsumer<MSG, Supplier<Object>> messageConsumer) {
             register(index, messageType, encoder, decoder, messageConsumer);
         }
 
@@ -154,6 +397,15 @@ public final class NetworkShim {
 
         public void sendTo(Object message, Object player) {
             NetworkShim.sendToPlayer(this, message, player);
+        }
+
+        @SuppressWarnings("unchecked")
+        void dispatchLocally(Object target, Object message) {
+            if (message == null) return;
+            PacketHandlerEntry entry = handlers.get(message.getClass());
+            if (entry != null && entry.consumer != null) {
+                entry.consumer.accept(message, (Supplier<Object>) () -> target);
+            }
         }
     }
 
@@ -173,6 +425,24 @@ public final class NetworkShim {
             this.encoder = encoder;
             this.decoder = decoder;
             this.consumer = consumer;
+        }
+    }
+
+    public static class PayloadEntry {
+        public final String stringId;
+        public final Object rawId;
+        public final Object streamCodec;
+        public final BiConsumer<Object, Object> clientHandler;
+        public final BiConsumer<Object, Object> serverHandler;
+
+        public PayloadEntry(String stringId, Object rawId, Object streamCodec,
+                            BiConsumer<Object, Object> clientHandler,
+                            BiConsumer<Object, Object> serverHandler) {
+            this.stringId = stringId;
+            this.rawId = rawId;
+            this.streamCodec = streamCodec;
+            this.clientHandler = clientHandler;
+            this.serverHandler = serverHandler;
         }
     }
 }

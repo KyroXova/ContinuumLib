@@ -7,8 +7,9 @@ import com.kyroxova.continuumlib.knowledgebase.rules.FieldRedirectRule;
 import com.kyroxova.continuumlib.knowledgebase.rules.PolyfillRule;
 
 /**
- * Universal Rules for Capabilities, Item Handlers, and Storage.
- * Bridges Forge CapabilityItemHandler across NeoForge Block Capabilities and Fabric Transfer API.
+ * Universal Rules for Capabilities, Item Handlers, Storage, and Data Attachments.
+ * Bridges Forge ICapabilityProvider / LazyOptional across NeoForge Block/Item/Entity Capabilities,
+ * NeoForge Data Attachments, and Fabric Transfer API.
  */
 public final class CapabilityAndStorageCatalog {
 
@@ -63,6 +64,62 @@ public final class CapabilityAndStorageCatalog {
                 "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
                 v1_20_4, null, null,
                 "ICapabilityProvider.getCapability -> CapabilityShim.getCapability"
+        ));
+
+        // 6. NeoForge Data Attachments: IAttachmentHolder.getData polyfill (for Forge / Fabric)
+        kb.registerRule(new PolyfillRule(
+                "net/neoforged/neoforge/attachment/IAttachmentHolder", "getData",
+                null,
+                "com/kyroxova/continuumlib/shims/CapabilityShim", "getDataAttachment",
+                "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+                null, null, LoaderType.FABRIC,
+                "IAttachmentHolder.getData -> CapabilityShim.getDataAttachment (Fabric)"
+        ));
+
+        kb.registerRule(new PolyfillRule(
+                "net/neoforged/neoforge/attachment/IAttachmentHolder", "setData",
+                null,
+                "com/kyroxova/continuumlib/shims/CapabilityShim", "setDataAttachment",
+                "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+                null, null, LoaderType.FABRIC,
+                "IAttachmentHolder.setData -> CapabilityShim.setDataAttachment (Fabric)"
+        ));
+
+        kb.registerRule(new PolyfillRule(
+                "net/neoforged/neoforge/attachment/IAttachmentHolder", "hasData",
+                null,
+                "com/kyroxova/continuumlib/shims/CapabilityShim", "hasDataAttachment",
+                "(Ljava/lang/Object;Ljava/lang/Object;)Z",
+                null, null, LoaderType.FABRIC,
+                "IAttachmentHolder.hasData -> CapabilityShim.hasDataAttachment (Fabric)"
+        ));
+
+        // 7. NeoForge BlockCapability / ItemCapability / EntityCapability queries on Fabric/Forge
+        kb.registerRule(new PolyfillRule(
+                "net/neoforged/neoforge/capabilities/BlockCapability", "find",
+                "(Lnet/minecraft/world/level/Level;Lnet/minecraft/core/BlockPos;Ljava/lang/Object;)Ljava/lang/Object;",
+                "com/kyroxova/continuumlib/shims/CapabilityShim", "getBlockCapability",
+                "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+                null, null, LoaderType.FABRIC,
+                "BlockCapability.find -> CapabilityShim.getBlockCapability (Fabric)"
+        ));
+
+        kb.registerRule(new PolyfillRule(
+                "net/neoforged/neoforge/capabilities/ItemCapability", "find",
+                "(Lnet/minecraft/world/item/ItemStack;Ljava/lang/Object;)Ljava/lang/Object;",
+                "com/kyroxova/continuumlib/shims/CapabilityShim", "getItemCapability",
+                "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+                null, null, LoaderType.FABRIC,
+                "ItemCapability.find -> CapabilityShim.getItemCapability (Fabric)"
+        ));
+
+        kb.registerRule(new PolyfillRule(
+                "net/neoforged/neoforge/capabilities/EntityCapability", "find",
+                "(Lnet/minecraft/world/entity/Entity;Ljava/lang/Object;)Ljava/lang/Object;",
+                "com/kyroxova/continuumlib/shims/CapabilityShim", "getEntityCapability",
+                "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+                null, null, LoaderType.FABRIC,
+                "EntityCapability.find -> CapabilityShim.getEntityCapability (Fabric)"
         ));
     }
 }

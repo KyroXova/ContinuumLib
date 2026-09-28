@@ -10,8 +10,8 @@ import java.util.logging.Logger;
 
 /**
  * Synthetic Cross-Loader Event Dispatcher.
- * Allows mods written with Forge event mechanisms (@SubscribeEvent, FMLCommonSetupEvent, etc.)
- * to be dispatched from Fabric callbacks without modifying the consumer mod's source code.
+ * Allows mods written with Forge event mechanisms (@SubscribeEvent, FMLCommonSetupEvent, BuildCreativeModeTabContentsEvent, etc.)
+ * to be dispatched from Fabric callbacks and across version epochs without modifying the consumer mod's source code.
  */
 public final class SyntheticEventDispatcher {
 
@@ -51,10 +51,17 @@ public final class SyntheticEventDispatcher {
 
     /**
      * Posts an event to all registered listeners matching the event class or its superclasses.
+     * Automatically coordinates tab populating if the event is a BuildCreativeModeTabContentsEvent.
      */
     public static void post(Object event) {
         if (event == null) return;
         Class<?> eventClass = event.getClass();
+
+        // Check if event is a creative tab contents event
+        String className = eventClass.getSimpleName();
+        if (className.contains("BuildCreativeModeTabContents") || className.contains("BuildContents")) {
+            CreativeTabShim.handleBuildContents(event);
+        }
 
         for (Map.Entry<Class<?>, List<EventListenerWrapper>> entry : LISTENERS.entrySet()) {
             if (entry.getKey().isAssignableFrom(eventClass)) {
@@ -67,6 +74,13 @@ public final class SyntheticEventDispatcher {
                 }
             }
         }
+    }
+
+    /**
+     * Dispatches creative tab content events directly to registered tab items.
+     */
+    public static void dispatchTabContents(Object event) {
+        CreativeTabShim.handleBuildContents(event);
     }
 
     private record EventListenerWrapper(Object target, Method method) {}

@@ -7,13 +7,14 @@ import com.kyroxova.continuumlib.knowledgebase.rules.ClassRedirectRule;
 import com.kyroxova.continuumlib.knowledgebase.rules.PolyfillRule;
 
 /**
- * Universal Rules for Fluids and Fluid Attributes (1.18.2 <-> 1.19.2+ / 1.20+ / NeoForge).
+ * Universal Rules for Fluids, Fluid Attributes, and Entity Attributes across 1.7.9 -> 26.3+.
  */
 public final class FluidAndAttributesRulesCatalog {
 
     public static void register(ApiKnowledgeBase kb) {
         MCVersion v1_19_2 = MCVersion.of("1.19.2");
         MCVersion v1_20_4 = MCVersion.of("1.20.4");
+        MCVersion v1_20_5 = MCVersion.of("1.20.5");
 
         // 1. FluidAttributes.builder -> FluidShim.createFluidAttributes
         kb.registerRule(new PolyfillRule(
@@ -68,6 +69,54 @@ public final class FluidAndAttributesRulesCatalog {
                 "net/neoforged/neoforge/fluids/FluidType",
                 v1_20_4, null, LoaderType.NEOFORGE,
                 "FluidType -> NeoForge FluidType"
+        ));
+
+        // 4. EntityAttributeCreationEvent vs Fabric FabricDefaultAttributeRegistry
+        kb.registerRule(new PolyfillRule(
+                "net/minecraftforge/event/entity/EntityAttributeCreationEvent", "put",
+                "(Lnet/minecraft/world/entity/EntityType;Lnet/minecraft/world/entity/ai/attributes/AttributeSupplier;)V",
+                "com/kyroxova/continuumlib/shims/AttributeModifierShim", "registerDefaultAttributes",
+                "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+                null, null, LoaderType.FABRIC,
+                "EntityAttributeCreationEvent.put -> AttributeModifierShim.registerDefaultAttributes (Fabric)"
+        ));
+
+        kb.registerRule(new PolyfillRule(
+                "net/fabricmc/fabric/api/object/builder/v1/entity/FabricDefaultAttributeRegistry", "register",
+                "(Lnet/minecraft/world/entity/EntityType;Lnet/minecraft/world/entity/ai/attributes/AttributeSupplier$Builder;)Lnet/minecraft/world/entity/ai/attributes/AttributeSupplier;",
+                "com/kyroxova/continuumlib/shims/AttributeModifierShim", "registerDefaultAttributes",
+                "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+                null, null, LoaderType.FORGE,
+                "FabricDefaultAttributeRegistry.register -> AttributeModifierShim.registerDefaultAttributes (Forge)"
+        ));
+
+        // 5. LivingEntity.getAttribute Attribute vs Holder<Attribute> lookup
+        kb.registerRule(new PolyfillRule(
+                "net/minecraft/world/entity/LivingEntity", "getAttribute",
+                "(Lnet/minecraft/world/entity/ai/attributes/Attribute;)Lnet/minecraft/world/entity/ai/attributes/AttributeInstance;",
+                "com/kyroxova/continuumlib/shims/AttributeModifierShim", "getAttribute",
+                "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+                v1_20_5, null, null,
+                "LivingEntity.getAttribute(Attribute) -> AttributeModifierShim.getAttribute (1.20.5+)"
+        ));
+
+        kb.registerRule(new PolyfillRule(
+                "net/minecraft/world/entity/LivingEntity", "getAttribute",
+                "(Lnet/minecraft/core/Holder;)Lnet/minecraft/world/entity/ai/attributes/AttributeInstance;",
+                "com/kyroxova/continuumlib/shims/AttributeModifierShim", "getAttribute",
+                "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+                null, v1_20_4, null,
+                "LivingEntity.getAttribute(Holder) -> AttributeModifierShim.getAttribute (<= 1.20.4)"
+        ));
+
+        // 6. AttributeModifier modern constructor polyfill on <= 1.20.4
+        kb.registerRule(new PolyfillRule(
+                "net/minecraft/world/entity/ai/attributes/AttributeModifier", "<init>",
+                "(Lnet/minecraft/resources/ResourceLocation;DLnet/minecraft/world/entity/ai/attributes/AttributeModifier$Operation;)V",
+                "com/kyroxova/continuumlib/shims/AttributeModifierShim", "createModifier",
+                "(Ljava/lang/Object;DLjava/lang/Object;)Ljava/lang/Object;",
+                null, v1_20_4, null,
+                "AttributeModifier(ResourceLocation, double, Operation) polyfill for <= 1.20.4"
         ));
     }
 }
