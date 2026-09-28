@@ -17,8 +17,13 @@ out/
 # Personal Documentation (Internal only, not pushed to git)
 docs/
 
+# Agent teamwork coordination & internal logs
+.agents/
+ORIGINAL_REQUEST.md
+
 # OS specific
 Thumbs.db
 Desktop.ini
 .DS_Store
+
 
