@@ -1,8 +1,6 @@
 package com.kyroxova.continuumlib.gradle;
 
 import com.kyroxova.bootstrapper.config.TargetSpec;
-import com.kyroxova.bootstrapper.environment.LoaderType;
-import com.kyroxova.bootstrapper.environment.MCVersion;
 import org.gradle.api.Action;
 import org.gradle.api.Project;
 import org.gradle.api.model.ObjectFactory;
@@ -20,6 +18,8 @@ import java.util.List;
  * <pre>
  * continuum {
  *     modId = "mymod"
+ *     mode = "hybrid" // "hybrid", "multi-jar", or "runtime"
+ *     universalBundle = true
  *     base "1.18.2", "forge"
  *     targets {
  *         target "1.20.1", "forge"
@@ -27,6 +27,7 @@ import java.util.List;
  *         target "1.20.6", "neoforge"
  *         target "1.21.1", "neoforge"
  *         target "1.21.1", "fabric"
+ *         target "1.20.1", "quilt"
  *     }
  * }
  * </pre>
@@ -34,6 +35,10 @@ import java.util.List;
 public class ContinuumExtension {
 
     private final Property<String> modId;
+    private final Property<String> mode;
+    private final Property<Boolean> universalBundle;
+    private final Property<String> jarNamingFormat;
+    private final Property<String> destinationPath;
     private final Property<TargetSpec> baseSpec;
     private final ListProperty<TargetSpec> targets;
     private final Project project;
@@ -44,12 +49,48 @@ public class ContinuumExtension {
         ObjectFactory objects = project.getObjects();
 
         this.modId = objects.property(String.class).convention("mymod");
+        this.mode = objects.property(String.class).convention("hybrid");
+        this.universalBundle = objects.property(Boolean.class).convention(true);
+        this.jarNamingFormat = objects.property(String.class).convention("%modid%-%loader%-%version%.jar");
+        this.destinationPath = objects.property(String.class).convention("build/libs/%loader%/");
         this.baseSpec = objects.property(TargetSpec.class).convention(TargetSpec.of("1.18.2", "forge"));
         this.targets = objects.listProperty(TargetSpec.class).convention(new ArrayList<>());
     }
 
     public Property<String> getModId() {
         return modId;
+    }
+
+    public Property<String> getMode() {
+        return mode;
+    }
+
+    public void mode(String mode) {
+        this.mode.set(mode);
+    }
+
+    public Property<Boolean> getUniversalBundle() {
+        return universalBundle;
+    }
+
+    public void universal(boolean enabled) {
+        this.universalBundle.set(enabled);
+    }
+
+    public Property<String> getJarNamingFormat() {
+        return jarNamingFormat;
+    }
+
+    public void jarNamingFormat(String format) {
+        this.jarNamingFormat.set(format);
+    }
+
+    public Property<String> getDestinationPath() {
+        return destinationPath;
+    }
+
+    public void destinationPath(String path) {
+        this.destinationPath.set(path);
     }
 
     public Property<TargetSpec> getBaseSpec() {

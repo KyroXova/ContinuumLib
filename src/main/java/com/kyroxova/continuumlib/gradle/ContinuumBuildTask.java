@@ -16,7 +16,8 @@ import java.io.IOException;
 import java.util.List;
 
 /**
- * Gradle task that compiles and transforms an input JAR into all target loaders and versions.
+ * Gradle task that compiles and transforms an input JAR into loader-specific target JARs
+ * and universal in-memory multi-loader bootstrap bundles.
  */
 public abstract class ContinuumBuildTask extends DefaultTask {
 
@@ -30,6 +31,22 @@ public abstract class ContinuumBuildTask extends DefaultTask {
     public abstract Property<String> getModId();
 
     @Input
+    @Optional
+    public abstract Property<String> getMode();
+
+    @Input
+    @Optional
+    public abstract Property<Boolean> getUniversalBundle();
+
+    @Input
+    @Optional
+    public abstract Property<String> getJarNamingFormat();
+
+    @Input
+    @Optional
+    public abstract Property<String> getDestinationPath();
+
+    @Input
     public abstract Property<TargetSpec> getBaseSpec();
 
     @Input
@@ -40,29 +57,45 @@ public abstract class ContinuumBuildTask extends DefaultTask {
         File inputJarFile = getInputJar().get().getAsFile();
         File outputDir = getOutputDirectory().get().getAsFile();
         String modId = getModId().get();
+        String mode = getMode().getOrElse("hybrid");
+        boolean wantUniversal = getUniversalBundle().getOrElse(true);
+        String naming = getJarNamingFormat().getOrElse("%modid%-%loader%-%version%.jar");
+        String dest = getDestinationPath().getOrElse("build/libs/%loader%/");
         TargetSpec base = getBaseSpec().get();
         List<TargetSpec> targetList = getTargets().get();
 
-        getLogger().lifecycle(String.format("[Continuum] Building %d target JARs for mod '%s' (Base: %s)",
-                targetList.size(), modId, base));
+        getLogger().lifecycle(String.format("[Continuum] Initiating build for mod '%s' (Mode: %s, Base: %s)",
+                modId, mode, base));
 
         BootstrapperConfig config = new BootstrapperConfig(
                 modId,
-                "multi-jar",
+                mode,
                 base,
                 targetList,
-                "build/libs/%loader%/%modid%-%loader%-%version%.jar",
-                "build/libs/%loader%"
+                naming,
+                dest
         );
 
         ApiKnowledgeBase kb = ApiKnowledgeBase.createDefault();
         ContinuumJarBuilder jarBuilder = new ContinuumJarBuilder(config, kb);
 
-        for (TargetSpec target : targetList) {
-            getLogger().lifecycle(String.format("[Continuum] Processing Target: %s", target));
-            File builtJar = jarBuilder.buildTargetJar(target, inputJarFile, outputDir);
-            getLogger().lifecycle(String.format("[Continuum] -> Generated: %s (%d KB)",
-                    builtJar.getName(), builtJar.length() / 1024));
+        // 1. Build Loader-Specific Target JARs (unless in pure runtime single-jar mode)
+        if (!"runtime".equalsIgnoreCase(mode)) {
+            getLogger().lifecycle(String.format("[Continuum] Building %d target JARs...", targetList.size()));
+            for (TargetSpec target : targetList) {
+                getLogger().lifecycle(String.format("[Continuum] Processing Target: %s", target));
+                File builtJar = jarBuilder.buildTargetJar(target, inputJarFile, outputDir);
+                getLogger().lifecycle(String.format("[Continuum] -> Generated: %s (%d KB)",
+                        builtJar.getName(), builtJar.length() / 1024));
+            }
+        }
+
+        // 2. Build Universal In-Memory Multi-Loader Bootstrap Bundle
+        if (wantUniversal && ("hybrid".equalsIgnoreCase(mode) || "runtime".equalsIgnoreCase(mode))) {
+            getLogger().lifecycle(String.format("[Continuum] Packaging Universal In-Memory Multi-Loader Bootstrap Bundle..."));
+            File universalJar = jarBuilder.buildUniversalBootstrapBundle(inputJarFile, outputDir);
+            getLogger().lifecycle(String.format("[Continuum] -> Generated Universal Bundle: %s (%d KB)",
+                    universalJar.getName(), universalJar.length() / 1024));
         }
 
         getLogger().lifecycle("[Continuum] All target builds completed successfully!");
