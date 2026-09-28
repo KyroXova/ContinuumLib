@@ -59,6 +59,9 @@ public final class ContinuumJarBuilder {
                 String entryName = entry.getKey();
                 byte[] content = entry.getValue();
 
+                // Normalize plural vs singular datapack paths (recipes/ vs recipe/, tags/blocks/ vs tags/block/)
+                entryName = DataPackResourcePathNormalizer.normalizePath(entryName, target.getVersion());
+
                 if (entryName.endsWith(".class")) {
                     String className = entryName.substring(0, entryName.length() - 6);
                     content = transformer.transform(className, content);

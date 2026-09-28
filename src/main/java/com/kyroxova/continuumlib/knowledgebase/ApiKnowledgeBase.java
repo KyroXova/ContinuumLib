@@ -60,5 +60,7 @@ public final class ApiKnowledgeBase {
         FluidAndAttributesRulesCatalog.register(this);
         EnchantmentAndLootRulesCatalog.register(this);
         TagAndResourceRulesCatalog.register(this);
+        SoundAndMusicRulesCatalog.register(this);
+        DataPackPathRulesCatalog.register(this);
     }
 }

@@ -17,31 +17,50 @@ public final class ResourceLocationShim {
     private ResourceLocationShim() {}
 
     public static Object create(String namespace, String path) {
+        String normalizedPath = normalizePath(path);
         try {
             Class<?> rlClass = Class.forName("net.minecraft.resources.ResourceLocation");
 
             // Attempt 1: Modern 1.21+ ResourceLocation.fromNamespaceAndPath(...)
             try {
                 Method modernFactory = rlClass.getMethod("fromNamespaceAndPath", String.class, String.class);
-                return modernFactory.invoke(null, namespace, path);
+                return modernFactory.invoke(null, namespace, normalizedPath);
             } catch (NoSuchMethodException ignored) {}
 
             // Attempt 2: Standard Constructor(String, String)
             try {
                 Constructor<?> ctor = rlClass.getConstructor(String.class, String.class);
-                return ctor.newInstance(namespace, path);
+                return ctor.newInstance(namespace, normalizedPath);
             } catch (NoSuchMethodException ignored) {}
 
             // Attempt 3: Single string parse(String)
             try {
                 Method parseMethod = rlClass.getMethod("parse", String.class);
-                return parseMethod.invoke(null, namespace + ":" + path);
+                return parseMethod.invoke(null, namespace + ":" + normalizedPath);
             } catch (NoSuchMethodException ignored) {}
 
         } catch (Throwable t) {
             LOGGER.fine("[ResourceLocationShim] Error creating ResourceLocation: " + t.getMessage());
         }
-        return namespace + ":" + path;
+        return namespace + ":" + normalizedPath;
+    }
+
+    /**
+     * Normalizes plural/singular path variations (e.g., recipes/ -> recipe/)
+     */
+    private static String normalizePath(String path) {
+        if (path == null) return null;
+        // In 1.21+, recipe/ is used instead of recipes/
+        if (path.startsWith("recipes/")) {
+            return "recipe/" + path.substring(8);
+        }
+        if (path.startsWith("loot_tables/")) {
+            return "loot_table/" + path.substring(12);
+        }
+        if (path.startsWith("structures/")) {
+            return "structure/" + path.substring(11);
+        }
+        return path;
     }
 
     public static Object parse(String location) {
