@@ -50,5 +50,23 @@ public final class ItemAndComponentRulesCatalog {
                 v1_20_5, null, null,
                 "ItemStack.setTag(CompoundTag) -> ItemStackShim.setTag()"
         ));
+
+        kb.registerRule(new PolyfillRule(
+                "net/minecraft/world/item/ItemStack", "hasTag",
+                "()Z",
+                "com/kyroxova/continuumlib/shims/ItemStackShim", "hasTag",
+                "(Ljava/lang/Object;)Z",
+                v1_20_5, null, null,
+                "ItemStack.hasTag() -> ItemStackShim.hasTag()"
+        ));
+
+        kb.registerRule(new PolyfillRule(
+                "net/minecraft/world/item/ItemStack", "removeTagKey",
+                "(Ljava/lang/String;)V",
+                "com/kyroxova/continuumlib/shims/ItemStackShim", "removeTagKey",
+                "(Ljava/lang/Object;Ljava/lang/String;)V",
+                v1_20_5, null, null,
+                "ItemStack.removeTagKey(String) -> ItemStackShim.removeTagKey()"
+        ));
     }
 }

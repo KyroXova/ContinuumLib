@@ -1,6 +1,7 @@
 package com.kyroxova.continuumlib.transformer;
 
 import com.kyroxova.bootstrapper.config.TargetSpec;
+import com.kyroxova.bootstrapper.environment.MCVersion;
 import com.kyroxova.continuumlib.knowledgebase.ApiKnowledgeBase;
 import com.kyroxova.continuumlib.knowledgebase.rules.*;
 import org.objectweb.asm.ClassReader;
@@ -21,12 +22,16 @@ public final class ContinuumBytecodeTransformer {
 
     private static final Logger LOGGER = Logger.getLogger(ContinuumBytecodeTransformer.class.getName());
 
+    private final TargetSpec baseSpec;
+    private final TargetSpec targetSpec;
     private final Map<String, String> classRedirects = new HashMap<>();
     private final List<MethodRedirectRule> methodRedirects = new ArrayList<>();
     private final List<FieldRedirectRule> fieldRedirects = new ArrayList<>();
     private final List<PolyfillRule> polyfillRules = new ArrayList<>();
 
     public ContinuumBytecodeTransformer(ApiKnowledgeBase knowledgeBase, TargetSpec baseSpec, TargetSpec targetSpec) {
+        this.baseSpec = baseSpec;
+        this.targetSpec = targetSpec;
         List<TransformationRule> activeRules = knowledgeBase.getApplicableRules(baseSpec, targetSpec);
         for (TransformationRule rule : activeRules) {
             if (rule instanceof ClassRedirectRule cr) {
@@ -117,6 +122,27 @@ public final class ContinuumBytecodeTransformer {
                 if (transformInstructions(method.instructions)) {
                     modified = true;
                 }
+            }
+        }
+
+        // 4. Modern synthetic bridges for Block and BlockEntity (>= 1.20.5)
+        if (targetSpec != null && targetSpec.getVersion().isAtLeast(MCVersion.of("1.20.5"))) {
+            if (injectModernBlockAndBlockEntityBridges(classNode)) {
+                modified = true;
+            }
+        }
+
+        // 5. Modern Entity.level field -> method getter (>= 1.20)
+        if (targetSpec != null && targetSpec.getVersion().isAtLeast(MCVersion.of("1.20"))) {
+            if (transformModernEntityLevelAccess(classNode)) {
+                modified = true;
+            }
+        }
+
+        // 6. Modern AttributeModifier constructor rewrite (>= 1.20.5)
+        if (targetSpec != null && targetSpec.getVersion().isAtLeast(MCVersion.of("1.20.5"))) {
+            if (transformAttributeModifierConstructors(classNode)) {
+                modified = true;
             }
         }
 
@@ -220,5 +246,216 @@ public final class ContinuumBytecodeTransformer {
             }
         }
         return result;
+    }
+
+    private boolean injectModernBlockAndBlockEntityBridges(ClassNode classNode) {
+        if (classNode.methods == null) return false;
+        boolean modified = false;
+
+        MethodNode legacyUseMethod = null;
+        boolean hasUseItemOn = false;
+        boolean hasUseWithoutItem = false;
+
+        MethodNode legacySaveMethod = null;
+        boolean hasModernSave = false;
+        MethodNode legacyLoadMethod = null;
+        boolean hasModernLoad = false;
+
+        for (MethodNode method : classNode.methods) {
+            if ("use".equals(method.name) && "(Lnet/minecraft/world/level/block/state/BlockState;Lnet/minecraft/world/level/Level;Lnet/minecraft/core/BlockPos;Lnet/minecraft/world/entity/player/Player;Lnet/minecraft/world/InteractionHand;Lnet/minecraft/world/phys/BlockHitResult;)Lnet/minecraft/world/InteractionResult;".equals(method.desc)) {
+                legacyUseMethod = method;
+            } else if ("useItemOn".equals(method.name) && "(Lnet/minecraft/world/item/ItemStack;Lnet/minecraft/world/level/block/state/BlockState;Lnet/minecraft/world/level/Level;Lnet/minecraft/core/BlockPos;Lnet/minecraft/world/entity/player/Player;Lnet/minecraft/world/InteractionHand;Lnet/minecraft/world/phys/BlockHitResult;)Lnet/minecraft/world/ItemInteractionResult;".equals(method.desc)) {
+                hasUseItemOn = true;
+            } else if ("useWithoutItem".equals(method.name) && "(Lnet/minecraft/world/level/block/state/BlockState;Lnet/minecraft/world/level/Level;Lnet/minecraft/core/BlockPos;Lnet/minecraft/world/entity/player/Player;Lnet/minecraft/world/phys/BlockHitResult;)Lnet/minecraft/world/InteractionResult;".equals(method.desc)) {
+                hasUseWithoutItem = true;
+            } else if ("saveAdditional".equals(method.name) && "(Lnet/minecraft/nbt/CompoundTag;)V".equals(method.desc)) {
+                legacySaveMethod = method;
+            } else if ("saveAdditional".equals(method.name) && "(Lnet/minecraft/nbt/CompoundTag;Lnet/minecraft/core/HolderLookup$Provider;)V".equals(method.desc)) {
+                hasModernSave = true;
+            } else if ("load".equals(method.name) && "(Lnet/minecraft/nbt/CompoundTag;)V".equals(method.desc)) {
+                legacyLoadMethod = method;
+            } else if ("loadAdditional".equals(method.name) && "(Lnet/minecraft/nbt/CompoundTag;Lnet/minecraft/core/HolderLookup$Provider;)V".equals(method.desc)) {
+                hasModernLoad = true;
+            }
+        }
+
+        // Bridge Block.use -> useItemOn
+        if (legacyUseMethod != null && !hasUseItemOn) {
+            MethodNode useItemOnNode = new MethodNode(
+                    Opcodes.ACC_PUBLIC | Opcodes.ACC_SYNTHETIC,
+                    "useItemOn",
+                    "(Lnet/minecraft/world/item/ItemStack;Lnet/minecraft/world/level/block/state/BlockState;Lnet/minecraft/world/level/Level;Lnet/minecraft/core/BlockPos;Lnet/minecraft/world/entity/player/Player;Lnet/minecraft/world/InteractionHand;Lnet/minecraft/world/phys/BlockHitResult;)Lnet/minecraft/world/ItemInteractionResult;",
+                    null,
+                    null
+            );
+            InsnList il = useItemOnNode.instructions;
+            il.add(new VarInsnNode(Opcodes.ALOAD, 0)); // this
+            il.add(new VarInsnNode(Opcodes.ALOAD, 2)); // BlockState state
+            il.add(new VarInsnNode(Opcodes.ALOAD, 3)); // Level level
+            il.add(new VarInsnNode(Opcodes.ALOAD, 4)); // BlockPos pos
+            il.add(new VarInsnNode(Opcodes.ALOAD, 5)); // Player player
+            il.add(new VarInsnNode(Opcodes.ALOAD, 6)); // InteractionHand hand
+            il.add(new VarInsnNode(Opcodes.ALOAD, 7)); // BlockHitResult hit
+            il.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, classNode.name, "use", legacyUseMethod.desc, false));
+            il.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "com/kyroxova/continuumlib/shims/BlockInteractionShim", "toItemInteractionResult", "(Ljava/lang/Object;)Ljava/lang/Object;", false));
+            il.add(new TypeInsnNode(Opcodes.CHECKCAST, "net/minecraft/world/ItemInteractionResult"));
+            il.add(new InsnNode(Opcodes.ARETURN));
+            useItemOnNode.maxStack = 8;
+            useItemOnNode.maxLocals = 8;
+            classNode.methods.add(useItemOnNode);
+            modified = true;
+        }
+
+        // Bridge Block.use -> useWithoutItem
+        if (legacyUseMethod != null && !hasUseWithoutItem) {
+            MethodNode useWithoutItemNode = new MethodNode(
+                    Opcodes.ACC_PUBLIC | Opcodes.ACC_SYNTHETIC,
+                    "useWithoutItem",
+                    "(Lnet/minecraft/world/level/block/state/BlockState;Lnet/minecraft/world/level/Level;Lnet/minecraft/core/BlockPos;Lnet/minecraft/world/entity/player/Player;Lnet/minecraft/world/phys/BlockHitResult;)Lnet/minecraft/world/InteractionResult;",
+                    null,
+                    null
+            );
+            InsnList il = useWithoutItemNode.instructions;
+            il.add(new VarInsnNode(Opcodes.ALOAD, 0)); // this
+            il.add(new VarInsnNode(Opcodes.ALOAD, 1)); // BlockState state
+            il.add(new VarInsnNode(Opcodes.ALOAD, 2)); // Level level
+            il.add(new VarInsnNode(Opcodes.ALOAD, 3)); // BlockPos pos
+            il.add(new VarInsnNode(Opcodes.ALOAD, 4)); // Player player
+            il.add(new FieldInsnNode(Opcodes.GETSTATIC, "net/minecraft/world/InteractionHand", "MAIN_HAND", "Lnet/minecraft/world/InteractionHand;"));
+            il.add(new VarInsnNode(Opcodes.ALOAD, 5)); // BlockHitResult hit
+            il.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, classNode.name, "use", legacyUseMethod.desc, false));
+            il.add(new InsnNode(Opcodes.ARETURN));
+            useWithoutItemNode.maxStack = 7;
+            useWithoutItemNode.maxLocals = 6;
+            classNode.methods.add(useWithoutItemNode);
+            modified = true;
+        }
+
+        // Bridge BlockEntity saveAdditional
+        if (legacySaveMethod != null && !hasModernSave) {
+            MethodNode saveBridge = new MethodNode(
+                    Opcodes.ACC_PUBLIC | Opcodes.ACC_SYNTHETIC,
+                    "saveAdditional",
+                    "(Lnet/minecraft/nbt/CompoundTag;Lnet/minecraft/core/HolderLookup$Provider;)V",
+                    null,
+                    null
+            );
+            InsnList il = saveBridge.instructions;
+            if (classNode.superName != null && !classNode.superName.equals("java/lang/Object")) {
+                il.add(new VarInsnNode(Opcodes.ALOAD, 0));
+                il.add(new VarInsnNode(Opcodes.ALOAD, 1));
+                il.add(new VarInsnNode(Opcodes.ALOAD, 2));
+                il.add(new MethodInsnNode(Opcodes.INVOKESPECIAL, classNode.superName, "saveAdditional", "(Lnet/minecraft/nbt/CompoundTag;Lnet/minecraft/core/HolderLookup$Provider;)V", false));
+            }
+            il.add(new VarInsnNode(Opcodes.ALOAD, 0));
+            il.add(new VarInsnNode(Opcodes.ALOAD, 1));
+            il.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, classNode.name, "saveAdditional", "(Lnet/minecraft/nbt/CompoundTag;)V", false));
+            il.add(new InsnNode(Opcodes.RETURN));
+            saveBridge.maxStack = 3;
+            saveBridge.maxLocals = 3;
+            classNode.methods.add(saveBridge);
+            modified = true;
+        }
+
+        // Bridge BlockEntity load -> loadAdditional
+        if (legacyLoadMethod != null && !hasModernLoad) {
+            MethodNode loadBridge = new MethodNode(
+                    Opcodes.ACC_PUBLIC | Opcodes.ACC_SYNTHETIC,
+                    "loadAdditional",
+                    "(Lnet/minecraft/nbt/CompoundTag;Lnet/minecraft/core/HolderLookup$Provider;)V",
+                    null,
+                    null
+            );
+            InsnList il = loadBridge.instructions;
+            if (classNode.superName != null && !classNode.superName.equals("java/lang/Object")) {
+                il.add(new VarInsnNode(Opcodes.ALOAD, 0));
+                il.add(new VarInsnNode(Opcodes.ALOAD, 1));
+                il.add(new VarInsnNode(Opcodes.ALOAD, 2));
+                il.add(new MethodInsnNode(Opcodes.INVOKESPECIAL, classNode.superName, "loadAdditional", "(Lnet/minecraft/nbt/CompoundTag;Lnet/minecraft/core/HolderLookup$Provider;)V", false));
+            }
+            il.add(new VarInsnNode(Opcodes.ALOAD, 0));
+            il.add(new VarInsnNode(Opcodes.ALOAD, 1));
+            il.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, classNode.name, "load", "(Lnet/minecraft/nbt/CompoundTag;)V", false));
+            il.add(new InsnNode(Opcodes.RETURN));
+            loadBridge.maxStack = 3;
+            loadBridge.maxLocals = 3;
+            classNode.methods.add(loadBridge);
+            modified = true;
+        }
+
+        return modified;
+    }
+
+    private boolean transformModernEntityLevelAccess(ClassNode classNode) {
+        if (classNode.methods == null) return false;
+        boolean modified = false;
+
+        for (MethodNode method : classNode.methods) {
+            if (method.instructions == null) continue;
+            for (AbstractInsnNode insn : method.instructions.toArray()) {
+                if (insn.getOpcode() == Opcodes.GETFIELD && insn instanceof FieldInsnNode finsn) {
+                    if ("level".equals(finsn.name) && "Lnet/minecraft/world/level/Level;".equals(finsn.desc)) {
+                        MethodInsnNode getterCall = new MethodInsnNode(
+                                Opcodes.INVOKEVIRTUAL,
+                                finsn.owner,
+                                "level",
+                                "()Lnet/minecraft/world/level/Level;",
+                                false
+                        );
+                        method.instructions.set(finsn, getterCall);
+                        modified = true;
+                    }
+                }
+            }
+        }
+        return modified;
+    }
+
+    private boolean transformAttributeModifierConstructors(ClassNode classNode) {
+        if (classNode.methods == null) return false;
+        boolean modified = false;
+
+        for (MethodNode method : classNode.methods) {
+            if (method.instructions == null) continue;
+            for (AbstractInsnNode insn : method.instructions.toArray()) {
+                if (insn.getOpcode() == Opcodes.INVOKESPECIAL && insn instanceof MethodInsnNode minsn) {
+                    if ("net/minecraft/world/entity/ai/attributes/AttributeModifier".equals(minsn.owner)
+                            && "<init>".equals(minsn.name)
+                            && "(Ljava/util/UUID;Ljava/lang/String;DLnet/minecraft/world/entity/ai/attributes/AttributeModifier$Operation;)V".equals(minsn.desc)) {
+
+                        AbstractInsnNode curr = minsn.getPrevious();
+                        TypeInsnNode targetNew = null;
+                        InsnNode targetDup = null;
+                        while (curr != null) {
+                            if (curr.getOpcode() == Opcodes.DUP && curr.getPrevious() instanceof TypeInsnNode tnode
+                                    && tnode.getOpcode() == Opcodes.NEW
+                                    && "net/minecraft/world/entity/ai/attributes/AttributeModifier".equals(tnode.desc)) {
+                                targetDup = (InsnNode) curr;
+                                targetNew = tnode;
+                                break;
+                            }
+                            curr = curr.getPrevious();
+                        }
+
+                        if (targetNew != null && targetDup != null) {
+                            method.instructions.remove(targetNew);
+                            method.instructions.remove(targetDup);
+                            MethodInsnNode staticCall = new MethodInsnNode(
+                                    Opcodes.INVOKESTATIC,
+                                    "com/kyroxova/continuumlib/shims/AttributeModifierShim",
+                                    "createModifier",
+                                    "(Ljava/util/UUID;Ljava/lang/String;DLjava/lang/Object;)Ljava/lang/Object;",
+                                    false
+                            );
+                            TypeInsnNode checkCast = new TypeInsnNode(Opcodes.CHECKCAST, "net/minecraft/world/entity/ai/attributes/AttributeModifier");
+                            method.instructions.set(minsn, staticCall);
+                            method.instructions.insert(staticCall, checkCast);
+                            modified = true;
+                        }
+                    }
+                }
+            }
+        }
+        return modified;
     }
 }

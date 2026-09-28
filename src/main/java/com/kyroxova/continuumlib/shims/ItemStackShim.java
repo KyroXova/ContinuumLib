@@ -66,6 +66,43 @@ public final class ItemStackShim {
         } catch (Throwable ignored) {}
     }
 
+    /**
+     * Intercepts: ItemStack.hasTag()
+     */
+    public static boolean hasTag(Object itemStack) {
+        if (itemStack == null) return false;
+        try {
+            // 1. Try legacy ItemStack.hasTag() (<= 1.20.4)
+            Method hasTagMethod = itemStack.getClass().getMethod("hasTag");
+            return (boolean) hasTagMethod.invoke(itemStack);
+        } catch (NoSuchMethodException e) {
+            // 2. Modern 1.20.5+ Data Components
+            return getCustomDataNbt(itemStack) != null;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /**
+     * Intercepts: ItemStack.removeTagKey(String)
+     */
+    public static void removeTagKey(Object itemStack, String key) {
+        if (itemStack == null || key == null) return;
+        try {
+            Method removeKeyMethod = itemStack.getClass().getMethod("removeTagKey", String.class);
+            removeKeyMethod.invoke(itemStack, key);
+        } catch (NoSuchMethodException e) {
+            Object nbt = getCustomDataNbt(itemStack);
+            if (nbt != null) {
+                try {
+                    Method removeMethod = nbt.getClass().getMethod("remove", String.class);
+                    removeMethod.invoke(nbt, key);
+                    setCustomDataNbt(itemStack, nbt);
+                } catch (Throwable ignored) {}
+            }
+        } catch (Throwable ignored) {}
+    }
+
     private static Object getCustomDataNbt(Object itemStack) {
         try {
             Class<?> dataComponentsClass = Class.forName("net.minecraft.core.component.DataComponents");
