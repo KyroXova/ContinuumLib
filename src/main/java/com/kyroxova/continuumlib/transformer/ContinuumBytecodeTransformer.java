@@ -119,7 +119,7 @@ public final class ContinuumBytecodeTransformer {
                     modified = true;
                 }
 
-                if (transformInstructions(method.instructions)) {
+                if (transformInstructions(method, method.instructions, classNode)) {
                     modified = true;
                 }
             }
@@ -178,6 +178,10 @@ public final class ContinuumBytecodeTransformer {
     }
 
     private boolean transformInstructions(InsnList instructions) {
+        return transformInstructions(null, instructions, null);
+    }
+
+    private boolean transformInstructions(MethodNode method, InsnList instructions, ClassNode classNode) {
         if (instructions == null) return false;
         boolean modified = false;
 
@@ -221,18 +225,45 @@ public final class ContinuumBytecodeTransformer {
                             if (targetNew != null && targetDup != null) {
                                 instructions.remove(targetNew);
                                 instructions.remove(targetDup);
+                                minsn.setOpcode(Opcodes.INVOKESTATIC);
+                                minsn.owner = pr.getShimOwner();
+                                minsn.name = pr.getShimName();
+                                minsn.desc = pr.getShimDesc();
+                                minsn.itf = false;
+                                String castTarget = classRedirects.getOrDefault(originalOwner, originalOwner);
+                                if (!pr.getShimDesc().endsWith("L" + originalOwner + ";") && !pr.getShimDesc().endsWith("L" + castTarget + ";")) {
+                                    instructions.insert(minsn, new TypeInsnNode(Opcodes.CHECKCAST, castTarget));
+                                }
+                                modified = true;
+                                break;
+                            } else if (method != null && "<init>".equals(method.name)) {
+                                // Preceding NEW / DUP not found in a constructor (e.g. subclass super() or this() call);
+                                // leave constructor intact to preserve operand stack neutrality and avoid VerifyError.
+                                break;
+                            } else {
+                                // In non-constructor methods (e.g. synthetic test instructions without explicit NEW/DUP),
+                                // rewrite to static factory shim.
+                                minsn.setOpcode(Opcodes.INVOKESTATIC);
+                                minsn.owner = pr.getShimOwner();
+                                minsn.name = pr.getShimName();
+                                minsn.desc = pr.getShimDesc();
+                                minsn.itf = false;
+                                String castTarget = classRedirects.getOrDefault(originalOwner, originalOwner);
+                                if (!pr.getShimDesc().endsWith("L" + originalOwner + ";") && !pr.getShimDesc().endsWith("L" + castTarget + ";")) {
+                                    instructions.insert(minsn, new TypeInsnNode(Opcodes.CHECKCAST, castTarget));
+                                }
+                                modified = true;
+                                break;
                             }
+                        } else {
+                            minsn.setOpcode(Opcodes.INVOKESTATIC);
+                            minsn.owner = pr.getShimOwner();
+                            minsn.name = pr.getShimName();
+                            minsn.desc = pr.getShimDesc();
+                            minsn.itf = false;
+                            modified = true;
+                            break;
                         }
-                        minsn.setOpcode(Opcodes.INVOKESTATIC);
-                        minsn.owner = pr.getShimOwner();
-                        minsn.name = pr.getShimName();
-                        minsn.desc = pr.getShimDesc();
-                        minsn.itf = false;
-                        if (isConstructor && !pr.getShimDesc().endsWith("L" + originalOwner + ";")) {
-                            instructions.insert(minsn, new TypeInsnNode(Opcodes.CHECKCAST, originalOwner));
-                        }
-                        modified = true;
-                        break;
                     }
                 }
 
@@ -365,7 +396,7 @@ public final class ContinuumBytecodeTransformer {
                 legacySaveMethod = method;
             } else if ("saveAdditional".equals(method.name) && "(Lnet/minecraft/nbt/CompoundTag;Lnet/minecraft/core/HolderLookup$Provider;)V".equals(method.desc)) {
                 hasModernSave = true;
-            } else if ("load".equals(method.name) && "(Lnet/minecraft/nbt/CompoundTag;)V".equals(method.desc)) {
+            } else if (("load".equals(method.name) || "loadAdditional".equals(method.name)) && "(Lnet/minecraft/nbt/CompoundTag;)V".equals(method.desc)) {
                 legacyLoadMethod = method;
             } else if ("loadAdditional".equals(method.name) && "(Lnet/minecraft/nbt/CompoundTag;Lnet/minecraft/core/HolderLookup$Provider;)V".equals(method.desc)) {
                 hasModernLoad = true;
@@ -466,8 +497,12 @@ public final class ContinuumBytecodeTransformer {
                 il.add(new MethodInsnNode(Opcodes.INVOKESPECIAL, classNode.superName, "saveAdditional", "(Lnet/minecraft/nbt/CompoundTag;Lnet/minecraft/core/HolderLookup$Provider;)V", false));
             }
             il.add(new VarInsnNode(Opcodes.ALOAD, 0));
+            il.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "com/kyroxova/continuumlib/shims/BlockEntityShim", "pushSave", "(Ljava/lang/Object;)V", false));
+            il.add(new VarInsnNode(Opcodes.ALOAD, 0));
             il.add(new VarInsnNode(Opcodes.ALOAD, 1));
             il.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, classNode.name, "saveAdditional", "(Lnet/minecraft/nbt/CompoundTag;)V", false));
+            il.add(new VarInsnNode(Opcodes.ALOAD, 0));
+            il.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "com/kyroxova/continuumlib/shims/BlockEntityShim", "popSave", "(Ljava/lang/Object;)V", false));
             il.add(new InsnNode(Opcodes.RETURN));
             saveBridge.maxStack = 3;
             saveBridge.maxLocals = 3;
@@ -492,8 +527,12 @@ public final class ContinuumBytecodeTransformer {
                 il.add(new MethodInsnNode(Opcodes.INVOKESPECIAL, classNode.superName, "loadAdditional", "(Lnet/minecraft/nbt/CompoundTag;Lnet/minecraft/core/HolderLookup$Provider;)V", false));
             }
             il.add(new VarInsnNode(Opcodes.ALOAD, 0));
+            il.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "com/kyroxova/continuumlib/shims/BlockEntityShim", "pushLoad", "(Ljava/lang/Object;)V", false));
+            il.add(new VarInsnNode(Opcodes.ALOAD, 0));
             il.add(new VarInsnNode(Opcodes.ALOAD, 1));
-            il.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, classNode.name, "load", "(Lnet/minecraft/nbt/CompoundTag;)V", false));
+            il.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, classNode.name, legacyLoadMethod.name, "(Lnet/minecraft/nbt/CompoundTag;)V", false));
+            il.add(new VarInsnNode(Opcodes.ALOAD, 0));
+            il.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "com/kyroxova/continuumlib/shims/BlockEntityShim", "popLoad", "(Ljava/lang/Object;)V", false));
             il.add(new InsnNode(Opcodes.RETURN));
             loadBridge.maxStack = 3;
             loadBridge.maxLocals = 3;
@@ -608,6 +647,12 @@ public final class ContinuumBytecodeTransformer {
                 } else if ("(Lnet/minecraft/world/inventory/CraftingContainer;)Lnet/minecraft/world/item/ItemStack;".equals(method.desc)) {
                     legacyAssemble = method;
                     legacyContainerType = "net/minecraft/world/inventory/CraftingContainer";
+                } else if ("(Lnet/minecraft/world/Container;Lnet/minecraft/core/RegistryAccess;)Lnet/minecraft/world/item/ItemStack;".equals(method.desc)) {
+                    legacyAssemble = method;
+                    legacyContainerType = "net/minecraft/world/Container";
+                } else if ("(Lnet/minecraft/world/inventory/CraftingContainer;Lnet/minecraft/core/RegistryAccess;)Lnet/minecraft/world/item/ItemStack;".equals(method.desc)) {
+                    legacyAssemble = method;
+                    legacyContainerType = "net/minecraft/world/inventory/CraftingContainer";
                 } else if ("(Lnet/minecraft/world/item/crafting/CraftingInput;Lnet/minecraft/core/HolderLookup$Provider;)Lnet/minecraft/world/item/ItemStack;".equals(method.desc)) {
                     hasModernAssembleCraftingInput = true;
                 } else if ("(Lnet/minecraft/world/item/crafting/RecipeInput;Lnet/minecraft/core/HolderLookup$Provider;)Lnet/minecraft/world/item/ItemStack;".equals(method.desc)) {
@@ -631,6 +676,8 @@ public final class ContinuumBytecodeTransformer {
             if ("getResultItem".equals(method.name)) {
                 if ("()Lnet/minecraft/world/item/ItemStack;".equals(method.desc)) {
                     legacyGetResultItem = method;
+                } else if ("(Lnet/minecraft/core/RegistryAccess;)Lnet/minecraft/world/item/ItemStack;".equals(method.desc)) {
+                    legacyGetResultItem = method;
                 } else if ("(Lnet/minecraft/core/HolderLookup$Provider;)Lnet/minecraft/world/item/ItemStack;".equals(method.desc)) {
                     hasModernGetResultItem = true;
                 }
@@ -646,7 +693,7 @@ public final class ContinuumBytecodeTransformer {
             }
 
             // Check buildCraftingRecipes / buildRecipes
-            if ("buildCraftingRecipes".equals(method.name) && "(Ljava/util/function/Consumer;)V".equals(method.desc)) {
+            if (("buildCraftingRecipes".equals(method.name) || "buildRecipes".equals(method.name)) && "(Ljava/util/function/Consumer;)V".equals(method.desc)) {
                 legacyBuildCraftingRecipes = method;
             } else if ("buildRecipes".equals(method.name) && "(Lnet/minecraft/data/recipes/RecipeOutput;)V".equals(method.desc)) {
                 hasModernBuildRecipes = true;
@@ -656,6 +703,7 @@ public final class ContinuumBytecodeTransformer {
         // 1. Inject assemble(CraftingInput, HolderLookup.Provider)
         if (legacyAssemble != null) {
             String targetContainer = legacyContainerType != null ? legacyContainerType : "net/minecraft/world/Container";
+            boolean hasRegistryAccess = legacyAssemble.desc.contains("RegistryAccess;");
 
             if (!hasModernAssembleCraftingInput) {
                 MethodNode assembleNode = new MethodNode(
@@ -670,9 +718,14 @@ public final class ContinuumBytecodeTransformer {
                 il.add(new VarInsnNode(Opcodes.ALOAD, 1)); // CraftingInput
                 il.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "com/kyroxova/continuumlib/shims/RecipeShim", "wrapInput", "(Ljava/lang/Object;)Ljava/lang/Object;", false));
                 il.add(new TypeInsnNode(Opcodes.CHECKCAST, targetContainer));
+                if (hasRegistryAccess) {
+                    il.add(new VarInsnNode(Opcodes.ALOAD, 2)); // HolderLookup.Provider
+                    il.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "com/kyroxova/continuumlib/shims/RecipeShim", "wrapRegistryAccess", "(Ljava/lang/Object;)Ljava/lang/Object;", false));
+                    il.add(new TypeInsnNode(Opcodes.CHECKCAST, "net/minecraft/core/RegistryAccess"));
+                }
                 il.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, classNode.name, "assemble", legacyAssemble.desc, false));
                 il.add(new InsnNode(Opcodes.ARETURN));
-                assembleNode.maxStack = 3;
+                assembleNode.maxStack = hasRegistryAccess ? 4 : 3;
                 assembleNode.maxLocals = 3;
                 classNode.methods.add(assembleNode);
                 modified = true;
@@ -691,9 +744,14 @@ public final class ContinuumBytecodeTransformer {
                 il.add(new VarInsnNode(Opcodes.ALOAD, 1)); // RecipeInput
                 il.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "com/kyroxova/continuumlib/shims/RecipeShim", "wrapInput", "(Ljava/lang/Object;)Ljava/lang/Object;", false));
                 il.add(new TypeInsnNode(Opcodes.CHECKCAST, targetContainer));
+                if (hasRegistryAccess) {
+                    il.add(new VarInsnNode(Opcodes.ALOAD, 2)); // HolderLookup.Provider
+                    il.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "com/kyroxova/continuumlib/shims/RecipeShim", "wrapRegistryAccess", "(Ljava/lang/Object;)Ljava/lang/Object;", false));
+                    il.add(new TypeInsnNode(Opcodes.CHECKCAST, "net/minecraft/core/RegistryAccess"));
+                }
                 il.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, classNode.name, "assemble", legacyAssemble.desc, false));
                 il.add(new InsnNode(Opcodes.ARETURN));
-                assembleNode.maxStack = 3;
+                assembleNode.maxStack = hasRegistryAccess ? 4 : 3;
                 assembleNode.maxLocals = 3;
                 classNode.methods.add(assembleNode);
                 modified = true;
@@ -760,9 +818,15 @@ public final class ContinuumBytecodeTransformer {
             );
             InsnList il = resultNode.instructions;
             il.add(new VarInsnNode(Opcodes.ALOAD, 0)); // this
-            il.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, classNode.name, "getResultItem", "()Lnet/minecraft/world/item/ItemStack;", false));
+            boolean hasRegistryAccess = legacyGetResultItem.desc.contains("RegistryAccess;");
+            if (hasRegistryAccess) {
+                il.add(new VarInsnNode(Opcodes.ALOAD, 1)); // HolderLookup.Provider
+                il.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "com/kyroxova/continuumlib/shims/RecipeShim", "wrapRegistryAccess", "(Ljava/lang/Object;)Ljava/lang/Object;", false));
+                il.add(new TypeInsnNode(Opcodes.CHECKCAST, "net/minecraft/core/RegistryAccess"));
+            }
+            il.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, classNode.name, "getResultItem", legacyGetResultItem.desc, false));
             il.add(new InsnNode(Opcodes.ARETURN));
-            resultNode.maxStack = 1;
+            resultNode.maxStack = hasRegistryAccess ? 3 : 1;
             resultNode.maxLocals = 2;
             classNode.methods.add(resultNode);
             modified = true;
@@ -813,7 +877,7 @@ public final class ContinuumBytecodeTransformer {
             il.add(new MethodInsnNode(
                     Opcodes.INVOKEVIRTUAL,
                     classNode.name,
-                    "buildCraftingRecipes",
+                    legacyBuildCraftingRecipes.name,
                     legacyBuildCraftingRecipes.desc,
                     false
             ));

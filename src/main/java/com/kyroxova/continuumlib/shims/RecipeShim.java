@@ -185,6 +185,32 @@ public final class RecipeShim {
         }
     }
 
+    /**
+     * Adapts HolderLookup.Provider to RegistryAccess if needed (1.19.4-1.20.4 -> 1.20.5+).
+     */
+    public static Object wrapRegistryAccess(Object provider) {
+        if (provider == null) return null;
+        try {
+            Class<?> registryAccessClass = Class.forName("net.minecraft.core.RegistryAccess");
+            if (registryAccessClass.isInstance(provider)) {
+                return provider;
+            }
+            return Proxy.newProxyInstance(
+                    RecipeShim.class.getClassLoader(),
+                    new Class<?>[]{registryAccessClass},
+                    (proxy, method, args) -> {
+                        try {
+                            Method m = provider.getClass().getMethod(method.getName(), method.getParameterTypes());
+                            return m.invoke(provider, args);
+                        } catch (NoSuchMethodException ignored) {}
+                        return null;
+                    }
+            );
+        } catch (Throwable t) {
+            return provider;
+        }
+    }
+
     private static Object resolveRecipeId(Object finishedRecipe) {
         if (finishedRecipe == null) return null;
         try {
