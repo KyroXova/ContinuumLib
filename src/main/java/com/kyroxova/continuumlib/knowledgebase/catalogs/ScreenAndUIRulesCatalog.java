@@ -2,7 +2,6 @@ package com.kyroxova.continuumlib.knowledgebase.catalogs;
 
 import com.kyroxova.bootstrapper.environment.MCVersion;
 import com.kyroxova.continuumlib.knowledgebase.ApiKnowledgeBase;
-import com.kyroxova.continuumlib.knowledgebase.rules.ClassRedirectRule;
 import com.kyroxova.continuumlib.knowledgebase.rules.PolyfillRule;
 
 /**
@@ -33,7 +32,36 @@ public final class ScreenAndUIRulesCatalog {
                 "Font.draw(PoseStack, String) -> ScreenRenderingShim.drawString"
         ));
 
-        // 2. Screen.renderComponentTooltip(PoseStack, list, x, y)
+        // 2. Font.drawShadow(PoseStack, text, x, y, color) -> ScreenRenderingShim.drawShadow
+        kb.registerRule(new PolyfillRule(
+                "net/minecraft/client/gui/Font", "drawShadow",
+                "(Lcom/mojang/blaze3d/vertex/PoseStack;Lnet/minecraft/network/chat/Component;FFI)I",
+                "com/kyroxova/continuumlib/shims/ScreenRenderingShim", "drawShadow",
+                "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;FFI)I",
+                v1_20_0, null, null,
+                "Font.drawShadow(PoseStack, Component) -> ScreenRenderingShim.drawShadow"
+        ));
+
+        kb.registerRule(new PolyfillRule(
+                "net/minecraft/client/gui/Font", "drawShadow",
+                "(Lcom/mojang/blaze3d/vertex/PoseStack;Ljava/lang/String;FFI)I",
+                "com/kyroxova/continuumlib/shims/ScreenRenderingShim", "drawShadow",
+                "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;FFI)I",
+                v1_20_0, null, null,
+                "Font.drawShadow(PoseStack, String) -> ScreenRenderingShim.drawShadow"
+        ));
+
+        // 3. Screen.render(PoseStack, mouseX, mouseY, partialTicks) -> ScreenRenderingShim.renderScreen
+        kb.registerRule(new PolyfillRule(
+                "net/minecraft/client/gui/screens/Screen", "render",
+                "(Lcom/mojang/blaze3d/vertex/PoseStack;IIF)V",
+                "com/kyroxova/continuumlib/shims/ScreenRenderingShim", "renderScreen",
+                "(Ljava/lang/Object;Ljava/lang/Object;IIF)V",
+                v1_20_0, null, null,
+                "Screen.render(PoseStack) -> ScreenRenderingShim.renderScreen"
+        ));
+
+        // 4. Screen.renderComponentTooltip(PoseStack, list, x, y)
         kb.registerRule(new PolyfillRule(
                 "net/minecraft/client/gui/screens/Screen", "renderComponentTooltip",
                 "(Lcom/mojang/blaze3d/vertex/PoseStack;Ljava/util/List;II)V",

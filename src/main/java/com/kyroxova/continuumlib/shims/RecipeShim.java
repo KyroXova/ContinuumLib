@@ -3,12 +3,14 @@ package com.kyroxova.continuumlib.shims;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
+import java.util.function.Consumer;
 import java.util.logging.Logger;
 
 /**
  * Universal Recipe Shim.
  * Bridges legacy Recipe methods (matches, assemble, getRemainingItems, getResultItem)
- * between 1.18.2 (Container/CraftingContainer) and modern 1.20.5+ / 1.21+ (RecipeInput/CraftingInput).
+ * between 1.18.2 (Container/CraftingContainer) and modern 1.20.5+ / 1.21+ (RecipeInput/CraftingInput),
+ * and adapts buildCraftingRecipes(Consumer<FinishedRecipe>) to buildRecipes(RecipeOutput).
  */
 public final class RecipeShim {
 
@@ -42,6 +44,156 @@ public final class RecipeShim {
             LOGGER.fine("[RecipeShim] Error wrapping modern recipe input: " + t.getMessage());
             return modernInput;
         }
+    }
+
+    /**
+     * Wraps a legacy Container into a modern RecipeInput / CraftingInput proxy.
+     */
+    public static Object wrapToRecipeInput(Object legacyContainer) {
+        if (legacyContainer == null) return null;
+
+        try {
+            Class<?> recipeInputClass = null;
+            try {
+                recipeInputClass = Class.forName("net.minecraft.world.item.crafting.CraftingInput");
+            } catch (ClassNotFoundException e) {
+                try {
+                    recipeInputClass = Class.forName("net.minecraft.world.item.crafting.RecipeInput");
+                } catch (ClassNotFoundException ignored) {}
+            }
+
+            if (recipeInputClass == null) return legacyContainer;
+
+            Class<?> finalClass = recipeInputClass;
+            return Proxy.newProxyInstance(
+                    RecipeShim.class.getClassLoader(),
+                    new Class<?>[]{finalClass},
+                    (proxy, method, args) -> {
+                        String name = method.getName();
+                        if ("size".equals(name) || "getItemCount".equals(name)) {
+                            Method sizeMethod = legacyContainer.getClass().getMethod("getContainerSize");
+                            return sizeMethod.invoke(legacyContainer);
+                        }
+                        if ("getItem".equals(name) && args != null && args.length == 1) {
+                            Method getItemMethod = legacyContainer.getClass().getMethod("getItem", int.class);
+                            return getItemMethod.invoke(legacyContainer, args[0]);
+                        }
+                        if ("isEmpty".equals(name)) {
+                            Method emptyMethod = legacyContainer.getClass().getMethod("isEmpty");
+                            return emptyMethod.invoke(legacyContainer);
+                        }
+                        if ("width".equals(name)) {
+                            try {
+                                Method w = legacyContainer.getClass().getMethod("getWidth");
+                                return w.invoke(legacyContainer);
+                            } catch (NoSuchMethodException e) {
+                                return 3;
+                            }
+                        }
+                        if ("height".equals(name)) {
+                            try {
+                                Method h = legacyContainer.getClass().getMethod("getHeight");
+                                return h.invoke(legacyContainer);
+                            } catch (NoSuchMethodException e) {
+                                return 3;
+                            }
+                        }
+                        return null;
+                    }
+            );
+        } catch (Throwable t) {
+            LOGGER.fine("[RecipeShim] Error wrapping legacy container: " + t.getMessage());
+            return legacyContainer;
+        }
+    }
+
+    /**
+     * Wraps a modern RecipeOutput into a legacy Consumer<FinishedRecipe>.
+     */
+    @SuppressWarnings("unchecked")
+    public static Consumer<Object> wrapOutput(Object recipeOutput) {
+        if (recipeOutput == null) return r -> {};
+        if (recipeOutput instanceof Consumer) return (Consumer<Object>) recipeOutput;
+
+        return finishedRecipe -> {
+            if (finishedRecipe == null) return;
+            try {
+                // Call recipeOutput.accept(...) via reflection
+                for (Method m : recipeOutput.getClass().getMethods()) {
+                    if ("accept".equals(m.getName())) {
+                        if (m.getParameterCount() == 3) {
+                            // accept(ResourceLocation id, Recipe<?> recipe, AdvancementHolder advancement)
+                            Method getIdMethod = finishedRecipe.getClass().getMethod("getId");
+                            Object id = getIdMethod.invoke(finishedRecipe);
+                            m.invoke(recipeOutput, id, finishedRecipe, null);
+                            return;
+                        } else if (m.getParameterCount() == 2) {
+                            Method getIdMethod = finishedRecipe.getClass().getMethod("getId");
+                            Object id = getIdMethod.invoke(finishedRecipe);
+                            m.invoke(recipeOutput, id, finishedRecipe);
+                            return;
+                        } else if (m.getParameterCount() == 1) {
+                            m.invoke(recipeOutput, finishedRecipe);
+                            return;
+                        }
+                    }
+                }
+            } catch (Throwable t) {
+                LOGGER.fine("[RecipeShim] Error in wrapOutput accept: " + t.getMessage());
+            }
+        };
+    }
+
+    /**
+     * Dispatches assemble(...) call safely across legacy and modern signatures.
+     */
+    public static Object assembleRecipe(Object recipe, Object container, Object provider) {
+        if (recipe == null) return null;
+        try {
+            Class<?> recipeClass = recipe.getClass();
+            // Try modern assemble(CraftingInput, HolderLookup.Provider) or (RecipeInput, ...)
+            for (Method m : recipeClass.getMethods()) {
+                if ("assemble".equals(m.getName()) && m.getParameterCount() == 2) {
+                    Object input = wrapToRecipeInput(container);
+                    return m.invoke(recipe, input, provider);
+                }
+            }
+            // Try legacy assemble(Container)
+            for (Method m : recipeClass.getMethods()) {
+                if ("assemble".equals(m.getName()) && m.getParameterCount() == 1) {
+                    Object legacy = (container instanceof Proxy) ? container : wrapInput(container);
+                    return m.invoke(recipe, legacy);
+                }
+            }
+        } catch (Throwable t) {
+            LOGGER.fine("[RecipeShim] Error dispatching assembleRecipe: " + t.getMessage());
+        }
+        return null;
+    }
+
+    /**
+     * Dispatches matches(...) call safely across legacy and modern signatures.
+     */
+    public static boolean matchesRecipe(Object recipe, Object container, Object level) {
+        if (recipe == null) return false;
+        try {
+            Class<?> recipeClass = recipe.getClass();
+            for (Method m : recipeClass.getMethods()) {
+                if ("matches".equals(m.getName()) && m.getParameterCount() == 2) {
+                    Class<?> firstParam = m.getParameterTypes()[0];
+                    if (firstParam.getName().contains("Container")) {
+                        Object legacy = (container instanceof Proxy) ? container : wrapInput(container);
+                        return (boolean) m.invoke(recipe, legacy, level);
+                    } else {
+                        Object input = wrapToRecipeInput(container);
+                        return (boolean) m.invoke(recipe, input, level);
+                    }
+                }
+            }
+        } catch (Throwable t) {
+            LOGGER.fine("[RecipeShim] Error dispatching matchesRecipe: " + t.getMessage());
+        }
+        return false;
     }
 
     private static class RecipeInputInvocationHandler implements InvocationHandler {

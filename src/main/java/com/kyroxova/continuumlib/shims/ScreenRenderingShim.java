@@ -34,19 +34,84 @@ public final class ScreenRenderingShim {
      * Bridges font.draw(poseStack, text, x, y, color) to guiGraphics.drawString(font, text, x, y, color)
      */
     public static int drawString(Object font, Object graphicsOrPose, Object text, float x, float y, int color) {
+        if (font == null) return 0;
         try {
-            // 1. Try modern GuiGraphics.drawString(Font, Component, int, int, int)
-            Method drawString = graphicsOrPose.getClass().getMethod("drawString", font.getClass(), text.getClass(), int.class, int.class, int.class);
-            return (int) drawString.invoke(graphicsOrPose, font, text, (int) x, (int) y, color);
-        } catch (Throwable t1) {
-            try {
-                // 2. Fallback to legacy Font.draw(PoseStack, Component/String, float, float, int)
-                Object pose = extractPose(graphicsOrPose);
-                Method legacyDraw = font.getClass().getMethod("draw", pose.getClass(), text.getClass(), float.class, float.class, int.class);
-                return (int) legacyDraw.invoke(font, pose, text, x, y, color);
-            } catch (Throwable t2) {
-                return 0;
+            // 1. Try modern GuiGraphics.drawString(Font, Component/String, int, int, int)
+            for (Method m : graphicsOrPose.getClass().getMethods()) {
+                if ("drawString".equals(m.getName()) && m.getParameterCount() == 5) {
+                    return (int) m.invoke(graphicsOrPose, font, text, (int) x, (int) y, color);
+                }
             }
+        } catch (Throwable ignored) {}
+
+        try {
+            // 2. Fallback to legacy Font.draw(PoseStack, Component/String, float, float, int)
+            Object pose = extractPose(graphicsOrPose);
+            for (Method m : font.getClass().getMethods()) {
+                if ("draw".equals(m.getName()) && m.getParameterCount() == 5) {
+                    return (int) m.invoke(font, pose, text, x, y, color);
+                }
+            }
+        } catch (Throwable t2) {
+            LOGGER.fine("[ScreenRenderingShim] Error in drawString: " + t2.getMessage());
+        }
+        return 0;
+    }
+
+    /**
+     * Bridges font.drawShadow(poseStack, text, x, y, color) to guiGraphics.drawString with dropShadow = true
+     */
+    public static int drawShadow(Object font, Object graphicsOrPose, Object text, float x, float y, int color) {
+        if (font == null) return 0;
+        try {
+            // Modern GuiGraphics.drawString(Font, Component/String, int, int, int, boolean)
+            for (Method m : graphicsOrPose.getClass().getMethods()) {
+                if ("drawString".equals(m.getName()) && m.getParameterCount() == 6) {
+                    return (int) m.invoke(graphicsOrPose, font, text, (int) x, (int) y, color, true);
+                }
+            }
+        } catch (Throwable ignored) {}
+
+        try {
+            // Legacy Font.drawShadow(PoseStack, Component/String, float, float, int)
+            Object pose = extractPose(graphicsOrPose);
+            for (Method m : font.getClass().getMethods()) {
+                if ("drawShadow".equals(m.getName()) && m.getParameterCount() == 5) {
+                    return (int) m.invoke(font, pose, text, x, y, color);
+                }
+            }
+        } catch (Throwable t) {
+            LOGGER.fine("[ScreenRenderingShim] Error in drawShadow: " + t.getMessage());
+        }
+        return 0;
+    }
+
+    /**
+     * Bridges screen.render(poseStack, mouseX, mouseY, partialTick)
+     */
+    public static void renderScreen(Object screen, Object graphicsOrPose, int mouseX, int mouseY, float partialTick) {
+        if (screen == null) return;
+        try {
+            // Modern Screen.render(GuiGraphics, int, int, float)
+            for (Method m : screen.getClass().getMethods()) {
+                if ("render".equals(m.getName()) && m.getParameterCount() == 4) {
+                    m.invoke(screen, graphicsOrPose, mouseX, mouseY, partialTick);
+                    return;
+                }
+            }
+        } catch (Throwable ignored) {}
+
+        try {
+            // Legacy Screen.render(PoseStack, int, int, float)
+            Object pose = extractPose(graphicsOrPose);
+            for (Method m : screen.getClass().getMethods()) {
+                if ("render".equals(m.getName()) && m.getParameterCount() == 4) {
+                    m.invoke(screen, pose, mouseX, mouseY, partialTick);
+                    return;
+                }
+            }
+        } catch (Throwable t) {
+            LOGGER.fine("[ScreenRenderingShim] Error in renderScreen: " + t.getMessage());
         }
     }
 
@@ -54,6 +119,7 @@ public final class ScreenRenderingShim {
      * Bridges screen.renderComponentTooltip(poseStack, components, mouseX, mouseY)
      */
     public static void renderComponentTooltip(Object screen, Object graphicsOrPose, List<?> components, int mouseX, int mouseY) {
+        if (screen == null) return;
         try {
             // Try modern GuiGraphics.renderComponentTooltip(Font, List, int, int)
             Method renderTooltip = graphicsOrPose.getClass().getMethod("renderComponentTooltip",
@@ -61,13 +127,14 @@ public final class ScreenRenderingShim {
             Method getFont = screen.getClass().getMethod("getFont");
             Object font = getFont.invoke(screen);
             renderTooltip.invoke(graphicsOrPose, font, components, mouseX, mouseY);
-        } catch (Throwable t1) {
-            try {
-                // Legacy Screen.renderComponentTooltip(PoseStack, List, int, int)
-                Object pose = extractPose(graphicsOrPose);
-                Method legacyTooltip = screen.getClass().getMethod("renderComponentTooltip", pose.getClass(), List.class, int.class, int.class);
-                legacyTooltip.invoke(screen, pose, components, mouseX, mouseY);
-            } catch (Throwable ignored) {}
-        }
+            return;
+        } catch (Throwable ignored) {}
+
+        try {
+            // Legacy Screen.renderComponentTooltip(PoseStack, List, int, int)
+            Object pose = extractPose(graphicsOrPose);
+            Method legacyTooltip = screen.getClass().getMethod("renderComponentTooltip", pose.getClass(), List.class, int.class, int.class);
+            legacyTooltip.invoke(screen, pose, components, mouseX, mouseY);
+        } catch (Throwable ignored) {}
     }
 }

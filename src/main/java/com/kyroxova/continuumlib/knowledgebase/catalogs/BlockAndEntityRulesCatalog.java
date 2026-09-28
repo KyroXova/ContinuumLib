@@ -2,15 +2,22 @@ package com.kyroxova.continuumlib.knowledgebase.catalogs;
 
 import com.kyroxova.bootstrapper.environment.MCVersion;
 import com.kyroxova.continuumlib.knowledgebase.ApiKnowledgeBase;
+import com.kyroxova.continuumlib.knowledgebase.rules.ClassRedirectRule;
+import com.kyroxova.continuumlib.knowledgebase.rules.FieldRedirectRule;
+import com.kyroxova.continuumlib.knowledgebase.rules.MethodRedirectRule;
 import com.kyroxova.continuumlib.knowledgebase.rules.PolyfillRule;
 
 /**
- * Universal Rules for Blocks, Properties, BlockEntities, and Entities.
+ * Universal Rules for Blocks, Properties, BlockEntities, and Entities across 1.7.9 -> 26.3+.
  */
 public final class BlockAndEntityRulesCatalog {
 
     public static void register(ApiKnowledgeBase kb) {
+        MCVersion v1_13_0 = MCVersion.of("1.13");
+        MCVersion v1_14_0 = MCVersion.of("1.14");
+        MCVersion v1_19_0 = MCVersion.of("1.19");
         MCVersion v1_20_0 = MCVersion.of("1.20");
+        MCVersion v1_20_5 = MCVersion.of("1.20.5");
 
         // 1. Material Removal Polyfills (1.20+)
         kb.registerRule(new PolyfillRule(
@@ -38,6 +45,120 @@ public final class BlockAndEntityRulesCatalog {
                 "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
                 v1_20_0, null, null,
                 "Properties.of(Material, Function) -> BlockPropertiesShim.ofLegacyMaterialAndFunction"
+        ));
+
+        // 2. Block.use(...) Invocations (1.20.5+)
+        kb.registerRule(new PolyfillRule(
+                "net/minecraft/world/level/block/Block", "use",
+                "(Lnet/minecraft/world/level/block/state/BlockState;Lnet/minecraft/world/level/Level;Lnet/minecraft/core/BlockPos;Lnet/minecraft/world/entity/player/Player;Lnet/minecraft/world/InteractionHand;Lnet/minecraft/world/phys/BlockHitResult;)Lnet/minecraft/world/InteractionResult;",
+                "com/kyroxova/continuumlib/shims/BlockInteractionShim", "useBlock",
+                "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+                v1_20_5, null, null,
+                "Block.use -> BlockInteractionShim.useBlock (1.20.5+)"
+        ));
+
+        kb.registerRule(new PolyfillRule(
+                "net/minecraft/world/level/block/state/BlockBehaviour", "use",
+                "(Lnet/minecraft/world/level/block/state/BlockState;Lnet/minecraft/world/level/Level;Lnet/minecraft/core/BlockPos;Lnet/minecraft/world/entity/player/Player;Lnet/minecraft/world/InteractionHand;Lnet/minecraft/world/phys/BlockHitResult;)Lnet/minecraft/world/InteractionResult;",
+                "com/kyroxova/continuumlib/shims/BlockInteractionShim", "useBlock",
+                "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+                v1_20_5, null, null,
+                "BlockBehaviour.use -> BlockInteractionShim.useBlock (1.20.5+)"
+        ));
+
+        // 3. BlockEntity save/load Additional (1.20.5+)
+        kb.registerRule(new PolyfillRule(
+                "net/minecraft/world/level/block/entity/BlockEntity", "saveAdditional",
+                "(Lnet/minecraft/nbt/CompoundTag;)V",
+                "com/kyroxova/continuumlib/shims/BlockEntityShim", "save",
+                "(Ljava/lang/Object;Ljava/lang/Object;)V",
+                v1_20_5, null, null,
+                "BlockEntity.saveAdditional(CompoundTag) -> BlockEntityShim.save (1.20.5+)"
+        ));
+
+        kb.registerRule(new PolyfillRule(
+                "net/minecraft/world/level/block/entity/BlockEntity", "load",
+                "(Lnet/minecraft/nbt/CompoundTag;)V",
+                "com/kyroxova/continuumlib/shims/BlockEntityShim", "load",
+                "(Ljava/lang/Object;Ljava/lang/Object;)V",
+                v1_20_5, null, null,
+                "BlockEntity.load(CompoundTag) -> BlockEntityShim.load (1.20.5+)"
+        ));
+
+        // 4. RandomSource vs Random tick invocation polyfills (1.19+)
+        kb.registerRule(new PolyfillRule(
+                "net/minecraft/world/level/block/Block", "animateTick",
+                "(Lnet/minecraft/world/level/block/state/BlockState;Lnet/minecraft/world/level/Level;Lnet/minecraft/core/BlockPos;Ljava/util/Random;)V",
+                "com/kyroxova/continuumlib/shims/RandomShim", "animateTick",
+                "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;)V",
+                v1_19_0, null, null,
+                "Block.animateTick(..., Random) -> RandomShim.animateTick (1.19+)"
+        ));
+
+        kb.registerRule(new PolyfillRule(
+                "net/minecraft/world/level/block/Block", "randomTick",
+                "(Lnet/minecraft/world/level/block/state/BlockState;Lnet/minecraft/server/level/ServerLevel;Lnet/minecraft/core/BlockPos;Ljava/util/Random;)V",
+                "com/kyroxova/continuumlib/shims/RandomShim", "randomTick",
+                "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;)V",
+                v1_19_0, null, null,
+                "Block.randomTick(..., Random) -> RandomShim.randomTick (1.19+)"
+        ));
+
+        // 5. AttributeModifier Operation Enums (1.20.5+)
+        kb.registerRule(new FieldRedirectRule(
+                "net/minecraft/world/entity/ai/attributes/AttributeModifier$Operation", "ADDITION",
+                "Lnet/minecraft/world/entity/ai/attributes/AttributeModifier$Operation;",
+                "net/minecraft/world/entity/ai/attributes/AttributeModifier$Operation", "ADD_VALUE",
+                "Lnet/minecraft/world/entity/ai/attributes/AttributeModifier$Operation;",
+                v1_20_5, null, null,
+                "AttributeModifier$Operation.ADDITION -> ADD_VALUE (1.20.5+)"
+        ));
+
+        kb.registerRule(new FieldRedirectRule(
+                "net/minecraft/world/entity/ai/attributes/AttributeModifier$Operation", "MULTIPLY_BASE",
+                "Lnet/minecraft/world/entity/ai/attributes/AttributeModifier$Operation;",
+                "net/minecraft/world/entity/ai/attributes/AttributeModifier$Operation", "ADD_MULTIPLIED_BASE",
+                "Lnet/minecraft/world/entity/ai/attributes/AttributeModifier$Operation;",
+                v1_20_5, null, null,
+                "AttributeModifier$Operation.MULTIPLY_BASE -> ADD_MULTIPLIED_BASE (1.20.5+)"
+        ));
+
+        kb.registerRule(new FieldRedirectRule(
+                "net/minecraft/world/entity/ai/attributes/AttributeModifier$Operation", "MULTIPLY_TOTAL",
+                "Lnet/minecraft/world/entity/ai/attributes/AttributeModifier$Operation;",
+                "net/minecraft/world/entity/ai/attributes/AttributeModifier$Operation", "ADD_MULTIPLIED_TOTAL",
+                "Lnet/minecraft/world/entity/ai/attributes/AttributeModifier$Operation;",
+                v1_20_5, null, null,
+                "AttributeModifier$Operation.MULTIPLY_TOTAL -> ADD_MULTIPLIED_TOTAL (1.20.5+)"
+        ));
+
+        // 6. AttributeModifier Constructor Polyfill (1.20.5+)
+        kb.registerRule(new PolyfillRule(
+                "net/minecraft/world/entity/ai/attributes/AttributeModifier", "<init>",
+                "(Ljava/util/UUID;Ljava/lang/String;DLnet/minecraft/world/entity/ai/attributes/AttributeModifier$Operation;)V",
+                "com/kyroxova/continuumlib/shims/AttributeModifierShim", "createModifier",
+                "(Ljava/util/UUID;Ljava/lang/String;DLjava/lang/Object;)Ljava/lang/Object;",
+                v1_20_5, null, null,
+                "AttributeModifier(UUID, name, amount, operation) -> AttributeModifierShim.createModifier (1.20.5+)"
+        ));
+
+        // 7. Legacy TileEntity -> BlockEntity class redirect (1.14+)
+        kb.registerRule(new ClassRedirectRule(
+                "net/minecraft/tileentity/TileEntity",
+                "net/minecraft/world/level/block/entity/BlockEntity",
+                v1_14_0, null, null,
+                "TileEntity -> BlockEntity (1.14+)"
+        ));
+
+        // 8. Entity getLevel() method redirect for 1.20+
+        kb.registerRule(new MethodRedirectRule(
+                "net/minecraft/world/entity/Entity", "getLevel",
+                "()Lnet/minecraft/world/level/Level;",
+                "net/minecraft/world/entity/Entity", "level",
+                "()Lnet/minecraft/world/level/Level;",
+                -1,
+                v1_20_0, null, null,
+                "Entity.getLevel() -> Entity.level() (1.20+)"
         ));
     }
 }

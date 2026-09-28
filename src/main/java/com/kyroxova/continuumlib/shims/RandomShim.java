@@ -69,6 +69,45 @@ public final class RandomShim {
     }
 
     /**
+     * Intercepts and bridges legacy Block.animateTick(..., Random) on modern 1.19+ runtimes.
+     */
+    public static void animateTick(Object block, Object state, Object level, Object pos, Object random) {
+        if (block == null) return;
+        try {
+            Class<?> blockClass = block.getClass();
+            // Try modern 1.19+ animateTick(..., RandomSource)
+            for (Method m : blockClass.getMethods()) {
+                if ("animateTick".equals(m.getName()) && m.getParameterCount() == 4) {
+                    Object randomSource = (random instanceof Random r) ? toRandomSource(r) : random;
+                    m.invoke(block, state, level, pos, randomSource);
+                    return;
+                }
+            }
+        } catch (Throwable t) {
+            LOGGER.fine("[RandomShim] Error dispatching animateTick: " + t.getMessage());
+        }
+    }
+
+    /**
+     * Intercepts and bridges legacy Block.randomTick(..., Random) on modern 1.19+ runtimes.
+     */
+    public static void randomTick(Object block, Object state, Object level, Object pos, Object random) {
+        if (block == null) return;
+        try {
+            Class<?> blockClass = block.getClass();
+            for (Method m : blockClass.getMethods()) {
+                if ("randomTick".equals(m.getName()) && m.getParameterCount() == 4) {
+                    Object randomSource = (random instanceof Random r) ? toRandomSource(r) : random;
+                    m.invoke(block, state, level, pos, randomSource);
+                    return;
+                }
+            }
+        } catch (Throwable t) {
+            LOGGER.fine("[RandomShim] Error dispatching randomTick: " + t.getMessage());
+        }
+    }
+
+    /**
      * Custom java.util.Random wrapper that delegates to a modern RandomSource instance.
      */
     public static class RandomSourceWrapper extends Random {

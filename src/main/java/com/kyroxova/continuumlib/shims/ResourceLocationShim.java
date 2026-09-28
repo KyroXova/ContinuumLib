@@ -124,4 +124,26 @@ public final class ResourceLocationShim {
             return create("minecraft", location);
         }
     }
+
+    public static String getNormalizedPath(Object resourceLocation) {
+        if (resourceLocation == null) return "";
+        try {
+            Method getPath = resourceLocation.getClass().getMethod("getPath");
+            String path = (String) getPath.invoke(resourceLocation);
+            return normalizePath(path);
+        } catch (Throwable t) {
+            return resourceLocation.toString();
+        }
+    }
+
+    public static String getDenormalizedPath(Object resourceLocation) {
+        if (resourceLocation == null) return "";
+        try {
+            Method getPath = resourceLocation.getClass().getMethod("getPath");
+            String path = (String) getPath.invoke(resourceLocation);
+            return denormalizePath(path);
+        } catch (Throwable t) {
+            return resourceLocation.toString();
+        }
+    }
 }
