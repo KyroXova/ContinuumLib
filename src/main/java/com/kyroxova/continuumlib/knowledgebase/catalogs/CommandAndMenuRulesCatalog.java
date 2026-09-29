@@ -76,5 +76,52 @@ public final class CommandAndMenuRulesCatalog {
                 null, null, null,
                 "NetworkHooks.openScreen -> MenuTypeShim.openMenu"
         ));
+
+        // 6. CommandSource <-> CommandSourceStack Class Redirects
+        kb.registerRule(new ClassRedirectRule(
+                "net/minecraft/command/CommandSource",
+                "net/minecraft/commands/CommandSourceStack",
+                v1_17_0, null, null,
+                "CommandSource -> CommandSourceStack (1.17+)"
+        ));
+
+        kb.registerRule(new ClassRedirectRule(
+                "net/minecraft/commands/CommandSourceStack",
+                "net/minecraft/command/CommandSource",
+                null, v1_16_5, null,
+                "CommandSourceStack -> CommandSource (<= 1.16.5)"
+        ));
+
+        MCVersion v1_20_0 = MCVersion.of("1.20");
+        MCVersion v1_19_4 = MCVersion.of("1.19.4");
+
+        // 7. CommandSourceStack.sendSuccess polyfills (Component vs Supplier<Component>)
+        kb.registerRule(new PolyfillRule(
+                "net/minecraft/commands/CommandSourceStack", "sendSuccess",
+                "(Lnet/minecraft/network/chat/Component;Z)V",
+                "com/kyroxova/continuumlib/shims/CommandShim", "sendSuccess",
+                "(Ljava/lang/Object;Ljava/lang/Object;Z)V",
+                v1_20_0, null, null,
+                "CommandSourceStack.sendSuccess(Component, boolean) -> CommandShim.sendSuccess (1.20+)"
+        ));
+
+        kb.registerRule(new PolyfillRule(
+                "net/minecraft/commands/CommandSourceStack", "sendSuccess",
+                "(Ljava/util/function/Supplier;Z)V",
+                "com/kyroxova/continuumlib/shims/CommandShim", "sendSuccess",
+                "(Ljava/lang/Object;Ljava/lang/Object;Z)V",
+                null, v1_19_4, null,
+                "CommandSourceStack.sendSuccess(Supplier, boolean) -> CommandShim.sendSuccess (<= 1.19.4)"
+        ));
+
+        // 8. CommandSourceStack.sendFailure polyfill
+        kb.registerRule(new PolyfillRule(
+                "net/minecraft/commands/CommandSourceStack", "sendFailure",
+                "(Lnet/minecraft/network/chat/Component;)V",
+                "com/kyroxova/continuumlib/shims/CommandShim", "sendFailure",
+                "(Ljava/lang/Object;Ljava/lang/Object;)V",
+                null, null, null,
+                "CommandSourceStack.sendFailure -> CommandShim.sendFailure"
+        ));
     }
 }

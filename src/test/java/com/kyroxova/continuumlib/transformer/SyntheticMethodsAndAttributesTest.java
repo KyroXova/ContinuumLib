@@ -736,4 +736,324 @@ public class SyntheticMethodsAndAttributesTest {
         }
         assertTrue(has121CraftingInputAssemble, "1.21.1 target must inject 2-arg assemble(CraftingInput, HolderLookup.Provider)");
     }
+
+    @Test
+    public void testWave5ExplosionSoundAndAdvancementTransformations() {
+        ApiKnowledgeBase kb = ApiKnowledgeBase.createDefault();
+        TargetSpec base = TargetSpec.of("1.18.2", "forge");
+        TargetSpec targetModern = TargetSpec.of("26.3", "neoforge");
+        TargetSpec targetLegacy = TargetSpec.of("1.16.5", "forge");
+        TargetSpec target119 = TargetSpec.of("1.19.2", "forge");
+        TargetSpec target1201 = TargetSpec.of("1.20.1", "forge");
+
+        ContinuumBytecodeTransformer transformerModern = new ContinuumBytecodeTransformer(kb, base, targetModern);
+        ContinuumBytecodeTransformer transformerLegacy = new ContinuumBytecodeTransformer(kb, base, targetLegacy);
+        ContinuumBytecodeTransformer transformer119 = new ContinuumBytecodeTransformer(kb, base, target119);
+        ContinuumBytecodeTransformer transformer1201 = new ContinuumBytecodeTransformer(kb, base, target1201);
+
+        // 1. Test Modern Target (>= 1.20 and 26.3+)
+        ClassNode callerModern = new ClassNode();
+        callerModern.version = Opcodes.V17;
+        callerModern.access = Opcodes.ACC_PUBLIC;
+        callerModern.name = "com/example/TestWave5ModernCaller";
+        callerModern.superName = "java/lang/Object";
+
+        MethodNode m1 = new MethodNode(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, "testModern", "()V", null, null);
+        InsnList il1 = m1.instructions;
+
+        // Explosion$BlockInteraction.BREAK -> Level$ExplosionInteraction.BLOCK
+        il1.add(new FieldInsnNode(Opcodes.GETSTATIC, "net/minecraft/world/level/Explosion$BlockInteraction", "BREAK", "Lnet/minecraft/world/level/Explosion$BlockInteraction;"));
+        il1.add(new InsnNode(Opcodes.POP));
+
+        // Level.explode returning Explosion followed by POP -> returns void, POP removed
+        il1.add(new InsnNode(Opcodes.ACONST_NULL)); // Level
+        il1.add(new InsnNode(Opcodes.ACONST_NULL)); // Entity
+        il1.add(new InsnNode(Opcodes.DCONST_0));     // x
+        il1.add(new InsnNode(Opcodes.DCONST_0));     // y
+        il1.add(new InsnNode(Opcodes.DCONST_0));     // z
+        il1.add(new InsnNode(Opcodes.FCONST_1));     // power
+        il1.add(new FieldInsnNode(Opcodes.GETSTATIC, "net/minecraft/world/level/Explosion$BlockInteraction", "BREAK", "Lnet/minecraft/world/level/Explosion$BlockInteraction;"));
+        il1.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, "net/minecraft/world/level/Level", "explode", "(Lnet/minecraft/world/entity/Entity;DDDFLnet/minecraft/world/level/Explosion$BlockInteraction;)Lnet/minecraft/world/level/Explosion;", false));
+        il1.add(new InsnNode(Opcodes.POP));
+
+        // Level.explode returning Explosion followed by ASTORE -> returns void, ACONST_NULL inserted before ASTORE
+        il1.add(new InsnNode(Opcodes.ACONST_NULL)); // Level
+        il1.add(new InsnNode(Opcodes.ACONST_NULL)); // Entity
+        il1.add(new InsnNode(Opcodes.DCONST_0));     // x
+        il1.add(new InsnNode(Opcodes.DCONST_0));     // y
+        il1.add(new InsnNode(Opcodes.DCONST_0));     // z
+        il1.add(new InsnNode(Opcodes.FCONST_1));     // power
+        il1.add(new FieldInsnNode(Opcodes.GETSTATIC, "net/minecraft/world/level/Explosion$BlockInteraction", "BREAK", "Lnet/minecraft/world/level/Explosion$BlockInteraction;"));
+        il1.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, "net/minecraft/world/level/Level", "explode", "(Lnet/minecraft/world/entity/Entity;DDDFLnet/minecraft/world/level/Explosion$BlockInteraction;)Lnet/minecraft/world/level/Explosion;", false));
+        il1.add(new VarInsnNode(Opcodes.ASTORE, 0));
+
+        // SoundCategory.PLAYERS -> SoundSource.PLAYERS
+        il1.add(new FieldInsnNode(Opcodes.GETSTATIC, "net/minecraft/util/SoundCategory", "PLAYERS", "Lnet/minecraft/util/SoundCategory;"));
+        il1.add(new InsnNode(Opcodes.POP));
+
+        // Advancement$Builder.build(ResourceLocation) returning Advancement -> returns AdvancementHolder + .value()
+        il1.add(new InsnNode(Opcodes.ACONST_NULL)); // Builder
+        il1.add(new InsnNode(Opcodes.ACONST_NULL)); // ResourceLocation
+        il1.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, "net/minecraft/advancements/Advancement$Builder", "build", "(Lnet/minecraft/resources/ResourceLocation;)Lnet/minecraft/advancements/Advancement;", false));
+        il1.add(new InsnNode(Opcodes.POP));
+
+        // CriteriaTriggers relocation (26.3+)
+        il1.add(new FieldInsnNode(Opcodes.GETSTATIC, "net/minecraft/advancements/CriteriaTriggers", "LOCATION", "Lnet/minecraft/advancements/critereon/LocationTrigger;"));
+        il1.add(new InsnNode(Opcodes.POP));
+
+        il1.add(new InsnNode(Opcodes.RETURN));
+        callerModern.methods.add(m1);
+
+        ClassWriter cwMod = new ClassWriter(0);
+        callerModern.accept(cwMod);
+        byte[] transformedMod = transformerModern.transform("com/example/TestWave5ModernCaller", cwMod.toByteArray());
+        assertNotNull(transformedMod);
+
+        ClassReader crMod = new ClassReader(transformedMod);
+        ClassNode resMod = new ClassNode();
+        crMod.accept(resMod, 0);
+
+        MethodNode resM1 = resMod.methods.stream().filter(m -> "testModern".equals(m.name)).findFirst().orElseThrow();
+
+        boolean foundExplosionBlockEnum = false;
+        boolean foundExplodeVoid = false;
+        boolean foundAconstNullBeforeAstore = false;
+        boolean foundSoundSourceEnum = false;
+        boolean foundAdvancementHolderValue = false;
+        boolean foundTriggersRelocation = false;
+
+        for (AbstractInsnNode insn : resM1.instructions.toArray()) {
+            if (insn instanceof FieldInsnNode finsn) {
+                if ("BLOCK".equals(finsn.name) && "net/minecraft/world/level/Level$ExplosionInteraction".equals(finsn.owner)) {
+                    foundExplosionBlockEnum = true;
+                }
+                if ("PLAYERS".equals(finsn.name) && "net/minecraft/sounds/SoundSource".equals(finsn.owner)) {
+                    foundSoundSourceEnum = true;
+                }
+                if ("net/minecraft/advancements/triggers/CriteriaTriggers".equals(finsn.owner)) {
+                    foundTriggersRelocation = true;
+                }
+            } else if (insn instanceof MethodInsnNode minsn) {
+                if ("explode".equals(minsn.name) && minsn.desc.endsWith(")V")) {
+                    foundExplodeVoid = true;
+                }
+                if ("value".equals(minsn.name) && "net/minecraft/advancements/AdvancementHolder".equals(minsn.owner)) {
+                    foundAdvancementHolderValue = true;
+                }
+            } else if (insn instanceof VarInsnNode vinsn && vinsn.getOpcode() == Opcodes.ASTORE) {
+                AbstractInsnNode prev = vinsn.getPrevious();
+                while (prev != null && prev.getOpcode() < 0) prev = prev.getPrevious();
+                if (prev != null && prev.getOpcode() == Opcodes.ACONST_NULL) {
+                    foundAconstNullBeforeAstore = true;
+                }
+            }
+        }
+
+        assertTrue(foundExplosionBlockEnum, "Explosion$BlockInteraction.BREAK -> Level$ExplosionInteraction.BLOCK");
+        assertTrue(foundExplodeVoid, "Level.explode -> void return type");
+        assertTrue(foundAconstNullBeforeAstore, "ACONST_NULL inserted when explode return value is stored to preserve stack neutrality");
+        assertTrue(foundSoundSourceEnum, "SoundCategory.PLAYERS -> SoundSource.PLAYERS");
+        assertTrue(foundAdvancementHolderValue, "Advancement$Builder.build -> build AdvancementHolder + .value()");
+        assertTrue(foundTriggersRelocation, "CriteriaTriggers -> net/minecraft/advancements/triggers/CriteriaTriggers on 26.3+");
+
+        // 2. Test Legacy Target (<= 1.16.5 SoundSource -> SoundCategory)
+        ClassNode callerLegacy = new ClassNode();
+        callerLegacy.version = Opcodes.V17;
+        callerLegacy.access = Opcodes.ACC_PUBLIC;
+        callerLegacy.name = "com/example/TestWave5LegacyCaller";
+        callerLegacy.superName = "java/lang/Object";
+
+        MethodNode m2 = new MethodNode(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, "testLegacy", "()V", null, null);
+        InsnList il2 = m2.instructions;
+        il2.add(new FieldInsnNode(Opcodes.GETSTATIC, "net/minecraft/sounds/SoundSource", "PLAYERS", "Lnet/minecraft/sounds/SoundSource;"));
+        il2.add(new InsnNode(Opcodes.POP));
+        il2.add(new InsnNode(Opcodes.RETURN));
+        callerLegacy.methods.add(m2);
+
+        ClassWriter cwLeg = new ClassWriter(0);
+        callerLegacy.accept(cwLeg);
+        byte[] transformedLeg = transformerLegacy.transform("com/example/TestWave5LegacyCaller", cwLeg.toByteArray());
+        ClassReader crLeg = new ClassReader(transformedLeg);
+        ClassNode resLeg = new ClassNode();
+        crLeg.accept(resLeg, 0);
+
+        MethodNode resM2 = resLeg.methods.stream().filter(m -> "testLegacy".equals(m.name)).findFirst().orElseThrow();
+        boolean foundSoundCategoryEnum = false;
+        for (AbstractInsnNode insn : resM2.instructions.toArray()) {
+            if (insn instanceof FieldInsnNode finsn) {
+                if ("PLAYERS".equals(finsn.name) && "net/minecraft/util/SoundCategory".equals(finsn.owner)) {
+                    foundSoundCategoryEnum = true;
+                }
+            }
+        }
+        assertTrue(foundSoundCategoryEnum, "SoundSource.PLAYERS -> SoundCategory.PLAYERS on <= 1.16.5");
+
+        // 3. Test 1.19.2 Target (ExplosionInteraction -> BlockInteraction and modern explode returning void -> returns Explosion + POP)
+        ClassNode caller119 = new ClassNode();
+        caller119.version = Opcodes.V17;
+        caller119.access = Opcodes.ACC_PUBLIC;
+        caller119.name = "com/example/TestWave5119Caller";
+        caller119.superName = "java/lang/Object";
+
+        MethodNode m3 = new MethodNode(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, "test119", "()V", null, null);
+        InsnList il3 = m3.instructions;
+        il3.add(new FieldInsnNode(Opcodes.GETSTATIC, "net/minecraft/world/level/Level$ExplosionInteraction", "BLOCK", "Lnet/minecraft/world/level/Level$ExplosionInteraction;"));
+        il3.add(new InsnNode(Opcodes.POP));
+
+        il3.add(new InsnNode(Opcodes.ACONST_NULL)); // Level
+        il3.add(new InsnNode(Opcodes.ACONST_NULL)); // Entity
+        il3.add(new InsnNode(Opcodes.DCONST_0));     // x
+        il3.add(new InsnNode(Opcodes.DCONST_0));     // y
+        il3.add(new InsnNode(Opcodes.DCONST_0));     // z
+        il3.add(new InsnNode(Opcodes.FCONST_1));     // power
+        il3.add(new FieldInsnNode(Opcodes.GETSTATIC, "net/minecraft/world/level/Level$ExplosionInteraction", "BLOCK", "Lnet/minecraft/world/level/Level$ExplosionInteraction;"));
+        il3.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, "net/minecraft/world/level/Level", "explode", "(Lnet/minecraft/world/entity/Entity;DDDFLnet/minecraft/world/level/Level$ExplosionInteraction;)V", false));
+
+        il3.add(new InsnNode(Opcodes.RETURN));
+        caller119.methods.add(m3);
+
+        ClassWriter cw119 = new ClassWriter(0);
+        caller119.accept(cw119);
+        byte[] transformed119 = transformer119.transform("com/example/TestWave5119Caller", cw119.toByteArray());
+        ClassReader cr119 = new ClassReader(transformed119);
+        ClassNode res119 = new ClassNode();
+        cr119.accept(res119, 0);
+
+        MethodNode resM3 = res119.methods.stream().filter(m -> "test119".equals(m.name)).findFirst().orElseThrow();
+        boolean foundBlockInteractionBreak = false;
+        boolean foundExplodeReturningExplosion = false;
+        boolean foundInsertedPop = false;
+
+        for (AbstractInsnNode insn : resM3.instructions.toArray()) {
+            if (insn instanceof FieldInsnNode finsn) {
+                if ("BREAK".equals(finsn.name) && "net/minecraft/world/level/Explosion$BlockInteraction".equals(finsn.owner)) {
+                    foundBlockInteractionBreak = true;
+                }
+            } else if (insn instanceof MethodInsnNode minsn) {
+                if ("explode".equals(minsn.name) && minsn.desc.endsWith("Lnet/minecraft/world/level/Explosion;")) {
+                    foundExplodeReturningExplosion = true;
+                    AbstractInsnNode next = minsn.getNext();
+                    while (next != null && next.getOpcode() < 0) next = next.getNext();
+                    if (next != null && next.getOpcode() == Opcodes.POP) {
+                        foundInsertedPop = true;
+                    }
+                }
+            }
+        }
+        assertTrue(foundBlockInteractionBreak, "Level$ExplosionInteraction.BLOCK -> Explosion$BlockInteraction.BREAK on <= 1.19.2");
+        assertTrue(foundExplodeReturningExplosion, "Level.explode -> Explosion return type on <= 1.19.2");
+        assertTrue(foundInsertedPop, "POP inserted after Level.explode returning Explosion to preserve stack neutrality");
+
+        // 4. Test 1.20.1 Target (AdvancementHolder.value() removed, AdvancementHolder.id() -> getId())
+        ClassNode caller1201 = new ClassNode();
+        caller1201.version = Opcodes.V17;
+        caller1201.access = Opcodes.ACC_PUBLIC;
+        caller1201.name = "com/example/TestWave51201Caller";
+        caller1201.superName = "java/lang/Object";
+
+        MethodNode m4 = new MethodNode(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, "test1201", "()V", null, null);
+        InsnList il4 = m4.instructions;
+        il4.add(new InsnNode(Opcodes.ACONST_NULL)); // AdvancementHolder
+        il4.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, "net/minecraft/advancements/AdvancementHolder", "value", "()Lnet/minecraft/advancements/Advancement;", false));
+        il4.add(new InsnNode(Opcodes.POP));
+
+        il4.add(new InsnNode(Opcodes.ACONST_NULL)); // AdvancementHolder
+        il4.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, "net/minecraft/advancements/AdvancementHolder", "id", "()Lnet/minecraft/resources/ResourceLocation;", false));
+        il4.add(new InsnNode(Opcodes.POP));
+
+        il4.add(new InsnNode(Opcodes.RETURN));
+        caller1201.methods.add(m4);
+
+        ClassWriter cw1201 = new ClassWriter(0);
+        caller1201.accept(cw1201);
+        byte[] transformed1201 = transformer1201.transform("com/example/TestWave51201Caller", cw1201.toByteArray());
+        ClassReader cr1201 = new ClassReader(transformed1201);
+        ClassNode res1201 = new ClassNode();
+        cr1201.accept(res1201, 0);
+
+        MethodNode resM4 = res1201.methods.stream().filter(m -> "test1201".equals(m.name)).findFirst().orElseThrow();
+        boolean foundValueCall = false;
+        boolean foundGetIdCall = false;
+
+        for (AbstractInsnNode insn : resM4.instructions.toArray()) {
+            if (insn instanceof MethodInsnNode minsn) {
+                if ("value".equals(minsn.name)) foundValueCall = true;
+                if ("getId".equals(minsn.name)) foundGetIdCall = true;
+            }
+        }
+        assertFalse(foundValueCall, "AdvancementHolder.value() must be removed on <= 1.20.1");
+        assertTrue(foundGetIdCall, "AdvancementHolder.id() must be rewritten to getId() on <= 1.20.1");
+    }
+
+    @Test
+    public void testEntitySyncedDataSyntheticBridge() {
+        ApiKnowledgeBase kb = ApiKnowledgeBase.createDefault();
+        TargetSpec base = TargetSpec.of("1.18.2", "forge");
+        TargetSpec target1205 = TargetSpec.of("1.21.1", "neoforge");
+
+        ContinuumBytecodeTransformer transformer = new ContinuumBytecodeTransformer(kb, base, target1205);
+
+        ClassNode entityNode = new ClassNode();
+        entityNode.version = Opcodes.V17;
+        entityNode.access = Opcodes.ACC_PUBLIC;
+        entityNode.name = "com/example/MyCustomEntity";
+        entityNode.superName = "net/minecraft/world/entity/Entity";
+
+        MethodNode legacyDefine = new MethodNode(
+                Opcodes.ACC_PROTECTED,
+                "defineSynchedData",
+                "()V",
+                null,
+                null
+        );
+        legacyDefine.instructions.add(new InsnNode(Opcodes.RETURN));
+        entityNode.methods.add(legacyDefine);
+
+        ClassWriter cw = new ClassWriter(0);
+        entityNode.accept(cw);
+        byte[] transformed = transformer.transform("com/example/MyCustomEntity", cw.toByteArray());
+        assertNotNull(transformed);
+
+        ClassReader cr = new ClassReader(transformed);
+        ClassNode res = new ClassNode();
+        cr.accept(res, 0);
+
+        MethodNode injectedBridge = null;
+        for (MethodNode m : res.methods) {
+            if ("defineSynchedData".equals(m.name) && "(Lnet/minecraft/network/syncher/SynchedEntityData$Builder;)V".equals(m.desc)) {
+                injectedBridge = m;
+                break;
+            }
+        }
+
+        assertNotNull(injectedBridge, "defineSynchedData(SynchedEntityData$Builder) bridge must be injected for Entity on >= 1.20.5");
+        assertTrue((injectedBridge.access & Opcodes.ACC_SYNTHETIC) != 0, "Bridge method must be synthetic");
+
+        boolean hasSuperCall = false;
+        boolean hasPushBuilder = false;
+        boolean hasLegacyDefineCall = false;
+        boolean hasPopBuilder = false;
+
+        for (AbstractInsnNode insn : injectedBridge.instructions.toArray()) {
+            if (insn instanceof MethodInsnNode minsn) {
+                if (minsn.getOpcode() == Opcodes.INVOKESPECIAL && "net/minecraft/world/entity/Entity".equals(minsn.owner) && "defineSynchedData".equals(minsn.name)) {
+                    hasSuperCall = true;
+                }
+                if (minsn.owner.contains("EntityDataShim") && "pushBuilder".equals(minsn.name)) {
+                    hasPushBuilder = true;
+                }
+                if (minsn.getOpcode() == Opcodes.INVOKEVIRTUAL && "com/example/MyCustomEntity".equals(minsn.owner) && "defineSynchedData".equals(minsn.name) && "()V".equals(minsn.desc)) {
+                    hasLegacyDefineCall = true;
+                }
+                if (minsn.owner.contains("EntityDataShim") && "popBuilder".equals(minsn.name)) {
+                    hasPopBuilder = true;
+                }
+            }
+        }
+
+        assertTrue(hasSuperCall, "Bridge must call super.defineSynchedData(builder)");
+        assertTrue(hasPushBuilder, "Bridge must call EntityDataShim.pushBuilder(builder)");
+        assertTrue(hasLegacyDefineCall, "Bridge must call this.defineSynchedData()");
+        assertTrue(hasPopBuilder, "Bridge must call EntityDataShim.popBuilder()");
+    }
 }

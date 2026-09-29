@@ -30,12 +30,12 @@ public final class ContinuumJarBuilder {
     private static final Logger LOGGER = Logger.getLogger(ContinuumJarBuilder.class.getName());
 
     private static final String[] SHIM_CLASS_NAMES = {
-            "AttributeModifierShim", "BlockInteractionShim", "BlockPropertiesShim", "ButtonShim",
-            "CapabilityShim", "ClientRendererShim", "ColorHandlerShim", "ComponentShim", "CreativeTabShim", "DamageSourceShim", "EnchantmentShim",
-            "FluidShim", "GuiComponentShim", "ItemInteractionShim", "ItemStackShim", "KeyMappingShim", "LivingEntityShim", "MathShim", "MenuTypeShim",
+            "AdvancementShim", "AttributeModifierShim", "BlockEntityShim", "BlockInteractionShim", "BlockPropertiesShim", "ButtonShim",
+            "CapabilityShim", "ClientRendererShim", "ColorHandlerShim", "CommandShim", "ComponentShim", "CreativeTabShim", "DamageSourceShim", "DataComponentShim", "EnchantmentShim",
+            "EntityDataShim", "ExplosionShim", "FluidShim", "GuiComponentShim", "ItemInteractionShim", "ItemStackShim", "KeyMappingShim", "LivingEntityShim", "MathShim", "MenuTypeShim",
             "MobEffectShim", "NetworkShim", "ParticleShim", "RandomShim", "RecipeShim", "RecordItemShim", "ReflectionHelperShim",
             "RegistryShim", "RenderTypeShim", "ResourceLocationJsonAdapter", "ResourceLocationShim", "SavedDataShim",
-            "ScreenRenderingShim", "SoundEventShim", "SyntheticEventDispatcher", "TagShim", "VoxelShapeShim", "WorldShim"
+            "ScreenRenderingShim", "SoundEventShim", "SoundPlaybackShim", "SyntheticEventDispatcher", "TagShim", "VoxelShapeShim", "WorldShim"
     };
 
     private static final String[] BOOTSTRAPPER_CORE_CLASSES = {

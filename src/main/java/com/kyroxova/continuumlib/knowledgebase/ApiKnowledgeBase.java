@@ -71,5 +71,7 @@ public final class ApiKnowledgeBase {
         ParticleRulesCatalog.register(this);
         VoxelShapeRulesCatalog.register(this);
         ColorHandlerRulesCatalog.register(this);
+        AdvancementAndCriteriaRulesCatalog.register(this);
+        ExplosionAndPhysicsRulesCatalog.register(this);
     }
 }

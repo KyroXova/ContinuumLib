@@ -241,5 +241,80 @@ public final class BlockAndEntityRulesCatalog {
                 null, null, null,
                 "LivingEntity.setItemSlot -> LivingEntityShim.setItemSlot"
         ));
+
+        MCVersion v1_17_0 = MCVersion.of("1.17");
+        MCVersion v1_16_5 = MCVersion.of("1.16.5");
+
+        // 14. Synced Entity Data Class Redirects
+        kb.registerRule(new ClassRedirectRule(
+                "net/minecraft/network/datasync/DataParameter",
+                "net/minecraft/network/syncher/EntityDataAccessor",
+                v1_17_0, null, null,
+                "DataParameter -> EntityDataAccessor (1.17+)"
+        ));
+
+        kb.registerRule(new ClassRedirectRule(
+                "net/minecraft/network/syncher/EntityDataAccessor",
+                "net/minecraft/network/datasync/DataParameter",
+                null, v1_16_5, null,
+                "EntityDataAccessor -> DataParameter (<= 1.16.5)"
+        ));
+
+        kb.registerRule(new ClassRedirectRule(
+                "net/minecraft/network/datasync/DataSerializers",
+                "net/minecraft/network/syncher/EntityDataSerializers",
+                v1_17_0, null, null,
+                "DataSerializers -> EntityDataSerializers (1.17+)"
+        ));
+
+        kb.registerRule(new ClassRedirectRule(
+                "net/minecraft/network/syncher/EntityDataSerializers",
+                "net/minecraft/network/datasync/DataSerializers",
+                null, v1_16_5, null,
+                "EntityDataSerializers -> DataSerializers (<= 1.16.5)"
+        ));
+
+        kb.registerRule(new ClassRedirectRule(
+                "net/minecraft/network/datasync/EntityDataManager",
+                "net/minecraft/network/syncher/SynchedEntityData",
+                v1_17_0, null, null,
+                "EntityDataManager -> SynchedEntityData (1.17+)"
+        ));
+
+        kb.registerRule(new ClassRedirectRule(
+                "net/minecraft/network/syncher/SynchedEntityData",
+                "net/minecraft/network/datasync/EntityDataManager",
+                null, v1_16_5, null,
+                "SynchedEntityData -> EntityDataManager (<= 1.16.5)"
+        ));
+
+        // 15. Synced Entity Data Method Polyfills
+        kb.registerRule(new PolyfillRule(
+                "net/minecraft/network/datasync/EntityDataManager", "createKey",
+                "(Ljava/lang/Class;Lnet/minecraft/network/datasync/DataSerializer;)Lnet/minecraft/network/datasync/DataParameter;",
+                "com/kyroxova/continuumlib/shims/EntityDataShim", "defineId",
+                "(Ljava/lang/Class;Ljava/lang/Object;)Ljava/lang/Object;",
+                v1_17_0, null, null,
+                "EntityDataManager.createKey -> EntityDataShim.defineId (1.17+)"
+        ));
+
+        kb.registerRule(new PolyfillRule(
+                "net/minecraft/network/syncher/SynchedEntityData", "defineId",
+                "(Ljava/lang/Class;Lnet/minecraft/network/syncher/EntityDataSerializer;)Lnet/minecraft/network/syncher/EntityDataAccessor;",
+                "com/kyroxova/continuumlib/shims/EntityDataShim", "createKey",
+                "(Ljava/lang/Class;Ljava/lang/Object;)Ljava/lang/Object;",
+                null, v1_16_5, null,
+                "SynchedEntityData.defineId -> EntityDataShim.createKey (<= 1.16.5)"
+        ));
+
+        // 16. SynchedEntityData.define polyfill for 1.20.5+ / 26.3+ (builder adaptation)
+        kb.registerRule(new PolyfillRule(
+                "net/minecraft/network/syncher/SynchedEntityData", "define",
+                "(Lnet/minecraft/network/syncher/EntityDataAccessor;Ljava/lang/Object;)V",
+                "com/kyroxova/continuumlib/shims/EntityDataShim", "define",
+                "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;)V",
+                v1_20_5, null, null,
+                "SynchedEntityData.define -> EntityDataShim.define (1.20.5+)"
+        ));
     }
 }

@@ -74,6 +74,19 @@ public final class ManifestGenerator {
         return manifests;
     }
 
+    /**
+     * Generates all loader manifests for a specific target specification.
+     */
+    public static Map<String, String> generateAllLoaderManifests(BootstrapperConfig config, TargetSpec target) {
+        Map<String, String> manifests = new LinkedHashMap<>();
+        manifests.put("mcmod.info", generateMcModInfo(config, target));
+        manifests.put("META-INF/mods.toml", generateForgeToml(config, target));
+        manifests.put("META-INF/neoforge.mods.toml", generateNeoForgeToml(config, target));
+        manifests.put("fabric.mod.json", generateFabricJson(config, target));
+        manifests.put("quilt.mod.json", generateQuiltJson(config, target));
+        return manifests;
+    }
+
     public static String generateForgeToml(BootstrapperConfig config, TargetSpec target) {
         return "modLoader=\"javafml\"\n" +
                 "loaderVersion=\"[40,)\"\n" +
@@ -85,8 +98,13 @@ public final class ManifestGenerator {
     }
 
     public static String generateNeoForgeToml(BootstrapperConfig config, TargetSpec target) {
+        String loaderVersion = "[20.4,)";
+        if (target.getVersion().isAtLeast(MCVersion.V26_3)) {
+            loaderVersion = "[26.3,)";
+        }
+
         return "modLoader=\"javafml\"\n" +
-                "loaderVersion=\"[20.4,)\"\n" +
+                "loaderVersion=\"" + loaderVersion + "\"\n" +
                 "license=\"All Rights Reserved\"\n" +
                 "[[mods]]\n" +
                 "modId=\"" + config.getModId() + "\"\n" +

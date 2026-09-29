@@ -62,6 +62,7 @@ public final class ContinuumBytecodeTransformer {
             classRedirects.putIfAbsent("net/minecraft/util/math/shapes/VoxelShape", "net/minecraft/world/phys/shapes/VoxelShape");
             classRedirects.putIfAbsent("net/minecraft/util/math/shapes/VoxelShapes", "net/minecraft/world/phys/shapes/Shapes");
             classRedirects.putIfAbsent("net/minecraft/util/math/BlockPos", "net/minecraft/core/BlockPos");
+            classRedirects.putIfAbsent("net/minecraft/util/SoundCategory", "net/minecraft/sounds/SoundSource");
         } else {
             classRedirects.putIfAbsent("net/minecraft/world/level/Level", "net/minecraft/world/World");
             classRedirects.putIfAbsent("net/minecraft/server/level/ServerLevel", "net/minecraft/world/server/ServerWorld");
@@ -77,6 +78,27 @@ public final class ContinuumBytecodeTransformer {
             classRedirects.putIfAbsent("net/minecraft/world/phys/shapes/VoxelShape", "net/minecraft/util/math/shapes/VoxelShape");
             classRedirects.putIfAbsent("net/minecraft/world/phys/shapes/Shapes", "net/minecraft/util/math/shapes/VoxelShapes");
             classRedirects.putIfAbsent("net/minecraft/core/BlockPos", "net/minecraft/util/math/BlockPos");
+            classRedirects.putIfAbsent("net/minecraft/sounds/SoundSource", "net/minecraft/util/SoundCategory");
+        }
+
+        // Explosion interaction redirects
+        if (targetSpec == null || targetSpec.getVersion().isAtLeast(MCVersion.of("1.20"))) {
+            classRedirects.putIfAbsent("net/minecraft/world/level/Explosion$BlockInteraction", "net/minecraft/world/level/Level$ExplosionInteraction");
+            classRedirects.putIfAbsent("net/minecraft/world/Explosion$Mode", "net/minecraft/world/level/Level$ExplosionInteraction");
+        } else {
+            classRedirects.putIfAbsent("net/minecraft/world/level/Level$ExplosionInteraction", "net/minecraft/world/level/Explosion$BlockInteraction");
+        }
+
+        // CriteriaTriggers package relocation (26.3+)
+        if (targetSpec != null && (targetSpec.getVersion().isAtLeast(MCVersion.of("26.3")) || targetSpec.getVersion().getMajor() >= 26)) {
+            classRedirects.putIfAbsent("net/minecraft/advancements/CriteriaTriggers", "net/minecraft/advancements/triggers/CriteriaTriggers");
+        } else {
+            classRedirects.putIfAbsent("net/minecraft/advancements/triggers/CriteriaTriggers", "net/minecraft/advancements/CriteriaTriggers");
+        }
+
+        // AdvancementHolder -> Advancement (<= 1.20.1)
+        if (targetSpec != null && !targetSpec.getVersion().isAtLeast(MCVersion.of("1.20.2"))) {
+            classRedirects.putIfAbsent("net/minecraft/advancements/AdvancementHolder", "net/minecraft/advancements/Advancement");
         }
     }
 
@@ -218,6 +240,13 @@ public final class ContinuumBytecodeTransformer {
         // 12. Evolutionary shifts synthetic bridges for BlockBehaviour and Item (>= 26.3)
         if (targetSpec != null && targetSpec.getVersion().isAtLeast(MCVersion.of("26.3"))) {
             if (injectModern26_3Bridges(classNode)) {
+                modified = true;
+            }
+        }
+
+        // 13. Modern SynchedEntityData bridge (>= 1.20.5)
+        if (targetSpec != null && targetSpec.getVersion().isAtLeast(MCVersion.of("1.20.5"))) {
+            if (injectModernEntitySyncedDataBridges(classNode)) {
                 modified = true;
             }
         }
@@ -531,6 +560,70 @@ public final class ContinuumBytecodeTransformer {
                         modified = true;
                     }
                 }
+
+                // 8. Level.explode return type shift & stack neutrality (void on >= 1.20 vs Explosion on <= 1.19.4)
+                if (isLevelOrWorld(minsn.owner) && "explode".equals(minsn.name)) {
+                    boolean targetIs1_20Plus = targetSpec == null || targetSpec.getVersion().isAtLeast(MCVersion.of("1.20"));
+                    if (targetIs1_20Plus) {
+                        if (minsn.desc != null && (minsn.desc.endsWith("Lnet/minecraft/world/level/Explosion;") || minsn.desc.endsWith("Lnet/minecraft/world/Explosion;"))) {
+                            minsn.desc = minsn.desc.substring(0, minsn.desc.lastIndexOf(')') + 1) + "V";
+                            AbstractInsnNode next = minsn.getNext();
+                            while (next != null && next.getOpcode() < 0) {
+                                next = next.getNext();
+                            }
+                            if (next != null && next.getOpcode() == Opcodes.POP) {
+                                instructions.remove(next);
+                            } else {
+                                instructions.insert(minsn, new InsnNode(Opcodes.ACONST_NULL));
+                            }
+                            modified = true;
+                        }
+                    } else {
+                        if (minsn.desc != null && minsn.desc.endsWith(")V")) {
+                            String explosionOwner = classRedirects.getOrDefault("net/minecraft/world/level/Explosion", "net/minecraft/world/level/Explosion");
+                            minsn.desc = minsn.desc.substring(0, minsn.desc.lastIndexOf(')') + 1) + "L" + explosionOwner + ";";
+                            instructions.insert(minsn, new InsnNode(Opcodes.POP));
+                            modified = true;
+                        }
+                    }
+                }
+
+                // 9. Advancement$Builder and AdvancementHolder rewrites
+                if (isAdvancementBuilder(minsn.owner) && "build".equals(minsn.name)) {
+                    boolean targetIs1_20_2Plus = targetSpec == null || targetSpec.getVersion().isAtLeast(MCVersion.of("1.20.2"));
+                    if (targetIs1_20_2Plus) {
+                        if (minsn.desc != null && minsn.desc.endsWith("Lnet/minecraft/advancements/Advancement;")) {
+                            minsn.desc = minsn.desc.substring(0, minsn.desc.lastIndexOf(')') + 1) + "Lnet/minecraft/advancements/AdvancementHolder;";
+                            MethodInsnNode valueCall = new MethodInsnNode(
+                                    Opcodes.INVOKEVIRTUAL,
+                                    "net/minecraft/advancements/AdvancementHolder",
+                                    "value",
+                                    "()Lnet/minecraft/advancements/Advancement;",
+                                    false
+                            );
+                            instructions.insert(minsn, valueCall);
+                            modified = true;
+                        }
+                    } else {
+                        if (minsn.desc != null && minsn.desc.endsWith("Lnet/minecraft/advancements/AdvancementHolder;")) {
+                            minsn.desc = minsn.desc.substring(0, minsn.desc.lastIndexOf(')') + 1) + "Lnet/minecraft/advancements/Advancement;";
+                            modified = true;
+                        }
+                    }
+                } else if (isAdvancementHolder(minsn.owner)) {
+                    boolean targetIs1_20_2Plus = targetSpec == null || targetSpec.getVersion().isAtLeast(MCVersion.of("1.20.2"));
+                    if (!targetIs1_20_2Plus) {
+                        if ("value".equals(minsn.name) && (minsn.desc == null || minsn.desc.endsWith("Lnet/minecraft/advancements/Advancement;"))) {
+                            instructions.remove(minsn);
+                            modified = true;
+                        } else if ("id".equals(minsn.name) && (minsn.desc == null || minsn.desc.endsWith("Lnet/minecraft/resources/ResourceLocation;"))) {
+                            minsn.owner = "net/minecraft/advancements/Advancement";
+                            minsn.name = "getId";
+                            minsn.desc = "()Lnet/minecraft/resources/ResourceLocation;";
+                            modified = true;
+                        }
+                    }
+                }
             }
 
             // Check Field Instructions
@@ -560,6 +653,37 @@ public final class ContinuumBytecodeTransformer {
                     }
                 }
                 if (finsn.getOpcode() == Opcodes.GETSTATIC) {
+                    // Explosion interaction enum constant remapping
+                    if (targetSpec == null || targetSpec.getVersion().isAtLeast(MCVersion.of("1.20"))) {
+                        if ("net/minecraft/world/level/Explosion$BlockInteraction".equals(finsn.owner)
+                                || "net/minecraft/world/Explosion$Mode".equals(finsn.owner)
+                                || "net/minecraft/world/level/Level$ExplosionInteraction".equals(finsn.owner)) {
+                            finsn.owner = "net/minecraft/world/level/Level$ExplosionInteraction";
+                            finsn.desc = "Lnet/minecraft/world/level/Level$ExplosionInteraction;";
+                            if ("BREAK".equals(finsn.name) || "DESTROY".equals(finsn.name)) {
+                                finsn.name = "BLOCK";
+                            } else if ("KEEP".equals(finsn.name)) {
+                                finsn.name = "NONE";
+                            }
+                            modified = true;
+                        }
+                    } else {
+                        if ("net/minecraft/world/level/Level$ExplosionInteraction".equals(finsn.owner)
+                                || "net/minecraft/world/level/Explosion$BlockInteraction".equals(finsn.owner)
+                                || "net/minecraft/world/Explosion$Mode".equals(finsn.owner)) {
+                            finsn.owner = "net/minecraft/world/level/Explosion$BlockInteraction";
+                            finsn.desc = "Lnet/minecraft/world/level/Explosion$BlockInteraction;";
+                            if ("BLOCK".equals(finsn.name) || "TNT".equals(finsn.name)) {
+                                finsn.name = "BREAK";
+                            } else if ("MOB".equals(finsn.name)) {
+                                finsn.name = "DESTROY";
+                            } else if ("TRIGGER".equals(finsn.name)) {
+                                finsn.name = "NONE";
+                            }
+                            modified = true;
+                        }
+                    }
+
                     for (int i = polyfillRules.size() - 1; i >= 0; i--) {
                         PolyfillRule pr = polyfillRules.get(i);
                         if (pr.matches(finsn.owner, finsn.name, finsn.desc)
@@ -1707,6 +1831,9 @@ public final class ContinuumBytecodeTransformer {
     }
 
     private boolean matchesPolyfillRule(PolyfillRule pr, MethodInsnNode minsn, ClassNode classNode) {
+        if (isLevelOrWorld(minsn.owner) && ("explode".equals(minsn.name) || "createExplosion".equals(minsn.name))) {
+            return false;
+        }
         if (pr.matches(minsn.owner, minsn.name, minsn.desc)) {
             return true;
         }
@@ -2013,5 +2140,120 @@ public final class ContinuumBytecodeTransformer {
         }
 
         return modified;
+    }
+
+    private boolean isAdvancementBuilder(String owner) {
+        if (owner == null) return false;
+        String normalized = owner.replace('.', '/');
+        return normalized.equals("net/minecraft/advancements/Advancement$Builder")
+                || normalized.equals("net/minecraft/advancements/Advancement$Task");
+    }
+
+    private boolean isAdvancementHolder(String owner) {
+        if (owner == null) return false;
+        String normalized = owner.replace('.', '/');
+        return normalized.equals("net/minecraft/advancements/AdvancementHolder")
+                || normalized.equals("net/minecraft/advancements/Advancement");
+    }
+
+    private boolean isEntitySubclass(ClassNode classNode) {
+        if (classNode == null) return false;
+        if (classNode.superName != null) {
+            String superName = classNode.superName.replace('.', '/');
+            if (superName.equals("net/minecraft/world/entity/Entity")
+                    || superName.equals("net/minecraft/entity/Entity")
+                    || isLivingEntity(superName, null)
+                    || superName.startsWith("net/minecraft/world/entity/")) {
+                return true;
+            }
+        }
+        if (classNode.methods != null) {
+            for (MethodNode m : classNode.methods) {
+                if ("defineSynchedData".equals(m.name) && "()V".equals(m.desc)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private boolean injectModernEntitySyncedDataBridges(ClassNode classNode) {
+        if (classNode.methods == null) return false;
+        if (!isEntitySubclass(classNode)) return false;
+
+        MethodNode legacyDefine = null;
+        boolean hasModernDefine = false;
+
+        for (MethodNode method : classNode.methods) {
+            if ("defineSynchedData".equals(method.name)) {
+                if ("()V".equals(method.desc)) {
+                    legacyDefine = method;
+                } else if ("(Lnet/minecraft/network/syncher/SynchedEntityData$Builder;)V".equals(method.desc)) {
+                    hasModernDefine = true;
+                }
+            }
+        }
+
+        if (legacyDefine != null && !hasModernDefine) {
+            MethodNode bridge = new MethodNode(
+                    Opcodes.ACC_PROTECTED | Opcodes.ACC_SYNTHETIC,
+                    "defineSynchedData",
+                    "(Lnet/minecraft/network/syncher/SynchedEntityData$Builder;)V",
+                    null,
+                    null
+            );
+            InsnList il = bridge.instructions;
+
+            // 1. Call super.defineSynchedData(builder) if super != Object
+            if (classNode.superName != null && !classNode.superName.equals("java/lang/Object")) {
+                il.add(new VarInsnNode(Opcodes.ALOAD, 0)); // this
+                il.add(new VarInsnNode(Opcodes.ALOAD, 1)); // builder
+                il.add(new MethodInsnNode(
+                        Opcodes.INVOKESPECIAL,
+                        classNode.superName,
+                        "defineSynchedData",
+                        "(Lnet/minecraft/network/syncher/SynchedEntityData$Builder;)V",
+                        false
+                ));
+            }
+
+            // 2. Call EntityDataShim.pushBuilder(builder)
+            il.add(new VarInsnNode(Opcodes.ALOAD, 1));
+            il.add(new MethodInsnNode(
+                    Opcodes.INVOKESTATIC,
+                    "com/kyroxova/continuumlib/shims/EntityDataShim",
+                    "pushBuilder",
+                    "(Ljava/lang/Object;)V",
+                    false
+            ));
+
+            // 3. Call this.defineSynchedData()
+            il.add(new VarInsnNode(Opcodes.ALOAD, 0));
+            il.add(new MethodInsnNode(
+                    Opcodes.INVOKEVIRTUAL,
+                    classNode.name,
+                    legacyDefine.name,
+                    "()V",
+                    false
+            ));
+
+            // 4. Call EntityDataShim.popBuilder()
+            il.add(new MethodInsnNode(
+                    Opcodes.INVOKESTATIC,
+                    "com/kyroxova/continuumlib/shims/EntityDataShim",
+                    "popBuilder",
+                    "()Ljava/lang/Object;",
+                    false
+            ));
+            il.add(new InsnNode(Opcodes.POP));
+
+            il.add(new InsnNode(Opcodes.RETURN));
+            bridge.maxStack = 2;
+            bridge.maxLocals = 2;
+            classNode.methods.add(bridge);
+            return true;
+        }
+
+        return false;
     }
 }
