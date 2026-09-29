@@ -393,4 +393,146 @@ public class SyntheticMethodsAndAttributesTest {
         assertTrue(hasGetShape, "Block defining getBoundingBox must have synthetic getShape injected for 1.13+");
         assertTrue(hasGetCollisionShape, "Block defining getCollisionBoundingBox must have synthetic getCollisionShape injected for 1.13+");
     }
+
+    @Test
+    public void test26_3EvolutionaryShiftBridges() {
+        ApiKnowledgeBase kb = ApiKnowledgeBase.createDefault();
+        TargetSpec target26_3 = TargetSpec.of("26.3", "neoforge");
+        ContinuumBytecodeTransformer transformer = new ContinuumBytecodeTransformer(kb, TargetSpec.of("1.20.1", "forge"), target26_3);
+
+        // 1. Test BlockBehaviour bridges
+        ClassNode blockNode = new ClassNode();
+        blockNode.version = Opcodes.V17;
+        blockNode.access = Opcodes.ACC_PUBLIC;
+        blockNode.name = "com/example/My263Block";
+        blockNode.superName = "net/minecraft/world/level/block/Block";
+
+        MethodNode legacyClone = new MethodNode(
+                Opcodes.ACC_PUBLIC,
+                "getCloneItemStack",
+                "(Lnet/minecraft/world/level/BlockGetter;Lnet/minecraft/core/BlockPos;Lnet/minecraft/world/level/block/state/BlockState;)Lnet/minecraft/world/item/ItemStack;",
+                null,
+                null
+        );
+        legacyClone.instructions.add(new InsnNode(Opcodes.ACONST_NULL));
+        legacyClone.instructions.add(new InsnNode(Opcodes.ARETURN));
+        blockNode.methods.add(legacyClone);
+
+        MethodNode legacyNeighbor = new MethodNode(
+                Opcodes.ACC_PUBLIC,
+                "neighborChanged",
+                "(Lnet/minecraft/world/level/block/state/BlockState;Lnet/minecraft/world/level/Level;Lnet/minecraft/core/BlockPos;Lnet/minecraft/world/level/block/Block;Lnet/minecraft/core/BlockPos;Z)V",
+                null,
+                null
+        );
+        legacyNeighbor.instructions.add(new InsnNode(Opcodes.RETURN));
+        blockNode.methods.add(legacyNeighbor);
+
+        MethodNode legacyEntityInside = new MethodNode(
+                Opcodes.ACC_PUBLIC,
+                "entityInside",
+                "(Lnet/minecraft/world/level/block/state/BlockState;Lnet/minecraft/world/level/Level;Lnet/minecraft/core/BlockPos;Lnet/minecraft/world/entity/Entity;)V",
+                null,
+                null
+        );
+        legacyEntityInside.instructions.add(new InsnNode(Opcodes.RETURN));
+        blockNode.methods.add(legacyEntityInside);
+
+        ClassWriter cwBlock = new ClassWriter(0);
+        blockNode.accept(cwBlock);
+        byte[] transformedBlock = transformer.transform("com/example/My263Block", cwBlock.toByteArray());
+        assertNotNull(transformedBlock);
+
+        ClassReader crBlock = new ClassReader(transformedBlock);
+        ClassNode resultBlock = new ClassNode();
+        crBlock.accept(resultBlock, 0);
+
+        boolean hasModernClone = false;
+        boolean hasModernNeighbor = false;
+        boolean hasModernEntityInside = false;
+
+        for (MethodNode m : resultBlock.methods) {
+            if ("getCloneItemStack".equals(m.name) && "(Lnet/minecraft/world/level/LevelReader;Lnet/minecraft/core/BlockPos;Lnet/minecraft/world/level/block/state/BlockState;Z)Lnet/minecraft/world/item/ItemStack;".equals(m.desc)) {
+                hasModernClone = true;
+            }
+            if ("neighborChanged".equals(m.name) && "(Lnet/minecraft/world/level/block/state/BlockState;Lnet/minecraft/world/level/Level;Lnet/minecraft/core/BlockPos;Lnet/minecraft/world/level/block/Block;Lnet/minecraft/world/level/redstone/Orientation;Z)V".equals(m.desc)) {
+                hasModernNeighbor = true;
+            }
+            if ("entityInside".equals(m.name) && "(Lnet/minecraft/world/level/block/state/BlockState;Lnet/minecraft/world/level/Level;Lnet/minecraft/core/BlockPos;Lnet/minecraft/world/entity/Entity;Lnet/minecraft/world/entity/InsideBlockEffectApplier;Z)V".equals(m.desc)) {
+                hasModernEntityInside = true;
+            }
+        }
+
+        assertTrue(hasModernClone, "4-arg getCloneItemStack must be injected for 26.3+");
+        assertTrue(hasModernNeighbor, "6-arg neighborChanged with Orientation must be injected for 26.3+");
+        assertTrue(hasModernEntityInside, "6-arg entityInside with InsideBlockEffectApplier must be injected for 26.3+");
+
+        // 2. Test Item bridges
+        ClassNode itemNode = new ClassNode();
+        itemNode.version = Opcodes.V17;
+        itemNode.access = Opcodes.ACC_PUBLIC;
+        itemNode.name = "com/example/My263Item";
+        itemNode.superName = "net/minecraft/world/item/Item";
+
+        MethodNode legacyTick = new MethodNode(
+                Opcodes.ACC_PUBLIC,
+                "inventoryTick",
+                "(Lnet/minecraft/world/item/ItemStack;Lnet/minecraft/world/level/Level;Lnet/minecraft/world/entity/Entity;IZ)V",
+                null,
+                null
+        );
+        legacyTick.instructions.add(new InsnNode(Opcodes.RETURN));
+        itemNode.methods.add(legacyTick);
+
+        MethodNode legacyDuration = new MethodNode(
+                Opcodes.ACC_PUBLIC,
+                "getUseDuration",
+                "(Lnet/minecraft/world/item/ItemStack;)I",
+                null,
+                null
+        );
+        legacyDuration.instructions.add(new InsnNode(Opcodes.ICONST_1));
+        legacyDuration.instructions.add(new InsnNode(Opcodes.IRETURN));
+        itemNode.methods.add(legacyDuration);
+
+        MethodNode legacyUse = new MethodNode(
+                Opcodes.ACC_PUBLIC,
+                "use",
+                "(Lnet/minecraft/world/level/Level;Lnet/minecraft/world/entity/player/Player;Lnet/minecraft/world/InteractionHand;)Lnet/minecraft/world/InteractionResultHolder;",
+                null,
+                null
+        );
+        legacyUse.instructions.add(new InsnNode(Opcodes.ACONST_NULL));
+        legacyUse.instructions.add(new InsnNode(Opcodes.ARETURN));
+        itemNode.methods.add(legacyUse);
+
+        ClassWriter cwItem = new ClassWriter(0);
+        itemNode.accept(cwItem);
+        byte[] transformedItem = transformer.transform("com/example/My263Item", cwItem.toByteArray());
+        assertNotNull(transformedItem);
+
+        ClassReader crItem = new ClassReader(transformedItem);
+        ClassNode resultItem = new ClassNode();
+        crItem.accept(resultItem, 0);
+
+        boolean hasModernTick = false;
+        boolean hasModernDuration = false;
+        boolean hasModernUse = false;
+
+        for (MethodNode m : resultItem.methods) {
+            if ("inventoryTick".equals(m.name) && "(Lnet/minecraft/world/item/ItemStack;Lnet/minecraft/server/level/ServerLevel;Lnet/minecraft/world/entity/Entity;Lnet/minecraft/world/entity/EquipmentSlot;)V".equals(m.desc)) {
+                hasModernTick = true;
+            }
+            if ("getUseDuration".equals(m.name) && "(Lnet/minecraft/world/item/ItemStack;Lnet/minecraft/world/entity/LivingEntity;)I".equals(m.desc)) {
+                hasModernDuration = true;
+            }
+            if ("use".equals(m.name) && "(Lnet/minecraft/world/level/Level;Lnet/minecraft/world/entity/player/Player;Lnet/minecraft/world/InteractionHand;)Lnet/minecraft/world/InteractionResult;".equals(m.desc)) {
+                hasModernUse = true;
+            }
+        }
+
+        assertTrue(hasModernTick, "4-arg inventoryTick must be injected for 26.3+");
+        assertTrue(hasModernDuration, "2-arg getUseDuration must be injected for 26.3+");
+        assertTrue(hasModernUse, "use returning InteractionResult must be injected for 26.3+");
+    }
 }

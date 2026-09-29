@@ -49,6 +49,10 @@ public final class PolyfillRule implements TransformationRule {
         return sourceOwner;
     }
 
+    public String getSourceClass() {
+        return sourceOwner;
+    }
+
     public String getSourceName() {
         return sourceName;
     }
@@ -62,6 +66,10 @@ public final class PolyfillRule implements TransformationRule {
     }
 
     public String getShimName() {
+        return shimName;
+    }
+
+    public String getTargetMethod() {
         return shimName;
     }
 

@@ -111,6 +111,18 @@ public final class BlockInteractionShim {
     public static Object toInteractionResult(Object itemInteractionResult) {
         if (itemInteractionResult == null) return null;
 
+        // Support InteractionResultHolder.getResult()
+        try {
+            for (Method m : itemInteractionResult.getClass().getMethods()) {
+                if ("getResult".equals(m.getName()) && m.getParameterCount() == 0) {
+                    try {
+                        m.setAccessible(true);
+                    } catch (Throwable ignored) {}
+                    return m.invoke(itemInteractionResult);
+                }
+            }
+        } catch (Throwable ignored) {}
+
         try {
             Class<?> interResultClass = Class.forName("net.minecraft.world.InteractionResult");
             String resultName = itemInteractionResult.toString();

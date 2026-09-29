@@ -214,6 +214,13 @@ public final class ContinuumBytecodeTransformer {
             }
         }
 
+        // 12. Evolutionary shifts synthetic bridges for BlockBehaviour and Item (>= 26.3)
+        if (targetSpec != null && targetSpec.getVersion().isAtLeast(MCVersion.of("26.3"))) {
+            if (injectModern26_3Bridges(classNode)) {
+                modified = true;
+            }
+        }
+
         return modified;
     }
 
@@ -1460,5 +1467,268 @@ public final class ContinuumBytecodeTransformer {
         if (owner == null) return false;
         return owner.equals("net/minecraft/world/phys/shapes/VoxelShape")
                 || owner.equals("net/minecraft/util/math/shapes/VoxelShape");
+    }
+
+    private boolean injectModern26_3Bridges(ClassNode classNode) {
+        if (classNode.methods == null) return false;
+        boolean modified = false;
+
+        // 1. BlockBehaviour bridges
+        MethodNode legacyClone = null;
+        boolean hasModernClone = false;
+
+        MethodNode legacyNeighbor = null;
+        boolean hasModernNeighbor = false;
+
+        MethodNode legacyEntityInside = null;
+        boolean hasModernEntityInside = false;
+
+        // 2. Item bridges
+        MethodNode legacyInventoryTick = null;
+        boolean hasModernInventoryTick = false;
+
+        MethodNode legacyUseDuration = null;
+        boolean hasModernUseDuration = false;
+
+        MethodNode legacyItemUse = null;
+        boolean hasModernItemUse = false;
+
+        for (MethodNode m : classNode.methods) {
+            // BlockBehaviour: getCloneItemStack
+            if ("getCloneItemStack".equals(m.name)) {
+                if ("(Lnet/minecraft/world/level/LevelReader;Lnet/minecraft/core/BlockPos;Lnet/minecraft/world/level/block/state/BlockState;Z)Lnet/minecraft/world/item/ItemStack;".equals(m.desc)) {
+                    hasModernClone = true;
+                } else if (m.desc != null && m.desc.endsWith(";Lnet/minecraft/core/BlockPos;Lnet/minecraft/world/level/block/state/BlockState;)Lnet/minecraft/world/item/ItemStack;")) {
+                    legacyClone = m;
+                }
+            }
+
+            // BlockBehaviour: neighborChanged
+            if ("neighborChanged".equals(m.name)) {
+                if ("(Lnet/minecraft/world/level/block/state/BlockState;Lnet/minecraft/world/level/Level;Lnet/minecraft/core/BlockPos;Lnet/minecraft/world/level/block/Block;Lnet/minecraft/world/level/redstone/Orientation;Z)V".equals(m.desc)) {
+                    hasModernNeighbor = true;
+                } else if ("(Lnet/minecraft/world/level/block/state/BlockState;Lnet/minecraft/world/level/Level;Lnet/minecraft/core/BlockPos;Lnet/minecraft/world/level/block/Block;Lnet/minecraft/core/BlockPos;Z)V".equals(m.desc)) {
+                    legacyNeighbor = m;
+                }
+            }
+
+            // BlockBehaviour: entityInside
+            if ("entityInside".equals(m.name)) {
+                if ("(Lnet/minecraft/world/level/block/state/BlockState;Lnet/minecraft/world/level/Level;Lnet/minecraft/core/BlockPos;Lnet/minecraft/world/entity/Entity;Lnet/minecraft/world/entity/InsideBlockEffectApplier;Z)V".equals(m.desc)) {
+                    hasModernEntityInside = true;
+                } else if ("(Lnet/minecraft/world/level/block/state/BlockState;Lnet/minecraft/world/level/Level;Lnet/minecraft/core/BlockPos;Lnet/minecraft/world/entity/Entity;)V".equals(m.desc)) {
+                    legacyEntityInside = m;
+                }
+            }
+
+            // Item: inventoryTick
+            if ("inventoryTick".equals(m.name)) {
+                if ("(Lnet/minecraft/world/item/ItemStack;Lnet/minecraft/server/level/ServerLevel;Lnet/minecraft/world/entity/Entity;Lnet/minecraft/world/entity/EquipmentSlot;)V".equals(m.desc)) {
+                    hasModernInventoryTick = true;
+                } else if ("(Lnet/minecraft/world/item/ItemStack;Lnet/minecraft/world/level/Level;Lnet/minecraft/world/entity/Entity;IZ)V".equals(m.desc)) {
+                    legacyInventoryTick = m;
+                }
+            }
+
+            // Item: getUseDuration
+            if ("getUseDuration".equals(m.name)) {
+                if ("(Lnet/minecraft/world/item/ItemStack;Lnet/minecraft/world/entity/LivingEntity;)I".equals(m.desc)) {
+                    hasModernUseDuration = true;
+                } else if ("(Lnet/minecraft/world/item/ItemStack;)I".equals(m.desc)) {
+                    legacyUseDuration = m;
+                }
+            }
+
+            // Item: use
+            if ("use".equals(m.name)) {
+                if ("(Lnet/minecraft/world/level/Level;Lnet/minecraft/world/entity/player/Player;Lnet/minecraft/world/InteractionHand;)Lnet/minecraft/world/InteractionResult;".equals(m.desc)) {
+                    hasModernItemUse = true;
+                } else if ("(Lnet/minecraft/world/level/Level;Lnet/minecraft/world/entity/player/Player;Lnet/minecraft/world/InteractionHand;)Lnet/minecraft/world/InteractionResultHolder;".equals(m.desc)) {
+                    legacyItemUse = m;
+                }
+            }
+        }
+
+        // 1. Inject BlockBehaviour getCloneItemStack
+        if (legacyClone != null && !hasModernClone) {
+            MethodNode bridge = new MethodNode(
+                    Opcodes.ACC_PUBLIC | Opcodes.ACC_SYNTHETIC,
+                    "getCloneItemStack",
+                    "(Lnet/minecraft/world/level/LevelReader;Lnet/minecraft/core/BlockPos;Lnet/minecraft/world/level/block/state/BlockState;Z)Lnet/minecraft/world/item/ItemStack;",
+                    null,
+                    null
+            );
+            InsnList il = bridge.instructions;
+            il.add(new VarInsnNode(Opcodes.ALOAD, 0)); // this
+            il.add(new VarInsnNode(Opcodes.ALOAD, 1)); // LevelReader
+            il.add(new VarInsnNode(Opcodes.ALOAD, 2)); // BlockPos
+            il.add(new VarInsnNode(Opcodes.ALOAD, 3)); // BlockState
+            il.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, classNode.name, legacyClone.name, legacyClone.desc, false));
+            il.add(new InsnNode(Opcodes.ARETURN));
+            bridge.maxStack = 4;
+            bridge.maxLocals = 5;
+            classNode.methods.add(bridge);
+            modified = true;
+        }
+
+        // 2. Inject BlockBehaviour neighborChanged
+        if (legacyNeighbor != null && !hasModernNeighbor) {
+            MethodNode bridge = new MethodNode(
+                    Opcodes.ACC_PUBLIC | Opcodes.ACC_SYNTHETIC,
+                    "neighborChanged",
+                    "(Lnet/minecraft/world/level/block/state/BlockState;Lnet/minecraft/world/level/Level;Lnet/minecraft/core/BlockPos;Lnet/minecraft/world/level/block/Block;Lnet/minecraft/world/level/redstone/Orientation;Z)V",
+                    null,
+                    null
+            );
+            InsnList il = bridge.instructions;
+            il.add(new VarInsnNode(Opcodes.ALOAD, 0)); // this
+            il.add(new VarInsnNode(Opcodes.ALOAD, 1)); // state
+            il.add(new VarInsnNode(Opcodes.ALOAD, 2)); // level
+            il.add(new VarInsnNode(Opcodes.ALOAD, 3)); // pos
+            il.add(new VarInsnNode(Opcodes.ALOAD, 4)); // neighborBlock
+
+            LabelNode orientationNull = new LabelNode();
+            LabelNode afterNeighborPos = new LabelNode();
+            il.add(new VarInsnNode(Opcodes.ALOAD, 5)); // orientation
+            il.add(new JumpInsnNode(Opcodes.IFNULL, orientationNull));
+            il.add(new VarInsnNode(Opcodes.ALOAD, 3)); // pos
+            il.add(new VarInsnNode(Opcodes.ALOAD, 5)); // orientation
+            il.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, "net/minecraft/world/level/redstone/Orientation", "getFront", "()Lnet/minecraft/core/Direction;", false));
+            il.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, "net/minecraft/core/BlockPos", "relative", "(Lnet/minecraft/core/Direction;)Lnet/minecraft/core/BlockPos;", false));
+            il.add(new JumpInsnNode(Opcodes.GOTO, afterNeighborPos));
+            il.add(orientationNull);
+            il.add(new VarInsnNode(Opcodes.ALOAD, 3)); // fallback to pos
+            il.add(afterNeighborPos);
+
+            il.add(new VarInsnNode(Opcodes.ILOAD, 6)); // movedByPiston
+            il.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, classNode.name, legacyNeighbor.name, legacyNeighbor.desc, false));
+            il.add(new InsnNode(Opcodes.RETURN));
+            bridge.maxStack = 7;
+            bridge.maxLocals = 7;
+            classNode.methods.add(bridge);
+            modified = true;
+        }
+
+        // 3. Inject BlockBehaviour entityInside
+        if (legacyEntityInside != null && !hasModernEntityInside) {
+            MethodNode bridge = new MethodNode(
+                    Opcodes.ACC_PUBLIC | Opcodes.ACC_SYNTHETIC,
+                    "entityInside",
+                    "(Lnet/minecraft/world/level/block/state/BlockState;Lnet/minecraft/world/level/Level;Lnet/minecraft/core/BlockPos;Lnet/minecraft/world/entity/Entity;Lnet/minecraft/world/entity/InsideBlockEffectApplier;Z)V",
+                    null,
+                    null
+            );
+            InsnList il = bridge.instructions;
+            il.add(new VarInsnNode(Opcodes.ALOAD, 0)); // this
+            il.add(new VarInsnNode(Opcodes.ALOAD, 1)); // state
+            il.add(new VarInsnNode(Opcodes.ALOAD, 2)); // level
+            il.add(new VarInsnNode(Opcodes.ALOAD, 3)); // pos
+            il.add(new VarInsnNode(Opcodes.ALOAD, 4)); // entity
+            il.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, classNode.name, legacyEntityInside.name, legacyEntityInside.desc, false));
+            il.add(new InsnNode(Opcodes.RETURN));
+            bridge.maxStack = 5;
+            bridge.maxLocals = 7;
+            classNode.methods.add(bridge);
+            modified = true;
+        }
+
+        // 4. Inject Item inventoryTick
+        if (legacyInventoryTick != null && !hasModernInventoryTick) {
+            MethodNode bridge = new MethodNode(
+                    Opcodes.ACC_PUBLIC | Opcodes.ACC_SYNTHETIC,
+                    "inventoryTick",
+                    "(Lnet/minecraft/world/item/ItemStack;Lnet/minecraft/server/level/ServerLevel;Lnet/minecraft/world/entity/Entity;Lnet/minecraft/world/entity/EquipmentSlot;)V",
+                    null,
+                    null
+            );
+            InsnList il = bridge.instructions;
+            il.add(new VarInsnNode(Opcodes.ALOAD, 0)); // this
+            il.add(new VarInsnNode(Opcodes.ALOAD, 1)); // stack
+            il.add(new VarInsnNode(Opcodes.ALOAD, 2)); // level
+            il.add(new VarInsnNode(Opcodes.ALOAD, 3)); // entity
+
+            // slotId:
+            LabelNode slotNull = new LabelNode();
+            LabelNode afterSlot = new LabelNode();
+            il.add(new VarInsnNode(Opcodes.ALOAD, 4)); // slot
+            il.add(new JumpInsnNode(Opcodes.IFNULL, slotNull));
+            il.add(new VarInsnNode(Opcodes.ALOAD, 4));
+            il.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, "net/minecraft/world/entity/EquipmentSlot", "getIndex", "()I", false));
+            il.add(new JumpInsnNode(Opcodes.GOTO, afterSlot));
+            il.add(slotNull);
+            il.add(new InsnNode(Opcodes.ICONST_0));
+            il.add(afterSlot);
+
+            // isSelected:
+            LabelNode notMainHand = new LabelNode();
+            LabelNode afterSelected = new LabelNode();
+            il.add(new VarInsnNode(Opcodes.ALOAD, 4)); // slot
+            il.add(new FieldInsnNode(Opcodes.GETSTATIC, "net/minecraft/world/entity/EquipmentSlot", "MAINHAND", "Lnet/minecraft/world/entity/EquipmentSlot;"));
+            il.add(new JumpInsnNode(Opcodes.IF_ACMPNE, notMainHand));
+            il.add(new InsnNode(Opcodes.ICONST_1));
+            il.add(new JumpInsnNode(Opcodes.GOTO, afterSelected));
+            il.add(notMainHand);
+            il.add(new InsnNode(Opcodes.ICONST_0));
+            il.add(afterSelected);
+
+            il.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, classNode.name, legacyInventoryTick.name, legacyInventoryTick.desc, false));
+            il.add(new InsnNode(Opcodes.RETURN));
+            bridge.maxStack = 6;
+            bridge.maxLocals = 5;
+            classNode.methods.add(bridge);
+            modified = true;
+        }
+
+        // 5. Inject Item getUseDuration
+        if (legacyUseDuration != null && !hasModernUseDuration) {
+            MethodNode bridge = new MethodNode(
+                    Opcodes.ACC_PUBLIC | Opcodes.ACC_SYNTHETIC,
+                    "getUseDuration",
+                    "(Lnet/minecraft/world/item/ItemStack;Lnet/minecraft/world/entity/LivingEntity;)I",
+                    null,
+                    null
+            );
+            InsnList il = bridge.instructions;
+            il.add(new VarInsnNode(Opcodes.ALOAD, 0)); // this
+            il.add(new VarInsnNode(Opcodes.ALOAD, 1)); // stack
+            il.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, classNode.name, legacyUseDuration.name, legacyUseDuration.desc, false));
+            il.add(new InsnNode(Opcodes.IRETURN));
+            bridge.maxStack = 2;
+            bridge.maxLocals = 3;
+            classNode.methods.add(bridge);
+            modified = true;
+        }
+
+        // 6. Inject Item use
+        if (legacyItemUse != null && !hasModernItemUse) {
+            MethodNode bridge = new MethodNode(
+                    Opcodes.ACC_PUBLIC | Opcodes.ACC_SYNTHETIC,
+                    "use",
+                    "(Lnet/minecraft/world/level/Level;Lnet/minecraft/world/entity/player/Player;Lnet/minecraft/world/InteractionHand;)Lnet/minecraft/world/InteractionResult;",
+                    null,
+                    null
+            );
+            InsnList il = bridge.instructions;
+            il.add(new VarInsnNode(Opcodes.ALOAD, 0)); // this
+            il.add(new VarInsnNode(Opcodes.ALOAD, 1)); // level
+            il.add(new VarInsnNode(Opcodes.ALOAD, 2)); // player
+            il.add(new VarInsnNode(Opcodes.ALOAD, 3)); // hand
+            il.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, classNode.name, legacyItemUse.name, legacyItemUse.desc, false));
+            LabelNode nullHolder = new LabelNode();
+            il.add(new InsnNode(Opcodes.DUP));
+            il.add(new JumpInsnNode(Opcodes.IFNULL, nullHolder));
+            il.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, "net/minecraft/world/InteractionResultHolder", "getResult", "()Lnet/minecraft/world/InteractionResult;", false));
+            il.add(new InsnNode(Opcodes.ARETURN));
+            il.add(nullHolder);
+            il.add(new InsnNode(Opcodes.POP));
+            il.add(new InsnNode(Opcodes.ACONST_NULL));
+            il.add(new InsnNode(Opcodes.ARETURN));
+            bridge.maxStack = 4;
+            bridge.maxLocals = 4;
+            classNode.methods.add(bridge);
+            modified = true;
+        }
+
+        return modified;
     }
 }

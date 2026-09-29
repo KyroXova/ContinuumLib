@@ -89,5 +89,43 @@ public final class WorldAndDimensionRulesCatalog {
                 null, v1_16_5, null,
                 "MinecraftServer.overworld -> WorldShim.getOverworld (<= 1.16.5)"
         ));
+
+        // 6. WorldSavedData <-> SavedData class redirects
+        MCVersion v1_14_0 = MCVersion.of("1.14");
+        MCVersion v1_12_2 = MCVersion.of("1.12.2");
+
+        kb.registerRule(new ClassRedirectRule(
+                "net/minecraft/world/storage/WorldSavedData",
+                "net/minecraft/world/level/saveddata/SavedData",
+                v1_14_0, null, null,
+                "WorldSavedData -> SavedData (1.14+)"
+        ));
+
+        kb.registerRule(new ClassRedirectRule(
+                "net/minecraft/world/level/saveddata/SavedData",
+                "net/minecraft/world/storage/WorldSavedData",
+                null, v1_12_2, null,
+                "SavedData -> WorldSavedData (<= 1.12.2)"
+        ));
+
+        // 7. DimensionDataStorage.computeIfAbsent polyfill
+        kb.registerRule(new PolyfillRule(
+                "net/minecraft/world/level/storage/DimensionDataStorage", "computeIfAbsent",
+                null,
+                "com/kyroxova/continuumlib/shims/SavedDataShim", "getOrCreate",
+                "(Ljava/lang/Object;Ljava/lang/String;Ljava/lang/Object;)Ljava/lang/Object;",
+                null, null, null,
+                "DimensionDataStorage.computeIfAbsent -> SavedDataShim.getOrCreate"
+        ));
+
+        // 8. SavedData.setDirty polyfill
+        kb.registerRule(new PolyfillRule(
+                "net/minecraft/world/level/saveddata/SavedData", "setDirty",
+                "()V",
+                "com/kyroxova/continuumlib/shims/SavedDataShim", "setDirty",
+                "(Ljava/lang/Object;)V",
+                null, null, null,
+                "SavedData.setDirty -> SavedDataShim.setDirty"
+        ));
     }
 }

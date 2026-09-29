@@ -31,10 +31,10 @@ public final class ContinuumJarBuilder {
 
     private static final String[] SHIM_CLASS_NAMES = {
             "AttributeModifierShim", "BlockInteractionShim", "BlockPropertiesShim", "ButtonShim",
-            "CapabilityShim", "ComponentShim", "CreativeTabShim", "DamageSourceShim", "EnchantmentShim",
+            "CapabilityShim", "ClientRendererShim", "ColorHandlerShim", "ComponentShim", "CreativeTabShim", "DamageSourceShim", "EnchantmentShim",
             "FluidShim", "GuiComponentShim", "ItemStackShim", "KeyMappingShim", "MathShim", "MenuTypeShim",
             "NetworkShim", "ParticleShim", "RandomShim", "RecipeShim", "RecordItemShim", "ReflectionHelperShim",
-            "RegistryShim", "RenderTypeShim", "ResourceLocationJsonAdapter", "ResourceLocationShim",
+            "RegistryShim", "RenderTypeShim", "ResourceLocationJsonAdapter", "ResourceLocationShim", "SavedDataShim",
             "ScreenRenderingShim", "SoundEventShim", "SyntheticEventDispatcher", "TagShim", "VoxelShapeShim", "WorldShim"
     };
 

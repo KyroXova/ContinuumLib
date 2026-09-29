@@ -122,5 +122,83 @@ public final class ItemAndComponentRulesCatalog {
                 null, v1_20_4, null,
                 "ItemStack.remove(DataComponentType) -> ItemStackShim.remove() for pre-1.20.5"
         ));
+
+        // 5. InteractionResultHolder <-> ActionResult class redirects (1.16.5 <-> 1.17+)
+        MCVersion v1_17_0 = MCVersion.of("1.17");
+        MCVersion v1_16_5 = MCVersion.of("1.16.5");
+
+        kb.registerRule(new com.kyroxova.continuumlib.knowledgebase.rules.ClassRedirectRule(
+                "net/minecraft/util/ActionResult",
+                "net/minecraft/world/InteractionResultHolder",
+                v1_17_0, null, null,
+                "ActionResult -> InteractionResultHolder (1.17+)"
+        ));
+
+        kb.registerRule(new com.kyroxova.continuumlib.knowledgebase.rules.ClassRedirectRule(
+                "net/minecraft/world/InteractionResultHolder",
+                "net/minecraft/util/ActionResult",
+                null, v1_16_5, null,
+                "InteractionResultHolder -> ActionResult (<= 1.16.5)"
+        ));
+
+        kb.registerRule(new com.kyroxova.continuumlib.knowledgebase.rules.ClassRedirectRule(
+                "net/minecraft/util/ActionResultType",
+                "net/minecraft/world/InteractionResult",
+                v1_17_0, null, null,
+                "ActionResultType -> InteractionResult (1.17+)"
+        ));
+
+        kb.registerRule(new com.kyroxova.continuumlib.knowledgebase.rules.ClassRedirectRule(
+                "net/minecraft/world/InteractionResult",
+                "net/minecraft/util/ActionResultType",
+                null, v1_16_5, null,
+                "InteractionResult -> ActionResultType (<= 1.16.5)"
+        ));
+
+        // 6. InteractionResultHolder polyfill methods
+        kb.registerRule(new PolyfillRule(
+                "net/minecraft/world/InteractionResultHolder", "success",
+                "(Ljava/lang/Object;)Lnet/minecraft/world/InteractionResultHolder;",
+                "com/kyroxova/continuumlib/shims/ItemInteractionShim", "success",
+                "(Ljava/lang/Object;)Ljava/lang/Object;",
+                null, null, null,
+                "InteractionResultHolder.success -> ItemInteractionShim.success"
+        ));
+
+        kb.registerRule(new PolyfillRule(
+                "net/minecraft/world/InteractionResultHolder", "consume",
+                "(Ljava/lang/Object;)Lnet/minecraft/world/InteractionResultHolder;",
+                "com/kyroxova/continuumlib/shims/ItemInteractionShim", "consume",
+                "(Ljava/lang/Object;)Ljava/lang/Object;",
+                null, null, null,
+                "InteractionResultHolder.consume -> ItemInteractionShim.consume"
+        ));
+
+        kb.registerRule(new PolyfillRule(
+                "net/minecraft/world/InteractionResultHolder", "pass",
+                "(Ljava/lang/Object;)Lnet/minecraft/world/InteractionResultHolder;",
+                "com/kyroxova/continuumlib/shims/ItemInteractionShim", "pass",
+                "(Ljava/lang/Object;)Ljava/lang/Object;",
+                null, null, null,
+                "InteractionResultHolder.pass -> ItemInteractionShim.pass"
+        ));
+
+        kb.registerRule(new PolyfillRule(
+                "net/minecraft/world/InteractionResultHolder", "fail",
+                "(Ljava/lang/Object;)Lnet/minecraft/world/InteractionResultHolder;",
+                "com/kyroxova/continuumlib/shims/ItemInteractionShim", "fail",
+                "(Ljava/lang/Object;)Ljava/lang/Object;",
+                null, null, null,
+                "InteractionResultHolder.fail -> ItemInteractionShim.fail"
+        ));
+
+        kb.registerRule(new PolyfillRule(
+                "net/minecraft/world/InteractionResultHolder", "sidedSuccess",
+                "(Ljava/lang/Object;Z)Lnet/minecraft/world/InteractionResultHolder;",
+                "com/kyroxova/continuumlib/shims/ItemInteractionShim", "sidedSuccess",
+                "(Ljava/lang/Object;Z)Ljava/lang/Object;",
+                null, null, null,
+                "InteractionResultHolder.sidedSuccess -> ItemInteractionShim.sidedSuccess"
+        ));
     }
 }

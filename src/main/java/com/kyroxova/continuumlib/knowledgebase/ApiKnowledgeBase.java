@@ -44,6 +44,10 @@ public final class ApiKnowledgeBase {
         return Collections.unmodifiableList(active);
     }
 
+    public List<TransformationRule> getActiveRules(TargetSpec baseSpec, TargetSpec targetSpec) {
+        return getApplicableRules(baseSpec, targetSpec);
+    }
+
     private void registerDefaultRules() {
         RegistryRulesCatalog.register(this);
         BlockAndEntityRulesCatalog.register(this);
@@ -66,5 +70,6 @@ public final class ApiKnowledgeBase {
         WorldAndDimensionRulesCatalog.register(this);
         ParticleRulesCatalog.register(this);
         VoxelShapeRulesCatalog.register(this);
+        ColorHandlerRulesCatalog.register(this);
     }
 }

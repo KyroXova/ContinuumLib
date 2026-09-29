@@ -38,7 +38,15 @@ public final class ClassRedirectRule implements TransformationRule {
         return sourceInternalName;
     }
 
+    public String getSourceClass() {
+        return sourceInternalName;
+    }
+
     public String getTargetInternalName() {
+        return targetInternalName;
+    }
+
+    public String getTargetClass() {
         return targetInternalName;
     }
 

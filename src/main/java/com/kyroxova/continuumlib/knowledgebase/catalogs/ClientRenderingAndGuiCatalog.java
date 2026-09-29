@@ -121,5 +121,61 @@ public final class ClientRenderingAndGuiCatalog {
                 v1_20_0, null, null,
                 "ItemRenderer.renderGuiItemDecorations -> ScreenRenderingShim.renderGuiItemDecorations"
         ));
+
+        // 8. BlockEntityRenderer registration polyfills
+        kb.registerRule(new PolyfillRule(
+                "net/minecraft/client/renderer/blockentity/BlockEntityRenderers", "register",
+                "(Lnet/minecraft/world/level/block/entity/BlockEntityType;Lnet/minecraft/client/renderer/blockentity/BlockEntityRendererProvider;)V",
+                "com/kyroxova/continuumlib/shims/ClientRendererShim", "registerBlockEntityRenderer",
+                "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+                null, null, null,
+                "BlockEntityRenderers.register -> ClientRendererShim.registerBlockEntityRenderer"
+        ));
+
+        kb.registerRule(new PolyfillRule(
+                "net/minecraftforge/fml/client/registry/ClientRegistry", "bindTileEntityRenderer",
+                "(Lnet/minecraft/tileentity/TileEntityType;Ljava/util/function/Function;)V",
+                "com/kyroxova/continuumlib/shims/ClientRendererShim", "registerBlockEntityRenderer",
+                "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+                null, null, null,
+                "ClientRegistry.bindTileEntityRenderer -> ClientRendererShim.registerBlockEntityRenderer"
+        ));
+
+        kb.registerRule(new PolyfillRule(
+                "net/minecraftforge/client/event/EntityRenderersEvent$RegisterRenderers", "registerBlockEntityRenderer",
+                "(Lnet/minecraft/world/level/block/entity/BlockEntityType;Lnet/minecraft/client/renderer/blockentity/BlockEntityRendererProvider;)V",
+                "com/kyroxova/continuumlib/shims/ClientRendererShim", "registerFromEvent",
+                "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;)V",
+                null, null, null,
+                "RegisterRenderers.registerBlockEntityRenderer -> ClientRendererShim.registerFromEvent"
+        ));
+
+        // 9. EntityRenderer registration polyfills
+        kb.registerRule(new PolyfillRule(
+                "net/minecraft/client/renderer/entity/EntityRenderers", "register",
+                "(Lnet/minecraft/world/entity/EntityType;Lnet/minecraft/client/renderer/entity/EntityRendererProvider;)V",
+                "com/kyroxova/continuumlib/shims/ClientRendererShim", "registerEntityRenderer",
+                "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+                null, null, null,
+                "EntityRenderers.register -> ClientRendererShim.registerEntityRenderer"
+        ));
+
+        kb.registerRule(new PolyfillRule(
+                "net/minecraftforge/fml/client/registry/RenderingRegistry", "registerEntityRenderingHandler",
+                "(Lnet/minecraft/entity/EntityType;Lnet/minecraftforge/fml/client/registry/IRenderFactory;)V",
+                "com/kyroxova/continuumlib/shims/ClientRendererShim", "registerEntityRenderer",
+                "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+                null, null, null,
+                "RenderingRegistry.registerEntityRenderingHandler -> ClientRendererShim.registerEntityRenderer"
+        ));
+
+        kb.registerRule(new PolyfillRule(
+                "net/minecraftforge/client/event/EntityRenderersEvent$RegisterRenderers", "registerEntityRenderer",
+                "(Lnet/minecraft/world/entity/EntityType;Lnet/minecraft/client/renderer/entity/EntityRendererProvider;)V",
+                "com/kyroxova/continuumlib/shims/ClientRendererShim", "registerFromEvent",
+                "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;)V",
+                null, null, null,
+                "RegisterRenderers.registerEntityRenderer -> ClientRendererShim.registerFromEvent"
+        ));
     }
 }
