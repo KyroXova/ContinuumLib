@@ -200,5 +200,69 @@ public final class ItemAndComponentRulesCatalog {
                 null, null, null,
                 "InteractionResultHolder.sidedSuccess -> ItemInteractionShim.sidedSuccess"
         ));
+
+        // 7. 26.3 / 1.21.2+ DataComponents static field access polyfills
+        kb.registerRule(new PolyfillRule(
+                "net/minecraft/core/component/DataComponents", "ITEM_MODEL",
+                "Lnet/minecraft/core/component/DataComponentType;",
+                "com/kyroxova/continuumlib/shims/DataComponentShim", "itemModel",
+                "()Ljava/lang/Object;",
+                null, null, null,
+                "DataComponents.ITEM_MODEL -> DataComponentShim.itemModel()"
+        ));
+
+        kb.registerRule(new PolyfillRule(
+                "net/minecraft/core/component/DataComponents", "CONSUMABLE",
+                "Lnet/minecraft/core/component/DataComponentType;",
+                "com/kyroxova/continuumlib/shims/DataComponentShim", "consumable",
+                "()Ljava/lang/Object;",
+                null, null, null,
+                "DataComponents.CONSUMABLE -> DataComponentShim.consumable()"
+        ));
+
+        kb.registerRule(new PolyfillRule(
+                "net/minecraft/core/component/DataComponents", "EQUIPPABLE",
+                "Lnet/minecraft/core/component/DataComponentType;",
+                "com/kyroxova/continuumlib/shims/DataComponentShim", "equippable",
+                "()Ljava/lang/Object;",
+                null, null, null,
+                "DataComponents.EQUIPPABLE -> DataComponentShim.equippable()"
+        ));
+
+        kb.registerRule(new PolyfillRule(
+                "net/minecraft/core/component/DataComponents", "GLIDER",
+                "Lnet/minecraft/core/component/DataComponentType;",
+                "com/kyroxova/continuumlib/shims/DataComponentShim", "glider",
+                "()Ljava/lang/Object;",
+                null, null, null,
+                "DataComponents.GLIDER -> DataComponentShim.glider()"
+        ));
+
+        kb.registerRule(new PolyfillRule(
+                "net/minecraft/core/component/DataComponents", "TOOLTIP_STYLE",
+                "Lnet/minecraft/core/component/DataComponentType;",
+                "com/kyroxova/continuumlib/shims/DataComponentShim", "tooltipStyle",
+                "()Ljava/lang/Object;",
+                null, null, null,
+                "DataComponents.TOOLTIP_STYLE -> DataComponentShim.tooltipStyle()"
+        ));
+
+        kb.registerRule(new PolyfillRule(
+                "net/minecraft/core/component/DataComponents", "WEAPON",
+                "Lnet/minecraft/core/component/DataComponentType;",
+                "com/kyroxova/continuumlib/shims/DataComponentShim", "weapon",
+                "()Ljava/lang/Object;",
+                null, null, null,
+                "DataComponents.WEAPON -> DataComponentShim.weapon()"
+        ));
+
+        kb.registerRule(new PolyfillRule(
+                "net/minecraft/core/component/DataComponents", "ATTACK_RANGE",
+                "Lnet/minecraft/core/component/DataComponentType;",
+                "com/kyroxova/continuumlib/shims/DataComponentShim", "attackRange",
+                "()Ljava/lang/Object;",
+                null, null, null,
+                "DataComponents.ATTACK_RANGE -> DataComponentShim.attackRange()"
+        ));
     }
 }

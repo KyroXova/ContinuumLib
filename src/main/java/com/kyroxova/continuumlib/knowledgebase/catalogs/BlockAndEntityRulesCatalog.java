@@ -203,5 +203,43 @@ public final class BlockAndEntityRulesCatalog {
                 v1_20_0, null, null,
                 "Entity.getCommandSenderWorld() -> Entity.level() (1.20+)"
         ));
+
+        // 12. LivingEntity attribute queries
+        kb.registerRule(new PolyfillRule(
+                "net/minecraft/world/entity/LivingEntity", "getAttributeValue",
+                "(Lnet/minecraft/world/entity/ai/attributes/Attribute;)D",
+                "com/kyroxova/continuumlib/shims/LivingEntityShim", "getAttributeValue",
+                "(Ljava/lang/Object;Ljava/lang/Object;)D",
+                null, null, null,
+                "LivingEntity.getAttributeValue -> LivingEntityShim.getAttributeValue"
+        ));
+
+        kb.registerRule(new PolyfillRule(
+                "net/minecraft/world/entity/LivingEntity", "getAttribute",
+                "(Lnet/minecraft/world/entity/ai/attributes/Attribute;)Lnet/minecraft/world/entity/ai/attributes/AttributeInstance;",
+                "com/kyroxova/continuumlib/shims/LivingEntityShim", "getAttribute",
+                "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+                null, null, null,
+                "LivingEntity.getAttribute -> LivingEntityShim.getAttribute"
+        ));
+
+        // 13. LivingEntity equipment slot queries
+        kb.registerRule(new PolyfillRule(
+                "net/minecraft/world/entity/LivingEntity", "getItemBySlot",
+                "(Lnet/minecraft/world/entity/EquipmentSlot;)Lnet/minecraft/world/item/ItemStack;",
+                "com/kyroxova/continuumlib/shims/LivingEntityShim", "getItemBySlot",
+                "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+                null, null, null,
+                "LivingEntity.getItemBySlot -> LivingEntityShim.getItemBySlot"
+        ));
+
+        kb.registerRule(new PolyfillRule(
+                "net/minecraft/world/entity/LivingEntity", "setItemSlot",
+                "(Lnet/minecraft/world/entity/EquipmentSlot;Lnet/minecraft/world/item/ItemStack;)V",
+                "com/kyroxova/continuumlib/shims/LivingEntityShim", "setItemSlot",
+                "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;)V",
+                null, null, null,
+                "LivingEntity.setItemSlot -> LivingEntityShim.setItemSlot"
+        ));
     }
 }

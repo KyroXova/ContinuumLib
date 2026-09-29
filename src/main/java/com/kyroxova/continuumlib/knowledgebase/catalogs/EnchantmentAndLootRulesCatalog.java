@@ -31,5 +31,35 @@ public final class EnchantmentAndLootRulesCatalog {
                 v1_21_0, null, null,
                 "EnchantmentHelper.getItemEnchantmentLevel polyfill for data-driven enchantments"
         ));
+
+        // 3. EnchantmentHelper.getEnchantmentLevel -> EnchantmentShim.getEnchantmentLevel
+        kb.registerRule(new PolyfillRule(
+                "net/minecraft/world/item/enchantment/EnchantmentHelper", "getEnchantmentLevel",
+                "(Lnet/minecraft/world/item/enchantment/Enchantment;Lnet/minecraft/world/item/ItemStack;)I",
+                "com/kyroxova/continuumlib/shims/EnchantmentShim", "getEnchantmentLevel",
+                "(Ljava/lang/Object;Ljava/lang/Object;)I",
+                null, null, null,
+                "EnchantmentHelper.getEnchantmentLevel polyfill"
+        ));
+
+        // 4. EnchantmentHelper.hasEnchantment -> EnchantmentShim.hasEnchantment
+        kb.registerRule(new PolyfillRule(
+                "net/minecraft/world/item/enchantment/EnchantmentHelper", "hasEnchantment",
+                "(Lnet/minecraft/world/item/enchantment/Enchantment;Lnet/minecraft/world/item/ItemStack;)Z",
+                "com/kyroxova/continuumlib/shims/EnchantmentShim", "hasEnchantment",
+                "(Ljava/lang/Object;Ljava/lang/Object;)Z",
+                null, null, null,
+                "EnchantmentHelper.hasEnchantment polyfill"
+        ));
+
+        // 5. EnchantmentHelper.getEnchantmentLevel(Enchantment, LivingEntity) -> EnchantmentShim.getEnchantmentLevel
+        kb.registerRule(new PolyfillRule(
+                "net/minecraft/world/item/enchantment/EnchantmentHelper", "getEnchantmentLevel",
+                "(Lnet/minecraft/world/item/enchantment/Enchantment;Lnet/minecraft/world/entity/LivingEntity;)I",
+                "com/kyroxova/continuumlib/shims/EnchantmentShim", "getEnchantmentLevel",
+                "(Ljava/lang/Object;Ljava/lang/Object;)I",
+                null, null, null,
+                "EnchantmentHelper.getEnchantmentLevel(LivingEntity) polyfill"
+        ));
     }
 }

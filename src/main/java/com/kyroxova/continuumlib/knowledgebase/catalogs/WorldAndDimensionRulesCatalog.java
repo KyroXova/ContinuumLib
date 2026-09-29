@@ -127,5 +127,48 @@ public final class WorldAndDimensionRulesCatalog {
                 null, null, null,
                 "SavedData.setDirty -> SavedDataShim.setDirty"
         ));
+
+        // 9. Level.getBiome & World.getBiome polyfills (<= 1.18.1 Biome vs >= 1.18.2 Holder<Biome>)
+        MCVersion v1_18_2 = MCVersion.of("1.18.2");
+        MCVersion v1_18_1 = MCVersion.of("1.18.1");
+
+        // When code expects raw Biome on >= 1.18.2: adapt via getBiomeInstance
+        kb.registerRule(new PolyfillRule(
+                "net/minecraft/world/level/Level", "getBiome",
+                "(Lnet/minecraft/core/BlockPos;)Lnet/minecraft/world/level/biome/Biome;",
+                "com/kyroxova/continuumlib/shims/WorldShim", "getBiomeInstance",
+                "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+                v1_18_2, null, null,
+                "Level.getBiome() Biome -> WorldShim.getBiomeInstance (1.18.2+)"
+        ));
+
+        kb.registerRule(new PolyfillRule(
+                "net/minecraft/world/World", "getBiome",
+                "(Lnet/minecraft/core/BlockPos;)Lnet/minecraft/world/level/biome/Biome;",
+                "com/kyroxova/continuumlib/shims/WorldShim", "getBiomeInstance",
+                "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+                v1_18_2, null, null,
+                "World.getBiome() Biome -> WorldShim.getBiomeInstance (1.18.2+)"
+        ));
+
+        // When code expects Holder<Biome> on <= 1.18.1: adapt via getBiome
+        kb.registerRule(new PolyfillRule(
+                "net/minecraft/world/level/Level", "getBiome",
+                "(Lnet/minecraft/core/BlockPos;)Lnet/minecraft/core/Holder;",
+                "com/kyroxova/continuumlib/shims/WorldShim", "getBiome",
+                "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+                null, v1_18_1, null,
+                "Level.getBiome() Holder -> WorldShim.getBiome (<= 1.18.1)"
+        ));
+
+        // Universal getBiome fallback
+        kb.registerRule(new PolyfillRule(
+                "net/minecraft/world/level/Level", "getBiome",
+                null,
+                "com/kyroxova/continuumlib/shims/WorldShim", "getBiome",
+                "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+                null, null, null,
+                "Level.getBiome -> WorldShim.getBiome"
+        ));
     }
 }

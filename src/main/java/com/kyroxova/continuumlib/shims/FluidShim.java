@@ -46,12 +46,16 @@ public final class FluidShim {
      */
     public static int getDensity(Object fluidHolder) {
         if (fluidHolder == null) return 1000;
-        try {
-            Method m = fluidHolder.getClass().getMethod("getDensity");
-            return (int) m.invoke(fluidHolder);
-        } catch (Throwable t) {
-            return 1000;
+        for (Method m : getAllMethods(fluidHolder.getClass())) {
+            if ("getDensity".equals(m.getName()) && m.getParameterCount() == 0) {
+                try {
+                    m.setAccessible(true);
+                    Object res = m.invoke(fluidHolder);
+                    if (res instanceof Number n) return n.intValue();
+                } catch (Throwable ignored) {}
+            }
         }
+        return 1000;
     }
 
     /**
@@ -59,12 +63,16 @@ public final class FluidShim {
      */
     public static int getViscosity(Object fluidHolder) {
         if (fluidHolder == null) return 1000;
-        try {
-            Method m = fluidHolder.getClass().getMethod("getViscosity");
-            return (int) m.invoke(fluidHolder);
-        } catch (Throwable t) {
-            return 1000;
+        for (Method m : getAllMethods(fluidHolder.getClass())) {
+            if ("getViscosity".equals(m.getName()) && m.getParameterCount() == 0) {
+                try {
+                    m.setAccessible(true);
+                    Object res = m.invoke(fluidHolder);
+                    if (res instanceof Number n) return n.intValue();
+                } catch (Throwable ignored) {}
+            }
         }
+        return 1000;
     }
 
     /**
@@ -72,12 +80,16 @@ public final class FluidShim {
      */
     public static int getTemperature(Object fluidHolder) {
         if (fluidHolder == null) return 300;
-        try {
-            Method m = fluidHolder.getClass().getMethod("getTemperature");
-            return (int) m.invoke(fluidHolder);
-        } catch (Throwable t) {
-            return 300;
+        for (Method m : getAllMethods(fluidHolder.getClass())) {
+            if ("getTemperature".equals(m.getName()) && m.getParameterCount() == 0) {
+                try {
+                    m.setAccessible(true);
+                    Object res = m.invoke(fluidHolder);
+                    if (res instanceof Number n) return n.intValue();
+                } catch (Throwable ignored) {}
+            }
         }
+        return 300;
     }
 
     /**
@@ -85,11 +97,93 @@ public final class FluidShim {
      */
     public static boolean isGaseous(Object fluidHolder) {
         if (fluidHolder == null) return false;
-        try {
-            Method m = fluidHolder.getClass().getMethod("isGaseous");
-            return (boolean) m.invoke(fluidHolder);
-        } catch (Throwable t) {
-            return false;
+        for (Method m : getAllMethods(fluidHolder.getClass())) {
+            if ("isGaseous".equals(m.getName()) && m.getParameterCount() == 0) {
+                try {
+                    m.setAccessible(true);
+                    Object res = m.invoke(fluidHolder);
+                    if (res instanceof Boolean b) return b;
+                } catch (Throwable ignored) {}
+            }
         }
+        return false;
+    }
+
+    private static Method[] getAllMethods(Class<?> clazz) {
+        Method[] publicMethods = clazz.getMethods();
+        Method[] declaredMethods = clazz.getDeclaredMethods();
+        Method[] all = new Method[publicMethods.length + declaredMethods.length];
+        System.arraycopy(publicMethods, 0, all, 0, publicMethods.length);
+        System.arraycopy(declaredMethods, 0, all, publicMethods.length, declaredMethods.length);
+        return all;
+    }
+
+    /**
+     * Retrieves the FluidState at a given BlockPos across versions.
+     */
+    public static Object getFluidState(Object level, Object pos) {
+        if (level == null || pos == null) return null;
+        try {
+            for (Method m : level.getClass().getMethods()) {
+                if ("getFluidState".equals(m.getName()) && m.getParameterCount() == 1) {
+                    try {
+                        m.setAccessible(true);
+                        return m.invoke(level, pos);
+                    } catch (Throwable ignored) {}
+                }
+            }
+        } catch (Throwable ignored) {}
+
+        // Fallback: Level.getBlockState(pos).getFluidState()
+        try {
+            Object blockState = WorldShim.getBlockState(level, pos);
+            if (blockState != null) {
+                for (Method m : blockState.getClass().getMethods()) {
+                    if ("getFluidState".equals(m.getName()) && m.getParameterCount() == 0) {
+                        try {
+                            m.setAccessible(true);
+                            return m.invoke(blockState);
+                        } catch (Throwable ignored) {}
+                    }
+                }
+            }
+        } catch (Throwable ignored) {}
+
+        return null;
+    }
+
+    /**
+     * Checks if a FluidState is a source block across versions.
+     */
+    public static boolean isSource(Object fluidState) {
+        if (fluidState == null) return false;
+
+        // 1. Try FluidState.isSource() (1.14+)
+        try {
+            for (Method m : fluidState.getClass().getMethods()) {
+                if ("isSource".equals(m.getName()) && m.getParameterCount() == 0) {
+                    try {
+                        m.setAccessible(true);
+                        Object res = m.invoke(fluidState);
+                        if (res instanceof Boolean b) return b;
+                    } catch (Throwable ignored) {}
+                }
+            }
+        } catch (Throwable ignored) {}
+
+        // 2. Try FluidState.getAmount() == 8
+        try {
+            for (Method m : fluidState.getClass().getMethods()) {
+                if (("getAmount".equals(m.getName()) || "amount".equals(m.getName())) && m.getParameterCount() == 0) {
+                    try {
+                        m.setAccessible(true);
+                        Object res = m.invoke(fluidState);
+                        if (res instanceof Number n) return n.intValue() == 8;
+                    } catch (Throwable ignored) {}
+                }
+            }
+        } catch (Throwable ignored) {}
+
+        return false;
     }
 }

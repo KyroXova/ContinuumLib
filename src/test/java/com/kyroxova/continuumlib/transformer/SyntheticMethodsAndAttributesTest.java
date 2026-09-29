@@ -535,4 +535,205 @@ public class SyntheticMethodsAndAttributesTest {
         assertTrue(hasModernDuration, "2-arg getUseDuration must be injected for 26.3+");
         assertTrue(hasModernUse, "use returning InteractionResult must be injected for 26.3+");
     }
+
+    @Test
+    public void testEnchantmentHelperAndLivingEntityTransformations() {
+        ApiKnowledgeBase kb = ApiKnowledgeBase.createDefault();
+        TargetSpec base = TargetSpec.of("1.18.2", "forge");
+        TargetSpec target = TargetSpec.of("1.21.1", "neoforge");
+        ContinuumBytecodeTransformer transformer = new ContinuumBytecodeTransformer(kb, base, target);
+
+        ClassNode callerClass = new ClassNode();
+        callerClass.version = Opcodes.V17;
+        callerClass.access = Opcodes.ACC_PUBLIC;
+        callerClass.name = "com/example/TestEntityCaller";
+        callerClass.superName = "java/lang/Object";
+
+        MethodNode testMethod = new MethodNode(
+                Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC,
+                "invokeAll",
+                "(Lnet/minecraft/world/entity/player/Player;Lnet/minecraft/world/item/enchantment/Enchantment;Lnet/minecraft/world/item/ItemStack;Lnet/minecraft/world/entity/ai/attributes/Attribute;Lnet/minecraft/world/entity/EquipmentSlot;Lnet/minecraft/world/effect/MobEffect;)V",
+                null,
+                null
+        );
+        InsnList il = testMethod.instructions;
+
+        // 1. EnchantmentHelper.getEnchantmentLevel(Enchantment, ItemStack)
+        il.add(new VarInsnNode(Opcodes.ALOAD, 1)); // Enchantment
+        il.add(new VarInsnNode(Opcodes.ALOAD, 2)); // ItemStack
+        il.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "net/minecraft/world/item/enchantment/EnchantmentHelper", "getEnchantmentLevel", "(Lnet/minecraft/world/item/enchantment/Enchantment;Lnet/minecraft/world/item/ItemStack;)I", false));
+        il.add(new InsnNode(Opcodes.POP));
+
+        // 2. EnchantmentHelper.getItemEnchantmentLevel(Enchantment, ItemStack)
+        il.add(new VarInsnNode(Opcodes.ALOAD, 1)); // Enchantment
+        il.add(new VarInsnNode(Opcodes.ALOAD, 2)); // ItemStack
+        il.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "net/minecraft/world/item/enchantment/EnchantmentHelper", "getItemEnchantmentLevel", "(Lnet/minecraft/world/item/enchantment/Enchantment;Lnet/minecraft/world/item/ItemStack;)I", false));
+        il.add(new InsnNode(Opcodes.POP));
+
+        // 3. player.getAttributeValue(Attribute)
+        il.add(new VarInsnNode(Opcodes.ALOAD, 0)); // player (subclass of LivingEntity)
+        il.add(new VarInsnNode(Opcodes.ALOAD, 3)); // Attribute
+        il.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, "net/minecraft/world/entity/player/Player", "getAttributeValue", "(Lnet/minecraft/world/entity/ai/attributes/Attribute;)D", false));
+        il.add(new InsnNode(Opcodes.POP2));
+
+        // 4. player.getAttribute(Attribute)
+        il.add(new VarInsnNode(Opcodes.ALOAD, 0)); // player
+        il.add(new VarInsnNode(Opcodes.ALOAD, 3)); // Attribute
+        il.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, "net/minecraft/world/entity/player/Player", "getAttribute", "(Lnet/minecraft/world/entity/ai/attributes/Attribute;)Lnet/minecraft/world/entity/ai/attributes/AttributeInstance;", false));
+        il.add(new InsnNode(Opcodes.POP));
+
+        // 5. player.getItemBySlot(EquipmentSlot)
+        il.add(new VarInsnNode(Opcodes.ALOAD, 0)); // player
+        il.add(new VarInsnNode(Opcodes.ALOAD, 4)); // EquipmentSlot
+        il.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, "net/minecraft/world/entity/player/Player", "getItemBySlot", "(Lnet/minecraft/world/entity/EquipmentSlot;)Lnet/minecraft/world/item/ItemStack;", false));
+        il.add(new InsnNode(Opcodes.POP));
+
+        // 6. player.setItemSlot(EquipmentSlot, ItemStack)
+        il.add(new VarInsnNode(Opcodes.ALOAD, 0)); // player
+        il.add(new VarInsnNode(Opcodes.ALOAD, 4)); // EquipmentSlot
+        il.add(new VarInsnNode(Opcodes.ALOAD, 2)); // ItemStack
+        il.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, "net/minecraft/world/entity/player/Player", "setItemSlot", "(Lnet/minecraft/world/entity/EquipmentSlot;Lnet/minecraft/world/item/ItemStack;)V", false));
+
+        // 7. player.hasEffect(MobEffect)
+        il.add(new VarInsnNode(Opcodes.ALOAD, 0)); // player
+        il.add(new VarInsnNode(Opcodes.ALOAD, 5)); // MobEffect
+        il.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, "net/minecraft/world/entity/player/Player", "hasEffect", "(Lnet/minecraft/world/effect/MobEffect;)Z", false));
+        il.add(new InsnNode(Opcodes.POP));
+
+        // 8. player.getEffect(MobEffect)
+        il.add(new VarInsnNode(Opcodes.ALOAD, 0)); // player
+        il.add(new VarInsnNode(Opcodes.ALOAD, 5)); // MobEffect
+        il.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, "net/minecraft/world/entity/player/Player", "getEffect", "(Lnet/minecraft/world/effect/MobEffect;)Lnet/minecraft/world/effect/MobEffectInstance;", false));
+        il.add(new InsnNode(Opcodes.POP));
+
+        il.add(new InsnNode(Opcodes.RETURN));
+        callerClass.methods.add(testMethod);
+
+        ClassWriter cw = new ClassWriter(0);
+        callerClass.accept(cw);
+        byte[] transformed = transformer.transform("com/example/TestEntityCaller", cw.toByteArray());
+        assertNotNull(transformed);
+
+        ClassReader cr = new ClassReader(transformed);
+        ClassNode result = new ClassNode();
+        cr.accept(result, 0);
+
+        MethodNode resMethod = result.methods.stream().filter(m -> "invokeAll".equals(m.name)).findFirst().orElseThrow();
+
+        // Verify transformed instructions:
+        boolean hasEnchantLevel = false;
+        boolean hasItemEnchantLevel = false;
+        boolean hasAttrVal = false;
+        boolean hasAttr = false;
+        boolean hasItemBySlot = false;
+        boolean hasSetItemSlot = false;
+        boolean hasEffect = false;
+        boolean hasGetEffect = false;
+
+        for (AbstractInsnNode insn : resMethod.instructions.toArray()) {
+            if (insn instanceof MethodInsnNode minsn) {
+                if (minsn.owner.contains("EnchantmentShim")) {
+                    if ("getEnchantmentLevel".equals(minsn.name)) hasEnchantLevel = true;
+                    if ("getItemEnchantmentLevel".equals(minsn.name)) hasItemEnchantLevel = true;
+                    assertEquals(Opcodes.INVOKESTATIC, minsn.getOpcode());
+                }
+                if (minsn.owner.contains("LivingEntityShim") || minsn.owner.contains("AttributeModifierShim")) {
+                    if ("getAttributeValue".equals(minsn.name)) hasAttrVal = true;
+                    if ("getAttribute".equals(minsn.name)) hasAttr = true;
+                    if ("getItemBySlot".equals(minsn.name)) hasItemBySlot = true;
+                    if ("setItemSlot".equals(minsn.name)) hasSetItemSlot = true;
+                    assertEquals(Opcodes.INVOKESTATIC, minsn.getOpcode());
+                }
+                if (minsn.owner.contains("MobEffectShim")) {
+                    if ("hasEffect".equals(minsn.name)) hasEffect = true;
+                    if ("getEffect".equals(minsn.name)) hasGetEffect = true;
+                    assertEquals(Opcodes.INVOKESTATIC, minsn.getOpcode());
+                }
+            }
+        }
+
+        assertTrue(hasEnchantLevel, "EnchantmentHelper.getEnchantmentLevel -> EnchantmentShim");
+        assertTrue(hasItemEnchantLevel, "EnchantmentHelper.getItemEnchantmentLevel -> EnchantmentShim");
+        assertTrue(hasAttrVal, "Player.getAttributeValue -> LivingEntityShim");
+        assertTrue(hasAttr, "Player.getAttribute -> LivingEntityShim");
+        assertTrue(hasItemBySlot, "Player.getItemBySlot -> LivingEntityShim");
+        assertTrue(hasSetItemSlot, "Player.setItemSlot -> LivingEntityShim");
+        assertTrue(hasEffect, "Player.hasEffect -> MobEffectShim");
+        assertTrue(hasGetEffect, "Player.getEffect -> MobEffectShim");
+    }
+
+    @Test
+    public void test26_3RecipeAssembleBridge() {
+        ApiKnowledgeBase kb = ApiKnowledgeBase.createDefault();
+        TargetSpec base = TargetSpec.of("1.18.2", "forge");
+        TargetSpec target26_3 = TargetSpec.of("26.3", "neoforge");
+        TargetSpec target121 = TargetSpec.of("1.21.1", "neoforge");
+
+        ContinuumBytecodeTransformer transformer26_3 = new ContinuumBytecodeTransformer(kb, base, target26_3);
+        ContinuumBytecodeTransformer transformer121 = new ContinuumBytecodeTransformer(kb, base, target121);
+
+        // 1. Legacy recipe class (pre-1.20.5 with Container)
+        ClassNode legacyRecipe = new ClassNode();
+        legacyRecipe.version = Opcodes.V17;
+        legacyRecipe.access = Opcodes.ACC_PUBLIC;
+        legacyRecipe.name = "com/example/MyLegacyRecipe";
+        legacyRecipe.superName = "java/lang/Object";
+
+        MethodNode legacyAssemble = new MethodNode(
+                Opcodes.ACC_PUBLIC,
+                "assemble",
+                "(Lnet/minecraft/world/Container;)Lnet/minecraft/world/item/ItemStack;",
+                null,
+                null
+        );
+        legacyAssemble.instructions.add(new InsnNode(Opcodes.ACONST_NULL));
+        legacyAssemble.instructions.add(new InsnNode(Opcodes.ARETURN));
+        legacyRecipe.methods.add(legacyAssemble);
+
+        ClassWriter cw = new ClassWriter(0);
+        legacyRecipe.accept(cw);
+        byte[] recipeBytes = cw.toByteArray();
+
+        // Transform for 26.3
+        byte[] transformed26_3 = transformer26_3.transform("com/example/MyLegacyRecipe", recipeBytes);
+        ClassReader cr26_3 = new ClassReader(transformed26_3);
+        ClassNode res26_3 = new ClassNode();
+        cr26_3.accept(res26_3, 0);
+
+        boolean has1ArgRecipeInputAssemble = false;
+        boolean has1ArgCraftingInputAssemble = false;
+        boolean has2ArgAssemble = false;
+
+        for (MethodNode m : res26_3.methods) {
+            if ("assemble".equals(m.name)) {
+                if ("(Lnet/minecraft/world/item/crafting/RecipeInput;)Lnet/minecraft/world/item/ItemStack;".equals(m.desc)) {
+                    has1ArgRecipeInputAssemble = true;
+                }
+                if ("(Lnet/minecraft/world/item/crafting/CraftingInput;)Lnet/minecraft/world/item/ItemStack;".equals(m.desc)) {
+                    has1ArgCraftingInputAssemble = true;
+                }
+                if (m.desc.contains("HolderLookup$Provider")) {
+                    has2ArgAssemble = true;
+                }
+            }
+        }
+
+        assertTrue(has1ArgRecipeInputAssemble, "26.3+ target must inject 1-arg assemble(RecipeInput)");
+        assertTrue(has1ArgCraftingInputAssemble, "26.3+ target must inject 1-arg assemble(CraftingInput)");
+        assertFalse(has2ArgAssemble, "26.3+ target must NOT inject 2-arg assemble with HolderLookup.Provider");
+
+        // Transform for 1.21.1
+        byte[] transformed121 = transformer121.transform("com/example/MyLegacyRecipe", recipeBytes);
+        ClassReader cr121 = new ClassReader(transformed121);
+        ClassNode res121 = new ClassNode();
+        cr121.accept(res121, 0);
+
+        boolean has121CraftingInputAssemble = false;
+        for (MethodNode m : res121.methods) {
+            if ("assemble".equals(m.name) && "(Lnet/minecraft/world/item/crafting/CraftingInput;Lnet/minecraft/core/HolderLookup$Provider;)Lnet/minecraft/world/item/ItemStack;".equals(m.desc)) {
+                has121CraftingInputAssemble = true;
+            }
+        }
+        assertTrue(has121CraftingInputAssemble, "1.21.1 target must inject 2-arg assemble(CraftingInput, HolderLookup.Provider)");
+    }
 }

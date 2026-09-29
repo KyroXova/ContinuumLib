@@ -63,6 +63,18 @@ public final class WorldShim {
         } catch (Throwable ignored) {}
 
         try {
+            for (Method m : level.getClass().getDeclaredMethods()) {
+                if (("isClientSide".equals(m.getName()) || "isRemote".equals(m.getName())) && m.getParameterCount() == 0) {
+                    try {
+                        m.setAccessible(true);
+                    } catch (Throwable ignored) {}
+                    Object res = m.invoke(level);
+                    if (res instanceof Boolean b) return b;
+                }
+            }
+        } catch (Throwable ignored) {}
+
+        try {
             for (Field f : level.getClass().getFields()) {
                 if ("isClientSide".equals(f.getName()) || "isRemote".equals(f.getName())) {
                     try {
@@ -73,7 +85,75 @@ public final class WorldShim {
                 }
             }
         } catch (Throwable ignored) {}
+
+        try {
+            for (Field f : level.getClass().getDeclaredFields()) {
+                if ("isClientSide".equals(f.getName()) || "isRemote".equals(f.getName())) {
+                    try {
+                        f.setAccessible(true);
+                    } catch (Throwable ignored) {}
+                    Object res = f.get(level);
+                    if (res instanceof Boolean b) return b;
+                }
+            }
+        } catch (Throwable ignored) {}
         return false;
+    }
+
+    /**
+     * Retrieves the biome for a given position.
+     * Compatible with Level.getBiome(BlockPos) returning Holder<Biome> (1.18.2+) or raw Biome (<= 1.18.1).
+     */
+    public static Object getBiome(Object level, Object pos) {
+        if (level == null || pos == null) return null;
+        try {
+            for (Method m : level.getClass().getMethods()) {
+                if ("getBiome".equals(m.getName()) && m.getParameterCount() == 1) {
+                    try {
+                        m.setAccessible(true);
+                    } catch (Throwable ignored) {}
+                    return m.invoke(level, pos);
+                }
+            }
+        } catch (Throwable ignored) {}
+
+        try {
+            for (Method m : level.getClass().getDeclaredMethods()) {
+                if ("getBiome".equals(m.getName()) && m.getParameterCount() == 1) {
+                    try {
+                        m.setAccessible(true);
+                    } catch (Throwable ignored) {}
+                    return m.invoke(level, pos);
+                }
+            }
+        } catch (Throwable ignored) {}
+        return null;
+    }
+
+    /**
+     * Retrieves the raw Biome instance for a given position, unwrapping Holder<Biome> if present.
+     */
+    public static Object getBiomeInstance(Object level, Object pos) {
+        Object res = getBiome(level, pos);
+        return unwrapHolder(res);
+    }
+
+    /**
+     * Unwraps a Holder or returns the object directly.
+     */
+    public static Object unwrapHolder(Object holderOrObject) {
+        if (holderOrObject == null) return null;
+        try {
+            for (Method m : holderOrObject.getClass().getMethods()) {
+                if (("value".equals(m.getName()) || "get".equals(m.getName())) && m.getParameterCount() == 0) {
+                    try {
+                        m.setAccessible(true);
+                    } catch (Throwable ignored) {}
+                    return m.invoke(holderOrObject);
+                }
+            }
+        } catch (Throwable ignored) {}
+        return holderOrObject;
     }
 
     public static boolean isRemote(Object world) {

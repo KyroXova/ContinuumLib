@@ -53,5 +53,17 @@ public final class SoundAndMusicRulesCatalog {
                 null, MCVersion.of("1.19.2"), null,
                 "SoundEvent.createFixedRangeEvent -> SoundEventShim.createFixedRangeEvent (<= 1.19.2)"
         ));
+
+        // 5. SoundEvent.getLocation() -> SoundEvent.location() (26.3+)
+        MCVersion v26_3 = MCVersion.of("26.3");
+        kb.registerRule(new com.kyroxova.continuumlib.knowledgebase.rules.MethodRedirectRule(
+                "net/minecraft/sounds/SoundEvent", "getLocation",
+                "()Lnet/minecraft/resources/ResourceLocation;",
+                "net/minecraft/sounds/SoundEvent", "location",
+                "()Lnet/minecraft/resources/Identifier;",
+                -1,
+                v26_3, null, null,
+                "SoundEvent.getLocation() -> SoundEvent.location() (26.3+)"
+        ));
     }
 }

@@ -19,26 +19,33 @@ public final class ResourceLocationShim {
     public static Object create(String namespace, String path) {
         String normalizedPath = normalizePath(path);
         try {
-            Class<?> rlClass = Class.forName("net.minecraft.resources.ResourceLocation");
-
-            // Attempt 1: Modern 1.21+ ResourceLocation.fromNamespaceAndPath(...)
+            Class<?> rlClass = null;
             try {
-                Method modernFactory = rlClass.getMethod("fromNamespaceAndPath", String.class, String.class);
-                return modernFactory.invoke(null, namespace, normalizedPath);
-            } catch (NoSuchMethodException ignored) {}
+                rlClass = Class.forName("net.minecraft.resources.Identifier");
+            } catch (ClassNotFoundException ignored) {
+                try {
+                    rlClass = Class.forName("net.minecraft.resources.ResourceLocation");
+                } catch (ClassNotFoundException ignored2) {}
+            }
+            if (rlClass != null) {
+                // Attempt 1: Modern 1.21+ / 26.3+ fromNamespaceAndPath(...)
+                try {
+                    Method modernFactory = rlClass.getMethod("fromNamespaceAndPath", String.class, String.class);
+                    return modernFactory.invoke(null, namespace, normalizedPath);
+                } catch (NoSuchMethodException ignored) {}
 
-            // Attempt 2: Standard Constructor(String, String)
-            try {
-                Constructor<?> ctor = rlClass.getConstructor(String.class, String.class);
-                return ctor.newInstance(namespace, normalizedPath);
-            } catch (NoSuchMethodException ignored) {}
+                // Attempt 2: Standard Constructor(String, String)
+                try {
+                    Constructor<?> ctor = rlClass.getConstructor(String.class, String.class);
+                    return ctor.newInstance(namespace, normalizedPath);
+                } catch (NoSuchMethodException ignored) {}
 
-            // Attempt 3: Single string parse(String)
-            try {
-                Method parseMethod = rlClass.getMethod("parse", String.class);
-                return parseMethod.invoke(null, namespace + ":" + normalizedPath);
-            } catch (NoSuchMethodException ignored) {}
-
+                // Attempt 3: Single string parse(String)
+                try {
+                    Method parseMethod = rlClass.getMethod("parse", String.class);
+                    return parseMethod.invoke(null, namespace + ":" + normalizedPath);
+                } catch (NoSuchMethodException ignored) {}
+            }
         } catch (Throwable t) {
             LOGGER.fine("[ResourceLocationShim] Error creating ResourceLocation: " + t.getMessage());
         }

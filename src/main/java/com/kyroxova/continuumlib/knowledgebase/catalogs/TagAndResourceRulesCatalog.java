@@ -73,5 +73,14 @@ public final class TagAndResourceRulesCatalog {
                 v1_21, null, null,
                 "ResourceLocation.<init>(String) -> ResourceLocation.parse(String)"
         ));
+
+        // 7. ResourceLocation -> Identifier (26.3+)
+        MCVersion v26_3 = MCVersion.of("26.3");
+        kb.registerRule(new com.kyroxova.continuumlib.knowledgebase.rules.ClassRedirectRule(
+                "net/minecraft/resources/ResourceLocation",
+                "net/minecraft/resources/Identifier",
+                v26_3, null, null,
+                "ResourceLocation -> Identifier (26.3+)"
+        ));
     }
 }

@@ -192,6 +192,44 @@ public class ItemComponentsAndNbtVerificationTest {
             assertNull(ItemStackShim.get(stack, "non_existent_key"));
             assertFalse(ItemStackShim.has(stack, "damage"));
         }
+
+        @Test
+        @DisplayName("2.4 DataComponentShim: Resolution of 26.3 components and synthetic types")
+        public void testDataComponentShim() {
+            Object itemModel = com.kyroxova.continuumlib.shims.DataComponentShim.itemModel();
+            assertNotNull(itemModel);
+            assertEquals("minecraft:item_model", itemModel.toString());
+
+            Object consumable = com.kyroxova.continuumlib.shims.DataComponentShim.consumable();
+            assertNotNull(consumable);
+            assertEquals("minecraft:consumable", consumable.toString());
+
+            Object equippable = com.kyroxova.continuumlib.shims.DataComponentShim.equippable();
+            assertNotNull(equippable);
+            assertEquals("minecraft:equippable", equippable.toString());
+
+            Object glider = com.kyroxova.continuumlib.shims.DataComponentShim.glider();
+            assertNotNull(glider);
+            assertEquals("minecraft:glider", glider.toString());
+
+            Object tooltipStyle = com.kyroxova.continuumlib.shims.DataComponentShim.tooltipStyle();
+            assertNotNull(tooltipStyle);
+            assertEquals("minecraft:tooltip_style", tooltipStyle.toString());
+
+            Object weapon = com.kyroxova.continuumlib.shims.DataComponentShim.weapon();
+            assertNotNull(weapon);
+            assertEquals("minecraft:weapon", weapon.toString());
+
+            Object attackRange = com.kyroxova.continuumlib.shims.DataComponentShim.attackRange();
+            assertNotNull(attackRange);
+            assertEquals("minecraft:attack_range", attackRange.toString());
+
+            // Test interaction with ItemStackShim
+            MockLegacyItemStack stack = new MockLegacyItemStack();
+            ItemStackShim.set(stack, weapon, "SwordData");
+            assertEquals("SwordData", ItemStackShim.get(stack, weapon));
+            assertTrue(ItemStackShim.has(stack, weapon));
+        }
     }
 
     // =========================================================================
@@ -253,6 +291,26 @@ public class ItemComponentsAndNbtVerificationTest {
             MockModernItemStack modernStack = new MockModernItemStack();
             ItemStackShim.set(modernStack, "custom_name", "Sunblade");
             assertEquals("Sunblade", ItemStackShim.get(modernStack, "custom_name"));
+        }
+
+        @Test
+        @DisplayName("3.3 26.3 DataComponents rules registered in ItemAndComponentRulesCatalog")
+        public void test26_3DataComponentsRules() {
+            TargetSpec base = TargetSpec.of("1.20.4", "forge");
+            TargetSpec target26_3 = TargetSpec.of("26.3", "neoforge");
+
+            List<TransformationRule> rules = kb.getApplicableRules(base, target26_3);
+
+            String[] components = {"ITEM_MODEL", "CONSUMABLE", "EQUIPPABLE", "GLIDER", "TOOLTIP_STYLE", "WEAPON", "ATTACK_RANGE"};
+            for (String comp : components) {
+                boolean hasCompRule = rules.stream().anyMatch(r ->
+                        r instanceof PolyfillRule pr &&
+                        "net/minecraft/core/component/DataComponents".equals(pr.getSourceOwner()) &&
+                        comp.equals(pr.getSourceName()) &&
+                        "com/kyroxova/continuumlib/shims/DataComponentShim".equals(pr.getShimOwner())
+                );
+                assertTrue(hasCompRule, "DataComponents." + comp + " polyfill must be registered");
+            }
         }
     }
 

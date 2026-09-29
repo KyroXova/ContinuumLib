@@ -145,6 +145,44 @@ public class WorldAndDimensionVerificationTest {
             assertNull(WorldShim.getOverworld(null));
             assertNull(WorldShim.getDimension(null, "overworld"));
         }
+
+        @Test
+        @DisplayName("1.5 Biome resolution across raw Biome and modern Holder<Biome>")
+        public void testBiomeLookup() {
+            Object mockPos = new Object();
+            Object rawBiome = "minecraft:plains";
+            Object mockHolder = new Object() {
+                public Object value() {
+                    return rawBiome;
+                }
+            };
+
+            // Modern level returning Holder<Biome>
+            Object modernLevel = new Object() {
+                public Object getBiome(Object pos) {
+                    return pos == mockPos ? mockHolder : null;
+                }
+            };
+            assertSame(mockHolder, WorldShim.getBiome(modernLevel, mockPos));
+            assertSame(rawBiome, WorldShim.getBiomeInstance(modernLevel, mockPos));
+
+            // Legacy level returning raw Biome
+            Object legacyLevel = new Object() {
+                public Object getBiome(Object pos) {
+                    return pos == mockPos ? rawBiome : null;
+                }
+            };
+            assertSame(rawBiome, WorldShim.getBiome(legacyLevel, mockPos));
+            assertSame(rawBiome, WorldShim.getBiomeInstance(legacyLevel, mockPos));
+
+            // Null safety
+            assertNull(WorldShim.getBiome(null, mockPos));
+            assertNull(WorldShim.getBiome(modernLevel, null));
+            assertNull(WorldShim.getBiomeInstance(null, mockPos));
+            assertNull(WorldShim.getBiomeInstance(modernLevel, null));
+            assertNull(WorldShim.unwrapHolder(null));
+            assertEquals("test", WorldShim.unwrapHolder("test"));
+        }
     }
 
     // =========================================================================
@@ -223,6 +261,23 @@ public class WorldAndDimensionVerificationTest {
                     "com/kyroxova/continuumlib/shims/WorldShim".equals(pr.getShimOwner())
             );
             assertTrue(hasOverworldPolyfill, "MinecraftServer.overworld must polyfill through WorldShim on legacy targets");
+        }
+
+        @Test
+        @DisplayName("2.3 Level.getBiome polyfill rules active across version boundaries")
+        public void testGetBiomeRules() {
+            TargetSpec base = TargetSpec.of("1.16.5", "forge");
+            TargetSpec target1182 = TargetSpec.of("1.18.2", "forge");
+
+            List<TransformationRule> rules = kb.getApplicableRules(base, target1182);
+
+            boolean hasBiomeInstanceRule = rules.stream().anyMatch(r ->
+                    r instanceof PolyfillRule pr &&
+                    "net/minecraft/world/level/Level".equals(pr.getSourceOwner()) &&
+                    "getBiome".equals(pr.getSourceName()) &&
+                    "getBiomeInstance".equals(pr.getTargetMethod())
+            );
+            assertTrue(hasBiomeInstanceRule, "Level.getBiome() -> WorldShim.getBiomeInstance must be registered for 1.18.2+");
         }
     }
 

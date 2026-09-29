@@ -7,6 +7,7 @@ import com.kyroxova.continuumlib.knowledgebase.rules.*;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.Opcodes;
+import org.objectweb.asm.Type;
 import org.objectweb.asm.tree.*;
 
 import java.util.*;
@@ -238,7 +239,7 @@ public final class ContinuumBytecodeTransformer {
                 // A. Check Polyfill Rules first
                 for (int i = polyfillRules.size() - 1; i >= 0; i--) {
                     PolyfillRule pr = polyfillRules.get(i);
-                    if (pr.matches(minsn.owner, minsn.name, minsn.desc)) {
+                    if (matchesPolyfillRule(pr, minsn, classNode)) {
                         String originalOwner = minsn.owner;
                         boolean isConstructor = "<init>".equals(minsn.name) && minsn.getOpcode() == Opcodes.INVOKESPECIAL;
                         if (isConstructor) {
@@ -303,11 +304,19 @@ public final class ContinuumBytecodeTransformer {
                                 break;
                             }
                         } else {
+                            Type originalReturnType = Type.getReturnType(minsn.desc);
                             minsn.setOpcode(Opcodes.INVOKESTATIC);
                             minsn.owner = pr.getShimOwner();
                             minsn.name = pr.getShimName();
                             minsn.desc = pr.getShimDesc();
                             minsn.itf = false;
+                            Type shimReturnType = Type.getReturnType(pr.getShimDesc());
+                            if (originalReturnType.getSort() == Type.OBJECT && !"java/lang/Object".equals(originalReturnType.getInternalName())) {
+                                if (shimReturnType.getSort() == Type.OBJECT && "java/lang/Object".equals(shimReturnType.getInternalName())) {
+                                    String targetType = classRedirects.getOrDefault(originalReturnType.getInternalName(), originalReturnType.getInternalName());
+                                    instructions.insert(minsn, new TypeInsnNode(Opcodes.CHECKCAST, targetType));
+                                }
+                            }
                             modified = true;
                             break;
                         }
@@ -435,6 +444,89 @@ public final class ContinuumBytecodeTransformer {
                         minsn.owner = "com/kyroxova/continuumlib/shims/VoxelShapeShim";
                         minsn.name = "toAABB";
                         minsn.desc = "(Ljava/lang/Object;)Lcom/kyroxova/continuumlib/shims/VoxelShapeShim$VirtualAABB;";
+                        minsn.itf = false;
+                        modified = true;
+                    }
+                }
+
+                // 6. EnchantmentHelper static polyfill redirects
+                if (isEnchantmentHelper(minsn.owner)) {
+                    if ("getItemEnchantmentLevel".equals(minsn.name)) {
+                        minsn.setOpcode(Opcodes.INVOKESTATIC);
+                        minsn.owner = "com/kyroxova/continuumlib/shims/EnchantmentShim";
+                        minsn.name = "getItemEnchantmentLevel";
+                        minsn.desc = "(Ljava/lang/Object;Ljava/lang/Object;)I";
+                        minsn.itf = false;
+                        modified = true;
+                    } else if ("getEnchantmentLevel".equals(minsn.name)) {
+                        minsn.setOpcode(Opcodes.INVOKESTATIC);
+                        minsn.owner = "com/kyroxova/continuumlib/shims/EnchantmentShim";
+                        minsn.name = "getEnchantmentLevel";
+                        minsn.desc = "(Ljava/lang/Object;Ljava/lang/Object;)I";
+                        minsn.itf = false;
+                        modified = true;
+                    }
+                }
+
+                // 7. LivingEntity virtual polyfill redirects
+                if (isLivingEntity(minsn.owner, classNode) && (minsn.getOpcode() == Opcodes.INVOKEVIRTUAL || minsn.getOpcode() == Opcodes.INVOKEINTERFACE)) {
+                    if ("getAttributeValue".equals(minsn.name)) {
+                        minsn.setOpcode(Opcodes.INVOKESTATIC);
+                        minsn.owner = "com/kyroxova/continuumlib/shims/LivingEntityShim";
+                        minsn.name = "getAttributeValue";
+                        minsn.desc = "(Ljava/lang/Object;Ljava/lang/Object;)D";
+                        minsn.itf = false;
+                        modified = true;
+                    } else if ("getAttribute".equals(minsn.name)) {
+                        minsn.setOpcode(Opcodes.INVOKESTATIC);
+                        minsn.owner = "com/kyroxova/continuumlib/shims/LivingEntityShim";
+                        minsn.name = "getAttribute";
+                        minsn.desc = "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;";
+                        minsn.itf = false;
+                        instructions.insert(minsn, new TypeInsnNode(Opcodes.CHECKCAST, classRedirects.getOrDefault("net/minecraft/world/entity/ai/attributes/AttributeInstance", "net/minecraft/world/entity/ai/attributes/AttributeInstance")));
+                        modified = true;
+                    } else if ("getItemBySlot".equals(minsn.name)) {
+                        minsn.setOpcode(Opcodes.INVOKESTATIC);
+                        minsn.owner = "com/kyroxova/continuumlib/shims/LivingEntityShim";
+                        minsn.name = "getItemBySlot";
+                        minsn.desc = "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;";
+                        minsn.itf = false;
+                        instructions.insert(minsn, new TypeInsnNode(Opcodes.CHECKCAST, classRedirects.getOrDefault("net/minecraft/world/item/ItemStack", "net/minecraft/world/item/ItemStack")));
+                        modified = true;
+                    } else if ("setItemSlot".equals(minsn.name)) {
+                        minsn.setOpcode(Opcodes.INVOKESTATIC);
+                        minsn.owner = "com/kyroxova/continuumlib/shims/LivingEntityShim";
+                        minsn.name = "setItemSlot";
+                        minsn.desc = "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;)V";
+                        minsn.itf = false;
+                        modified = true;
+                    } else if ("hasEffect".equals(minsn.name)) {
+                        minsn.setOpcode(Opcodes.INVOKESTATIC);
+                        minsn.owner = "com/kyroxova/continuumlib/shims/MobEffectShim";
+                        minsn.name = "hasEffect";
+                        minsn.desc = "(Ljava/lang/Object;Ljava/lang/Object;)Z";
+                        minsn.itf = false;
+                        modified = true;
+                    } else if ("getEffect".equals(minsn.name)) {
+                        minsn.setOpcode(Opcodes.INVOKESTATIC);
+                        minsn.owner = "com/kyroxova/continuumlib/shims/MobEffectShim";
+                        minsn.name = "getEffect";
+                        minsn.desc = "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;";
+                        minsn.itf = false;
+                        instructions.insert(minsn, new TypeInsnNode(Opcodes.CHECKCAST, classRedirects.getOrDefault("net/minecraft/world/effect/MobEffectInstance", "net/minecraft/world/effect/MobEffectInstance")));
+                        modified = true;
+                    } else if ("removeEffect".equals(minsn.name)) {
+                        minsn.setOpcode(Opcodes.INVOKESTATIC);
+                        minsn.owner = "com/kyroxova/continuumlib/shims/MobEffectShim";
+                        minsn.name = "removeEffect";
+                        minsn.desc = "(Ljava/lang/Object;Ljava/lang/Object;)Z";
+                        minsn.itf = false;
+                        modified = true;
+                    } else if ("addEffect".equals(minsn.name)) {
+                        minsn.setOpcode(Opcodes.INVOKESTATIC);
+                        minsn.owner = "com/kyroxova/continuumlib/shims/MobEffectShim";
+                        minsn.name = "addEffect";
+                        minsn.desc = "(Ljava/lang/Object;Ljava/lang/Object;)Z";
                         minsn.itf = false;
                         modified = true;
                     }
@@ -793,6 +885,8 @@ public final class ContinuumBytecodeTransformer {
         String legacyContainerType = null;
         boolean hasModernAssembleCraftingInput = false;
         boolean hasModernAssembleRecipeInput = false;
+        MethodNode modernAssemble2Arg = null;
+        boolean is26_3Plus = targetSpec != null && (targetSpec.getVersion().isAtLeast(MCVersion.of("26.3")) || targetSpec.getVersion().getMajor() >= 26);
 
         MethodNode legacyMatches = null;
         boolean hasModernMatchesCraftingInput = false;
@@ -823,9 +917,25 @@ public final class ContinuumBytecodeTransformer {
                     legacyAssemble = method;
                     legacyContainerType = "net/minecraft/world/inventory/CraftingContainer";
                 } else if ("(Lnet/minecraft/world/item/crafting/CraftingInput;Lnet/minecraft/core/HolderLookup$Provider;)Lnet/minecraft/world/item/ItemStack;".equals(method.desc)) {
-                    hasModernAssembleCraftingInput = true;
+                    if (!is26_3Plus) {
+                        hasModernAssembleCraftingInput = true;
+                    } else {
+                        modernAssemble2Arg = method;
+                    }
                 } else if ("(Lnet/minecraft/world/item/crafting/RecipeInput;Lnet/minecraft/core/HolderLookup$Provider;)Lnet/minecraft/world/item/ItemStack;".equals(method.desc)) {
-                    hasModernAssembleRecipeInput = true;
+                    if (!is26_3Plus) {
+                        hasModernAssembleRecipeInput = true;
+                    } else {
+                        modernAssemble2Arg = method;
+                    }
+                } else if ("(Lnet/minecraft/world/item/crafting/CraftingInput;)Lnet/minecraft/world/item/ItemStack;".equals(method.desc)) {
+                    if (is26_3Plus) {
+                        hasModernAssembleCraftingInput = true;
+                    }
+                } else if ("(Lnet/minecraft/world/item/crafting/RecipeInput;)Lnet/minecraft/world/item/ItemStack;".equals(method.desc)) {
+                    if (is26_3Plus) {
+                        hasModernAssembleRecipeInput = true;
+                    }
                 }
             }
 
@@ -869,61 +979,135 @@ public final class ContinuumBytecodeTransformer {
             }
         }
 
-        // 1. Inject assemble(CraftingInput, HolderLookup.Provider)
-        if (legacyAssemble != null) {
-            String targetContainer = legacyContainerType != null ? legacyContainerType : "net/minecraft/world/Container";
-            boolean hasRegistryAccess = legacyAssemble.desc.contains("RegistryAccess;");
-
-            if (!hasModernAssembleCraftingInput) {
+        // 1. Inject assemble bridge
+        if (is26_3Plus) {
+            // For 26.3+: 1-arg assemble(CraftingInput) and assemble(RecipeInput)
+            if (!hasModernAssembleCraftingInput && (legacyAssemble != null || modernAssemble2Arg != null)) {
                 MethodNode assembleNode = new MethodNode(
                         Opcodes.ACC_PUBLIC | Opcodes.ACC_SYNTHETIC,
                         "assemble",
-                        "(Lnet/minecraft/world/item/crafting/CraftingInput;Lnet/minecraft/core/HolderLookup$Provider;)Lnet/minecraft/world/item/ItemStack;",
+                        "(Lnet/minecraft/world/item/crafting/CraftingInput;)Lnet/minecraft/world/item/ItemStack;",
                         null,
                         null
                 );
                 InsnList il = assembleNode.instructions;
                 il.add(new VarInsnNode(Opcodes.ALOAD, 0)); // this
                 il.add(new VarInsnNode(Opcodes.ALOAD, 1)); // CraftingInput
-                il.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "com/kyroxova/continuumlib/shims/RecipeShim", "wrapInput", "(Ljava/lang/Object;)Ljava/lang/Object;", false));
-                il.add(new TypeInsnNode(Opcodes.CHECKCAST, targetContainer));
-                if (hasRegistryAccess) {
-                    il.add(new VarInsnNode(Opcodes.ALOAD, 2)); // HolderLookup.Provider
-                    il.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "com/kyroxova/continuumlib/shims/RecipeShim", "wrapRegistryAccess", "(Ljava/lang/Object;)Ljava/lang/Object;", false));
-                    il.add(new TypeInsnNode(Opcodes.CHECKCAST, "net/minecraft/core/RegistryAccess"));
+                if (legacyAssemble != null) {
+                    String targetContainer = legacyContainerType != null ? legacyContainerType : "net/minecraft/world/Container";
+                    boolean hasRegistryAccess = legacyAssemble.desc.contains("RegistryAccess;");
+                    il.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "com/kyroxova/continuumlib/shims/RecipeShim", "wrapInput", "(Ljava/lang/Object;)Ljava/lang/Object;", false));
+                    il.add(new TypeInsnNode(Opcodes.CHECKCAST, targetContainer));
+                    if (hasRegistryAccess) {
+                        il.add(new InsnNode(Opcodes.ACONST_NULL));
+                        il.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "com/kyroxova/continuumlib/shims/RecipeShim", "wrapRegistryAccess", "(Ljava/lang/Object;)Ljava/lang/Object;", false));
+                        il.add(new TypeInsnNode(Opcodes.CHECKCAST, "net/minecraft/core/RegistryAccess"));
+                    }
+                    il.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, classNode.name, "assemble", legacyAssemble.desc, false));
+                    assembleNode.maxStack = hasRegistryAccess ? 4 : 2;
+                } else {
+                    il.add(new InsnNode(Opcodes.ACONST_NULL));
+                    il.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, classNode.name, "assemble", modernAssemble2Arg.desc, false));
+                    assembleNode.maxStack = 3;
                 }
-                il.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, classNode.name, "assemble", legacyAssemble.desc, false));
                 il.add(new InsnNode(Opcodes.ARETURN));
-                assembleNode.maxStack = hasRegistryAccess ? 4 : 3;
-                assembleNode.maxLocals = 3;
+                assembleNode.maxLocals = 2;
                 classNode.methods.add(assembleNode);
+                hasModernAssembleCraftingInput = true;
                 modified = true;
             }
 
-            if (!hasModernAssembleRecipeInput) {
+            if (!hasModernAssembleRecipeInput && (legacyAssemble != null || modernAssemble2Arg != null)) {
                 MethodNode assembleNode = new MethodNode(
                         Opcodes.ACC_PUBLIC | Opcodes.ACC_SYNTHETIC,
                         "assemble",
-                        "(Lnet/minecraft/world/item/crafting/RecipeInput;Lnet/minecraft/core/HolderLookup$Provider;)Lnet/minecraft/world/item/ItemStack;",
+                        "(Lnet/minecraft/world/item/crafting/RecipeInput;)Lnet/minecraft/world/item/ItemStack;",
                         null,
                         null
                 );
                 InsnList il = assembleNode.instructions;
                 il.add(new VarInsnNode(Opcodes.ALOAD, 0)); // this
                 il.add(new VarInsnNode(Opcodes.ALOAD, 1)); // RecipeInput
-                il.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "com/kyroxova/continuumlib/shims/RecipeShim", "wrapInput", "(Ljava/lang/Object;)Ljava/lang/Object;", false));
-                il.add(new TypeInsnNode(Opcodes.CHECKCAST, targetContainer));
-                if (hasRegistryAccess) {
-                    il.add(new VarInsnNode(Opcodes.ALOAD, 2)); // HolderLookup.Provider
-                    il.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "com/kyroxova/continuumlib/shims/RecipeShim", "wrapRegistryAccess", "(Ljava/lang/Object;)Ljava/lang/Object;", false));
-                    il.add(new TypeInsnNode(Opcodes.CHECKCAST, "net/minecraft/core/RegistryAccess"));
+                if (legacyAssemble != null) {
+                    String targetContainer = legacyContainerType != null ? legacyContainerType : "net/minecraft/world/Container";
+                    boolean hasRegistryAccess = legacyAssemble.desc.contains("RegistryAccess;");
+                    il.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "com/kyroxova/continuumlib/shims/RecipeShim", "wrapInput", "(Ljava/lang/Object;)Ljava/lang/Object;", false));
+                    il.add(new TypeInsnNode(Opcodes.CHECKCAST, targetContainer));
+                    if (hasRegistryAccess) {
+                        il.add(new InsnNode(Opcodes.ACONST_NULL));
+                        il.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "com/kyroxova/continuumlib/shims/RecipeShim", "wrapRegistryAccess", "(Ljava/lang/Object;)Ljava/lang/Object;", false));
+                        il.add(new TypeInsnNode(Opcodes.CHECKCAST, "net/minecraft/core/RegistryAccess"));
+                    }
+                    il.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, classNode.name, "assemble", legacyAssemble.desc, false));
+                    assembleNode.maxStack = hasRegistryAccess ? 4 : 2;
+                } else {
+                    il.add(new InsnNode(Opcodes.ACONST_NULL));
+                    il.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, classNode.name, "assemble", modernAssemble2Arg.desc, false));
+                    assembleNode.maxStack = 3;
                 }
-                il.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, classNode.name, "assemble", legacyAssemble.desc, false));
                 il.add(new InsnNode(Opcodes.ARETURN));
-                assembleNode.maxStack = hasRegistryAccess ? 4 : 3;
-                assembleNode.maxLocals = 3;
+                assembleNode.maxLocals = 2;
                 classNode.methods.add(assembleNode);
+                hasModernAssembleRecipeInput = true;
                 modified = true;
+            }
+        } else {
+            // For 1.20.5 - 1.21.1: 2-arg assemble(CraftingInput, HolderLookup.Provider) and assemble(RecipeInput, HolderLookup.Provider)
+            if (legacyAssemble != null) {
+                String targetContainer = legacyContainerType != null ? legacyContainerType : "net/minecraft/world/Container";
+                boolean hasRegistryAccess = legacyAssemble.desc.contains("RegistryAccess;");
+
+                if (!hasModernAssembleCraftingInput) {
+                    MethodNode assembleNode = new MethodNode(
+                            Opcodes.ACC_PUBLIC | Opcodes.ACC_SYNTHETIC,
+                            "assemble",
+                            "(Lnet/minecraft/world/item/crafting/CraftingInput;Lnet/minecraft/core/HolderLookup$Provider;)Lnet/minecraft/world/item/ItemStack;",
+                            null,
+                            null
+                    );
+                    InsnList il = assembleNode.instructions;
+                    il.add(new VarInsnNode(Opcodes.ALOAD, 0)); // this
+                    il.add(new VarInsnNode(Opcodes.ALOAD, 1)); // CraftingInput
+                    il.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "com/kyroxova/continuumlib/shims/RecipeShim", "wrapInput", "(Ljava/lang/Object;)Ljava/lang/Object;", false));
+                    il.add(new TypeInsnNode(Opcodes.CHECKCAST, targetContainer));
+                    if (hasRegistryAccess) {
+                        il.add(new VarInsnNode(Opcodes.ALOAD, 2)); // HolderLookup.Provider
+                        il.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "com/kyroxova/continuumlib/shims/RecipeShim", "wrapRegistryAccess", "(Ljava/lang/Object;)Ljava/lang/Object;", false));
+                        il.add(new TypeInsnNode(Opcodes.CHECKCAST, "net/minecraft/core/RegistryAccess"));
+                    }
+                    il.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, classNode.name, "assemble", legacyAssemble.desc, false));
+                    il.add(new InsnNode(Opcodes.ARETURN));
+                    assembleNode.maxStack = hasRegistryAccess ? 4 : 3;
+                    assembleNode.maxLocals = 3;
+                    classNode.methods.add(assembleNode);
+                    modified = true;
+                }
+
+                if (!hasModernAssembleRecipeInput) {
+                    MethodNode assembleNode = new MethodNode(
+                            Opcodes.ACC_PUBLIC | Opcodes.ACC_SYNTHETIC,
+                            "assemble",
+                            "(Lnet/minecraft/world/item/crafting/RecipeInput;Lnet/minecraft/core/HolderLookup$Provider;)Lnet/minecraft/world/item/ItemStack;",
+                            null,
+                            null
+                    );
+                    InsnList il = assembleNode.instructions;
+                    il.add(new VarInsnNode(Opcodes.ALOAD, 0)); // this
+                    il.add(new VarInsnNode(Opcodes.ALOAD, 1)); // RecipeInput
+                    il.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "com/kyroxova/continuumlib/shims/RecipeShim", "wrapInput", "(Ljava/lang/Object;)Ljava/lang/Object;", false));
+                    il.add(new TypeInsnNode(Opcodes.CHECKCAST, targetContainer));
+                    if (hasRegistryAccess) {
+                        il.add(new VarInsnNode(Opcodes.ALOAD, 2)); // HolderLookup.Provider
+                        il.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "com/kyroxova/continuumlib/shims/RecipeShim", "wrapRegistryAccess", "(Ljava/lang/Object;)Ljava/lang/Object;", false));
+                        il.add(new TypeInsnNode(Opcodes.CHECKCAST, "net/minecraft/core/RegistryAccess"));
+                    }
+                    il.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, classNode.name, "assemble", legacyAssemble.desc, false));
+                    il.add(new InsnNode(Opcodes.ARETURN));
+                    assembleNode.maxStack = hasRegistryAccess ? 4 : 3;
+                    assembleNode.maxLocals = 3;
+                    classNode.methods.add(assembleNode);
+                    modified = true;
+                }
             }
         }
 
@@ -1467,6 +1651,105 @@ public final class ContinuumBytecodeTransformer {
         if (owner == null) return false;
         return owner.equals("net/minecraft/world/phys/shapes/VoxelShape")
                 || owner.equals("net/minecraft/util/math/shapes/VoxelShape");
+    }
+
+    private boolean isEnchantmentHelper(String owner) {
+        if (owner == null) return false;
+        String normalized = owner.replace('.', '/');
+        return normalized.equals("net/minecraft/world/item/enchantment/EnchantmentHelper")
+                || normalized.equals("net/minecraft/enchantment/EnchantmentHelper");
+    }
+
+    private boolean isLivingEntity(String owner) {
+        return isLivingEntity(owner, null);
+    }
+
+    private boolean isLivingEntity(String owner, ClassNode classNode) {
+        if (owner == null) return false;
+        String normalized = owner.replace('.', '/');
+        if (normalized.equals("net/minecraft/world/entity/LivingEntity")
+                || normalized.equals("net/minecraft/world/entity/player/Player")
+                || normalized.equals("net/minecraft/server/level/ServerPlayer")
+                || normalized.equals("net/minecraft/client/player/LocalPlayer")
+                || normalized.equals("net/minecraft/client/player/RemotePlayer")
+                || normalized.equals("net/minecraft/world/entity/Mob")
+                || normalized.equals("net/minecraft/world/entity/PathfinderMob")
+                || normalized.equals("net/minecraft/world/entity/AgeableMob")
+                || normalized.equals("net/minecraft/world/entity/TamableAnimal")
+                || normalized.equals("net/minecraft/world/entity/monster/Monster")
+                || normalized.equals("net/minecraft/world/entity/animal/Animal")
+                || normalized.equals("net/minecraft/world/entity/ambient/AmbientCreature")
+                || normalized.equals("net/minecraft/world/entity/FlyingMob")
+                || normalized.equals("net/minecraft/entity/LivingEntity")
+                || normalized.equals("net/minecraft/entity/EntityLivingBase")
+                || normalized.equals("net/minecraft/entity/player/PlayerEntity")
+                || normalized.equals("net/minecraft/entity/player/EntityPlayer")
+                || normalized.equals("net/minecraft/entity/player/ServerPlayerEntity")
+                || normalized.equals("net/minecraft/entity/player/EntityPlayerMP")
+                || normalized.equals("net/minecraft/client/entity/player/ClientPlayerEntity")
+                || normalized.equals("net/minecraft/entity/MobEntity")
+                || normalized.equals("net/minecraft/entity/EntityLiving")) {
+            return true;
+        }
+        if (normalized.startsWith("net/minecraft/world/entity/") && (
+                normalized.contains("Player") || normalized.contains("Mob") || normalized.contains("Boss")
+                || normalized.contains("Monster") || normalized.contains("Animal")
+                || normalized.contains("monster") || normalized.contains("animal")
+        )) {
+            return true;
+        }
+        if (classNode != null && (normalized.equals(classNode.name) || normalized.equals(classNode.superName))) {
+            if (classNode.superName != null && isLivingEntity(classNode.superName, null)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean matchesPolyfillRule(PolyfillRule pr, MethodInsnNode minsn, ClassNode classNode) {
+        if (pr.matches(minsn.owner, minsn.name, minsn.desc)) {
+            return true;
+        }
+        // Direct owner match with remapped descriptor
+        if (pr.getSourceOwner().equals(minsn.owner.replace('.', '/')) && pr.getSourceName().equals(minsn.name)) {
+            String srcDesc = pr.getSourceDesc();
+            if (srcDesc == null || srcDesc.equals(minsn.desc) || remapDescriptor(srcDesc).equals(minsn.desc)) {
+                return true;
+            }
+        }
+        // Subclass matching for LivingEntity
+        if (isLivingEntity(pr.getSourceOwner(), null) && isLivingEntity(minsn.owner, classNode)) {
+            if (pr.getSourceName().equals(minsn.name)) {
+                String srcDesc = pr.getSourceDesc();
+                if (srcDesc == null || srcDesc.equals(minsn.desc) || remapDescriptor(srcDesc).equals(minsn.desc)) {
+                    return true;
+                }
+                Type[] ruleArgs = Type.getArgumentTypes(srcDesc);
+                Type[] callArgs = Type.getArgumentTypes(minsn.desc);
+                if (ruleArgs.length == callArgs.length) {
+                    Type ruleRet = Type.getReturnType(srcDesc);
+                    Type callRet = Type.getReturnType(minsn.desc);
+                    if (ruleRet.getSort() == callRet.getSort()) {
+                        return true;
+                    }
+                }
+            }
+        }
+        // EnchantmentHelper static matching
+        if (isEnchantmentHelper(pr.getSourceOwner()) && isEnchantmentHelper(minsn.owner)) {
+            if (pr.getSourceName().equals(minsn.name)) {
+                String srcDesc = pr.getSourceDesc();
+                if (srcDesc == null || srcDesc.equals(minsn.desc) || remapDescriptor(srcDesc).equals(minsn.desc)) {
+                    return true;
+                }
+                Type[] ruleArgs = Type.getArgumentTypes(srcDesc);
+                Type[] callArgs = Type.getArgumentTypes(minsn.desc);
+                if (ruleArgs.length == callArgs.length) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private boolean injectModern26_3Bridges(ClassNode classNode) {

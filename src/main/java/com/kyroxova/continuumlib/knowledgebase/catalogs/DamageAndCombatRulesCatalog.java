@@ -122,5 +122,45 @@ public final class DamageAndCombatRulesCatalog {
                 v1_20_0, null, null,
                 "DamageSource.playerAttack -> DamageSourceShim.playerAttack"
         ));
+
+        // 12. LivingEntity.hasEffect(MobEffect) -> MobEffectShim.hasEffect
+        kb.registerRule(new PolyfillRule(
+                "net/minecraft/world/entity/LivingEntity", "hasEffect",
+                "(Lnet/minecraft/world/effect/MobEffect;)Z",
+                "com/kyroxova/continuumlib/shims/MobEffectShim", "hasEffect",
+                "(Ljava/lang/Object;Ljava/lang/Object;)Z",
+                null, null, null,
+                "LivingEntity.hasEffect -> MobEffectShim.hasEffect"
+        ));
+
+        // 13. LivingEntity.getEffect(MobEffect) -> MobEffectShim.getEffect
+        kb.registerRule(new PolyfillRule(
+                "net/minecraft/world/entity/LivingEntity", "getEffect",
+                "(Lnet/minecraft/world/effect/MobEffect;)Lnet/minecraft/world/effect/MobEffectInstance;",
+                "com/kyroxova/continuumlib/shims/MobEffectShim", "getEffect",
+                "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+                null, null, null,
+                "LivingEntity.getEffect -> MobEffectShim.getEffect"
+        ));
+
+        // 14. LivingEntity.removeEffect(MobEffect) -> MobEffectShim.removeEffect
+        kb.registerRule(new PolyfillRule(
+                "net/minecraft/world/entity/LivingEntity", "removeEffect",
+                "(Lnet/minecraft/world/effect/MobEffect;)Z",
+                "com/kyroxova/continuumlib/shims/MobEffectShim", "removeEffect",
+                "(Ljava/lang/Object;Ljava/lang/Object;)Z",
+                null, null, null,
+                "LivingEntity.removeEffect -> MobEffectShim.removeEffect"
+        ));
+
+        // 15. LivingEntity.addEffect(MobEffectInstance) -> MobEffectShim.addEffect
+        kb.registerRule(new PolyfillRule(
+                "net/minecraft/world/entity/LivingEntity", "addEffect",
+                "(Lnet/minecraft/world/effect/MobEffectInstance;)Z",
+                "com/kyroxova/continuumlib/shims/MobEffectShim", "addEffect",
+                "(Ljava/lang/Object;Ljava/lang/Object;)Z",
+                null, null, null,
+                "LivingEntity.addEffect -> MobEffectShim.addEffect"
+        ));
     }
 }

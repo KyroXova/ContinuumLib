@@ -118,5 +118,25 @@ public final class FluidAndAttributesRulesCatalog {
                 null, v1_20_4, null,
                 "AttributeModifier(ResourceLocation, double, Operation) polyfill for <= 1.20.4"
         ));
+
+        // 7. Level.getFluidState polyfill
+        kb.registerRule(new PolyfillRule(
+                "net/minecraft/world/level/Level", "getFluidState",
+                "(Lnet/minecraft/core/BlockPos;)Lnet/minecraft/world/level/material/FluidState;",
+                "com/kyroxova/continuumlib/shims/FluidShim", "getFluidState",
+                "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;",
+                null, null, null,
+                "Level.getFluidState -> FluidShim.getFluidState"
+        ));
+
+        // 8. FluidState.isSource polyfill
+        kb.registerRule(new PolyfillRule(
+                "net/minecraft/world/level/material/FluidState", "isSource",
+                "()Z",
+                "com/kyroxova/continuumlib/shims/FluidShim", "isSource",
+                "(Ljava/lang/Object;)Z",
+                null, null, null,
+                "FluidState.isSource -> FluidShim.isSource"
+        ));
     }
 }
