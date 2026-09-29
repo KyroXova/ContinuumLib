@@ -176,4 +176,221 @@ public class SyntheticMethodsAndAttributesTest {
         Object converted = BlockInteractionShim.toItemInteractionResult("PASS");
         assertNotNull(converted);
     }
+
+    @Test
+    public void testWorldAndLevelBytecodeTransformations() {
+        ClassNode cn = new ClassNode();
+        cn.version = Opcodes.V17;
+        cn.access = Opcodes.ACC_PUBLIC;
+        cn.name = "com/example/WorldHandler";
+        cn.superName = "java/lang/Object";
+
+        MethodNode mn = new MethodNode(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, "handle", "(Lnet/minecraft/world/level/Level;Lnet/minecraft/core/BlockPos;)V", null, null);
+        // 1. GETFIELD isRemote:
+        mn.instructions.add(new VarInsnNode(Opcodes.ALOAD, 0));
+        mn.instructions.add(new FieldInsnNode(Opcodes.GETFIELD, "net/minecraft/world/level/Level", "isRemote", "Z"));
+        mn.instructions.add(new InsnNode(Opcodes.POP));
+
+        // 2. INVOKEVIRTUAL getTileEntity:
+        mn.instructions.add(new VarInsnNode(Opcodes.ALOAD, 0));
+        mn.instructions.add(new VarInsnNode(Opcodes.ALOAD, 1));
+        mn.instructions.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, "net/minecraft/world/level/Level", "getTileEntity", "(Lnet/minecraft/core/BlockPos;)Lnet/minecraft/world/level/block/entity/BlockEntity;", false));
+        mn.instructions.add(new InsnNode(Opcodes.POP));
+
+        mn.instructions.add(new InsnNode(Opcodes.RETURN));
+        cn.methods.add(mn);
+
+        ClassWriter cw = new ClassWriter(0);
+        cn.accept(cw);
+        byte[] original = cw.toByteArray();
+
+        ApiKnowledgeBase kb = ApiKnowledgeBase.createDefault();
+        TargetSpec target118 = TargetSpec.of("1.18.2", "forge");
+        ContinuumBytecodeTransformer transformer = new ContinuumBytecodeTransformer(kb, TargetSpec.of("1.16.5", "forge"), target118);
+
+        byte[] transformed = transformer.transform("com/example/WorldHandler", original);
+        assertNotNull(transformed);
+
+        ClassReader cr = new ClassReader(transformed);
+        ClassNode resultNode = new ClassNode();
+        cr.accept(resultNode, 0);
+
+        MethodNode resultMethod = resultNode.methods.get(0);
+        boolean isClientSideCalled = false;
+        boolean getBlockEntityCalled = false;
+
+        for (AbstractInsnNode insn : resultMethod.instructions.toArray()) {
+            if (insn instanceof MethodInsnNode minsn) {
+                if ("isClientSide".equals(minsn.name) && "()Z".equals(minsn.desc)) {
+                    isClientSideCalled = true;
+                }
+                if ("getBlockEntity".equals(minsn.name)) {
+                    getBlockEntityCalled = true;
+                }
+            }
+        }
+
+        assertTrue(isClientSideCalled, "isRemote field read must be rewritten to isClientSide() method on 1.17+");
+        assertTrue(getBlockEntityCalled, "getTileEntity method must be rewritten to getBlockEntity on 1.17+");
+    }
+
+    @Test
+    public void testKeyMappingBytecodeTransformations() {
+        ClassNode cn = new ClassNode();
+        cn.version = Opcodes.V17;
+        cn.access = Opcodes.ACC_PUBLIC;
+        cn.name = "com/example/KeyHandler";
+        cn.superName = "java/lang/Object";
+
+        MethodNode mn = new MethodNode(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, "handle", "(Lnet/minecraft/client/KeyMapping;)V", null, null);
+        mn.instructions.add(new VarInsnNode(Opcodes.ALOAD, 0));
+        mn.instructions.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, "net/minecraft/client/KeyMapping", "isKeyDown", "()Z", false));
+        mn.instructions.add(new InsnNode(Opcodes.POP));
+
+        mn.instructions.add(new VarInsnNode(Opcodes.ALOAD, 0));
+        mn.instructions.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, "net/minecraft/client/KeyMapping", "isPressed", "()Z", false));
+        mn.instructions.add(new InsnNode(Opcodes.POP));
+
+        mn.instructions.add(new InsnNode(Opcodes.RETURN));
+        cn.methods.add(mn);
+
+        ClassWriter cw = new ClassWriter(0);
+        cn.accept(cw);
+        byte[] original = cw.toByteArray();
+
+        ApiKnowledgeBase kb = ApiKnowledgeBase.createDefault();
+        TargetSpec target118 = TargetSpec.of("1.18.2", "forge");
+        ContinuumBytecodeTransformer transformer = new ContinuumBytecodeTransformer(kb, TargetSpec.of("1.16.5", "forge"), target118);
+
+        byte[] transformed = transformer.transform("com/example/KeyHandler", original);
+        assertNotNull(transformed);
+
+        ClassReader cr = new ClassReader(transformed);
+        ClassNode resultNode = new ClassNode();
+        cr.accept(resultNode, 0);
+
+        MethodNode resultMethod = resultNode.methods.get(0);
+        boolean isDownCalled = false;
+        boolean consumeClickCalled = false;
+
+        for (AbstractInsnNode insn : resultMethod.instructions.toArray()) {
+            if (insn instanceof MethodInsnNode minsn) {
+                if ("isDown".equals(minsn.name)) isDownCalled = true;
+                if ("consumeClick".equals(minsn.name)) consumeClickCalled = true;
+            }
+        }
+
+        assertTrue(isDownCalled, "isKeyDown must be rewritten to isDown on 1.17+");
+        assertTrue(consumeClickCalled, "isPressed must be rewritten to consumeClick on 1.17+");
+    }
+
+    @Test
+    public void testParticleDispatchBytecodeTransformations() {
+        ClassNode cn = new ClassNode();
+        cn.version = Opcodes.V17;
+        cn.access = Opcodes.ACC_PUBLIC;
+        cn.name = "com/example/ParticleHandler";
+        cn.superName = "java/lang/Object";
+
+        MethodNode mn = new MethodNode(Opcodes.ACC_PUBLIC | Opcodes.ACC_STATIC, "spawn",
+                "(Lnet/minecraft/world/level/Level;Ljava/lang/Object;DDDDDD)V", null, null);
+        mn.instructions.add(new VarInsnNode(Opcodes.ALOAD, 0));
+        mn.instructions.add(new VarInsnNode(Opcodes.ALOAD, 1));
+        mn.instructions.add(new VarInsnNode(Opcodes.DLOAD, 2));
+        mn.instructions.add(new VarInsnNode(Opcodes.DLOAD, 4));
+        mn.instructions.add(new VarInsnNode(Opcodes.DLOAD, 6));
+        mn.instructions.add(new VarInsnNode(Opcodes.DLOAD, 8));
+        mn.instructions.add(new VarInsnNode(Opcodes.DLOAD, 10));
+        mn.instructions.add(new VarInsnNode(Opcodes.DLOAD, 12));
+        mn.instructions.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, "net/minecraft/world/level/Level", "addParticle",
+                "(Ljava/lang/Object;DDDDDD)V", false));
+        mn.instructions.add(new InsnNode(Opcodes.RETURN));
+        cn.methods.add(mn);
+
+        ClassWriter cw = new ClassWriter(0);
+        cn.accept(cw);
+        byte[] original = cw.toByteArray();
+
+        ApiKnowledgeBase kb = ApiKnowledgeBase.createDefault();
+        TargetSpec target118 = TargetSpec.of("1.18.2", "forge");
+        ContinuumBytecodeTransformer transformer = new ContinuumBytecodeTransformer(kb, TargetSpec.of("1.16.5", "forge"), target118);
+
+        byte[] transformed = transformer.transform("com/example/ParticleHandler", original);
+        assertNotNull(transformed);
+
+        ClassReader cr = new ClassReader(transformed);
+        ClassNode resultNode = new ClassNode();
+        cr.accept(resultNode, 0);
+
+        MethodNode resultMethod = resultNode.methods.get(0);
+        boolean particleShimCalled = false;
+
+        for (AbstractInsnNode insn : resultMethod.instructions.toArray()) {
+            if (insn instanceof MethodInsnNode minsn) {
+                if ("com/kyroxova/continuumlib/shims/ParticleShim".equals(minsn.owner) && "addParticle".equals(minsn.name)) {
+                    particleShimCalled = true;
+                    assertEquals(Opcodes.INVOKESTATIC, minsn.getOpcode());
+                }
+            }
+        }
+
+        assertTrue(particleShimCalled, "Level.addParticle must be redirected to ParticleShim.addParticle");
+    }
+
+    @Test
+    public void testVoxelShapeSyntheticBridges() {
+        ClassNode cn = new ClassNode();
+        cn.version = Opcodes.V17;
+        cn.access = Opcodes.ACC_PUBLIC;
+        cn.name = "com/example/CustomShapeBlock";
+        cn.superName = "net/minecraft/world/level/block/Block";
+
+        MethodNode legacyBB = new MethodNode(
+                Opcodes.ACC_PUBLIC,
+                "getBoundingBox",
+                "(Lnet/minecraft/world/level/block/state/BlockState;Lnet/minecraft/world/level/BlockGetter;Lnet/minecraft/core/BlockPos;)Lnet/minecraft/world/phys/AABB;",
+                null,
+                null
+        );
+        legacyBB.instructions.add(new InsnNode(Opcodes.ACONST_NULL));
+        legacyBB.instructions.add(new InsnNode(Opcodes.ARETURN));
+        cn.methods.add(legacyBB);
+
+        MethodNode legacyColBB = new MethodNode(
+                Opcodes.ACC_PUBLIC,
+                "getCollisionBoundingBox",
+                "(Lnet/minecraft/world/level/block/state/BlockState;Lnet/minecraft/world/level/BlockGetter;Lnet/minecraft/core/BlockPos;)Lnet/minecraft/world/phys/AABB;",
+                null,
+                null
+        );
+        legacyColBB.instructions.add(new InsnNode(Opcodes.ACONST_NULL));
+        legacyColBB.instructions.add(new InsnNode(Opcodes.ARETURN));
+        cn.methods.add(legacyColBB);
+
+        ClassWriter cw = new ClassWriter(0);
+        cn.accept(cw);
+        byte[] original = cw.toByteArray();
+
+        ApiKnowledgeBase kb = ApiKnowledgeBase.createDefault();
+        TargetSpec target118 = TargetSpec.of("1.18.2", "forge");
+        ContinuumBytecodeTransformer transformer = new ContinuumBytecodeTransformer(kb, TargetSpec.of("1.12.2", "forge"), target118);
+
+        byte[] transformed = transformer.transform("com/example/CustomShapeBlock", original);
+        assertNotNull(transformed);
+
+        ClassReader cr = new ClassReader(transformed);
+        ClassNode resultNode = new ClassNode();
+        cr.accept(resultNode, 0);
+
+        boolean hasGetShape = false;
+        boolean hasGetCollisionShape = false;
+
+        for (MethodNode m : resultNode.methods) {
+            if ("getShape".equals(m.name)) hasGetShape = true;
+            if ("getCollisionShape".equals(m.name)) hasGetCollisionShape = true;
+        }
+
+        assertTrue(hasGetShape, "Block defining getBoundingBox must have synthetic getShape injected for 1.13+");
+        assertTrue(hasGetCollisionShape, "Block defining getCollisionBoundingBox must have synthetic getCollisionShape injected for 1.13+");
+    }
 }

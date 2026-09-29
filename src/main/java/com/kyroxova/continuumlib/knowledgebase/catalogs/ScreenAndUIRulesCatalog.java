@@ -100,5 +100,76 @@ public final class ScreenAndUIRulesCatalog {
                 v1_20_0, null, null,
                 "Screen.renderTooltip(PoseStack, Component) -> ScreenRenderingShim.renderTooltip"
         ));
+
+        MCVersion v1_17_0 = MCVersion.of("1.17");
+        MCVersion v1_16_5 = MCVersion.of("1.16.5");
+
+        // 8. KeyBinding <-> KeyMapping class redirects
+        kb.registerRule(new com.kyroxova.continuumlib.knowledgebase.rules.ClassRedirectRule(
+                "net/minecraft/client/settings/KeyBinding",
+                "net/minecraft/client/KeyMapping",
+                v1_17_0, null, null,
+                "KeyBinding -> KeyMapping (1.17+)"
+        ));
+
+        kb.registerRule(new com.kyroxova.continuumlib.knowledgebase.rules.ClassRedirectRule(
+                "net/minecraft/client/KeyMapping",
+                "net/minecraft/client/settings/KeyBinding",
+                null, v1_16_5, null,
+                "KeyMapping -> KeyBinding (<= 1.16.5)"
+        ));
+
+        // 9. MatrixStack <-> PoseStack class redirects (1.16.5 <-> 1.17+)
+        kb.registerRule(new com.kyroxova.continuumlib.knowledgebase.rules.ClassRedirectRule(
+                "com/mojang/blaze3d/matrix/MatrixStack",
+                "com/mojang/blaze3d/vertex/PoseStack",
+                v1_17_0, null, null,
+                "MatrixStack -> PoseStack (1.17+)"
+        ));
+
+        kb.registerRule(new com.kyroxova.continuumlib.knowledgebase.rules.ClassRedirectRule(
+                "com/mojang/blaze3d/vertex/PoseStack",
+                "com/mojang/blaze3d/matrix/MatrixStack",
+                null, v1_16_5, null,
+                "PoseStack -> MatrixStack (<= 1.16.5)"
+        ));
+
+        // 10. ItemRenderer.renderGuiItem and renderGuiItemDecorations polyfills
+        kb.registerRule(new PolyfillRule(
+                "net/minecraft/client/renderer/entity/ItemRenderer", "renderGuiItem",
+                "(Lnet/minecraft/world/item/ItemStack;II)V",
+                "com/kyroxova/continuumlib/shims/ScreenRenderingShim", "renderGuiItem",
+                "(Ljava/lang/Object;Ljava/lang/Object;II)V",
+                v1_20_0, null, null,
+                "ItemRenderer.renderGuiItem -> ScreenRenderingShim.renderGuiItem"
+        ));
+
+        kb.registerRule(new PolyfillRule(
+                "net/minecraft/client/renderer/entity/ItemRenderer", "renderGuiItemDecorations",
+                "(Lnet/minecraft/client/gui/Font;Lnet/minecraft/world/item/ItemStack;II)V",
+                "com/kyroxova/continuumlib/shims/ScreenRenderingShim", "renderGuiItemDecorations",
+                "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;II)V",
+                v1_20_0, null, null,
+                "ItemRenderer.renderGuiItemDecorations -> ScreenRenderingShim.renderGuiItemDecorations"
+        ));
+
+        // 11. ClientRegistry.registerKeyBinding polyfills
+        kb.registerRule(new PolyfillRule(
+                "net/minecraftforge/client/ClientRegistry", "registerKeyBinding",
+                "(Lnet/minecraft/client/KeyMapping;)V",
+                "com/kyroxova/continuumlib/shims/KeyMappingShim", "registerKeyMapping",
+                "(Ljava/lang/Object;)Ljava/lang/Object;",
+                null, null, null,
+                "ClientRegistry.registerKeyBinding -> KeyMappingShim.registerKeyMapping"
+        ));
+
+        kb.registerRule(new PolyfillRule(
+                "net/minecraftforge/fml/client/registry/ClientRegistry", "registerKeyBinding",
+                "(Lnet/minecraft/client/settings/KeyBinding;)V",
+                "com/kyroxova/continuumlib/shims/KeyMappingShim", "registerKeyMapping",
+                "(Ljava/lang/Object;)Ljava/lang/Object;",
+                null, null, null,
+                "Legacy ClientRegistry.registerKeyBinding -> KeyMappingShim.registerKeyMapping"
+        ));
     }
 }

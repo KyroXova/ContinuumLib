@@ -32,10 +32,10 @@ public final class ContinuumJarBuilder {
     private static final String[] SHIM_CLASS_NAMES = {
             "AttributeModifierShim", "BlockInteractionShim", "BlockPropertiesShim", "ButtonShim",
             "CapabilityShim", "ComponentShim", "CreativeTabShim", "DamageSourceShim", "EnchantmentShim",
-            "FluidShim", "GuiComponentShim", "ItemStackShim", "MathShim", "MenuTypeShim",
-            "NetworkShim", "RandomShim", "RecipeShim", "RecordItemShim", "ReflectionHelperShim",
+            "FluidShim", "GuiComponentShim", "ItemStackShim", "KeyMappingShim", "MathShim", "MenuTypeShim",
+            "NetworkShim", "ParticleShim", "RandomShim", "RecipeShim", "RecordItemShim", "ReflectionHelperShim",
             "RegistryShim", "RenderTypeShim", "ResourceLocationJsonAdapter", "ResourceLocationShim",
-            "ScreenRenderingShim", "SoundEventShim", "SyntheticEventDispatcher", "TagShim"
+            "ScreenRenderingShim", "SoundEventShim", "SyntheticEventDispatcher", "TagShim", "VoxelShapeShim", "WorldShim"
     };
 
     private static final String[] BOOTSTRAPPER_CORE_CLASSES = {

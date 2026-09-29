@@ -20,6 +20,7 @@ docs/
 # Agent teamwork coordination & internal logs
 .agents/
 ORIGINAL_REQUEST.md
+ref/
 
 # OS specific
 Thumbs.db

@@ -44,6 +44,39 @@ public final class ContinuumBytecodeTransformer {
                 polyfillRules.add(pr);
             }
         }
+
+        // Standard version-dependent class redirects
+        if (targetSpec == null || targetSpec.getVersion().isAtLeast(MCVersion.of("1.17"))) {
+            classRedirects.putIfAbsent("net/minecraft/world/World", "net/minecraft/world/level/Level");
+            classRedirects.putIfAbsent("net/minecraft/world/server/ServerWorld", "net/minecraft/server/level/ServerLevel");
+            classRedirects.putIfAbsent("net/minecraft/client/world/ClientWorld", "net/minecraft/client/multiplayer/ClientLevel");
+            classRedirects.putIfAbsent("net/minecraft/world/IBlockReader", "net/minecraft/world/level/BlockGetter");
+            classRedirects.putIfAbsent("net/minecraft/world/IWorld", "net/minecraft/world/level/LevelAccessor");
+            classRedirects.putIfAbsent("net/minecraft/world/IWorldReader", "net/minecraft/world/level/LevelReader");
+            classRedirects.putIfAbsent("net/minecraft/tileentity/TileEntity", "net/minecraft/world/level/block/entity/BlockEntity");
+            classRedirects.putIfAbsent("net/minecraft/client/settings/KeyBinding", "net/minecraft/client/KeyMapping");
+            classRedirects.putIfAbsent("net/minecraft/particles/IParticleData", "net/minecraft/core/particles/ParticleOptions");
+            classRedirects.putIfAbsent("net/minecraft/particles/ParticleType", "net/minecraft/core/particles/ParticleType");
+            classRedirects.putIfAbsent("net/minecraft/util/math/AxisAlignedBB", "net/minecraft/world/phys/AABB");
+            classRedirects.putIfAbsent("net/minecraft/util/math/shapes/VoxelShape", "net/minecraft/world/phys/shapes/VoxelShape");
+            classRedirects.putIfAbsent("net/minecraft/util/math/shapes/VoxelShapes", "net/minecraft/world/phys/shapes/Shapes");
+            classRedirects.putIfAbsent("net/minecraft/util/math/BlockPos", "net/minecraft/core/BlockPos");
+        } else {
+            classRedirects.putIfAbsent("net/minecraft/world/level/Level", "net/minecraft/world/World");
+            classRedirects.putIfAbsent("net/minecraft/server/level/ServerLevel", "net/minecraft/world/server/ServerWorld");
+            classRedirects.putIfAbsent("net/minecraft/client/multiplayer/ClientLevel", "net/minecraft/client/world/ClientWorld");
+            classRedirects.putIfAbsent("net/minecraft/world/level/BlockGetter", "net/minecraft/world/IBlockReader");
+            classRedirects.putIfAbsent("net/minecraft/world/level/LevelAccessor", "net/minecraft/world/IWorld");
+            classRedirects.putIfAbsent("net/minecraft/world/level/LevelReader", "net/minecraft/world/IWorldReader");
+            classRedirects.putIfAbsent("net/minecraft/world/level/block/entity/BlockEntity", "net/minecraft/tileentity/TileEntity");
+            classRedirects.putIfAbsent("net/minecraft/client/KeyMapping", "net/minecraft/client/settings/KeyBinding");
+            classRedirects.putIfAbsent("net/minecraft/core/particles/ParticleOptions", "net/minecraft/particles/IParticleData");
+            classRedirects.putIfAbsent("net/minecraft/core/particles/ParticleType", "net/minecraft/particles/ParticleType");
+            classRedirects.putIfAbsent("net/minecraft/world/phys/AABB", "net/minecraft/util/math/AxisAlignedBB");
+            classRedirects.putIfAbsent("net/minecraft/world/phys/shapes/VoxelShape", "net/minecraft/util/math/shapes/VoxelShape");
+            classRedirects.putIfAbsent("net/minecraft/world/phys/shapes/Shapes", "net/minecraft/util/math/shapes/VoxelShapes");
+            classRedirects.putIfAbsent("net/minecraft/core/BlockPos", "net/minecraft/util/math/BlockPos");
+        }
     }
 
     /**
@@ -174,6 +207,13 @@ public final class ContinuumBytecodeTransformer {
             }
         }
 
+        // 11. Modern VoxelShape bridges (>= 1.13)
+        if (targetSpec == null || targetSpec.getVersion().isAtLeast(MCVersion.of("1.13"))) {
+            if (injectModernVoxelShapeBridges(classNode)) {
+                modified = true;
+            }
+        }
+
         return modified;
     }
 
@@ -293,11 +333,133 @@ public final class ContinuumBytecodeTransformer {
                     minsn.desc = remappedDesc;
                     modified = true;
                 }
+
+                // D. Subsystem Method Redirections
+                // 1. Particle dispatch
+                if (isLevelOrWorld(minsn.owner)) {
+                    if (("addParticle".equals(minsn.name) || "spawnParticle".equals(minsn.name))
+                            && minsn.desc != null && minsn.desc.endsWith("DDDDDD)V")) {
+                        minsn.setOpcode(Opcodes.INVOKESTATIC);
+                        minsn.owner = "com/kyroxova/continuumlib/shims/ParticleShim";
+                        minsn.name = "addParticle";
+                        minsn.desc = "(Ljava/lang/Object;Ljava/lang/Object;DDDDDD)V";
+                        minsn.itf = false;
+                        modified = true;
+                    } else if (("addParticle".equals(minsn.name) || "spawnParticle".equals(minsn.name))
+                            && minsn.desc != null && minsn.desc.endsWith("ZDDDDDD)V")) {
+                        minsn.setOpcode(Opcodes.INVOKESTATIC);
+                        minsn.owner = "com/kyroxova/continuumlib/shims/ParticleShim";
+                        minsn.name = "addParticle";
+                        minsn.desc = "(Ljava/lang/Object;Ljava/lang/Object;ZDDDDDD)V";
+                        minsn.itf = false;
+                        modified = true;
+                    } else if (("sendParticles".equals(minsn.name) || "spawnParticle".equals(minsn.name))
+                            && minsn.desc != null && minsn.desc.endsWith("DDDIDDDD)I")) {
+                        minsn.setOpcode(Opcodes.INVOKESTATIC);
+                        minsn.owner = "com/kyroxova/continuumlib/shims/ParticleShim";
+                        minsn.name = "sendParticles";
+                        minsn.desc = "(Ljava/lang/Object;Ljava/lang/Object;DDDIDDDD)I";
+                        minsn.itf = false;
+                        modified = true;
+                    }
+                }
+
+                // 2. World/Level isClientSide / isRemote method call
+                if (isLevelOrWorld(minsn.owner) && ("isClientSide".equals(minsn.name) || "isRemote".equals(minsn.name)) && "()Z".equals(minsn.desc)) {
+                    if (targetSpec == null || targetSpec.getVersion().isAtLeast(MCVersion.of("1.17"))) {
+                        minsn.setOpcode(Opcodes.INVOKEVIRTUAL);
+                        minsn.name = "isClientSide";
+                        minsn.desc = "()Z";
+                        modified = true;
+                    } else {
+                        FieldInsnNode getField = new FieldInsnNode(
+                                Opcodes.GETFIELD,
+                                classRedirects.getOrDefault(minsn.owner, "net/minecraft/world/World"),
+                                "isRemote",
+                                "Z"
+                        );
+                        instructions.set(minsn, getField);
+                        modified = true;
+                    }
+                }
+
+                // 3. getBlockEntity <-> getTileEntity
+                if (isBlockGetterOrReader(minsn.owner) && ("getBlockEntity".equals(minsn.name) || "getTileEntity".equals(minsn.name))) {
+                    if (targetSpec == null || targetSpec.getVersion().isAtLeast(MCVersion.of("1.17"))) {
+                        minsn.name = "getBlockEntity";
+                    } else {
+                        minsn.name = "getTileEntity";
+                    }
+                    minsn.desc = remapDescriptor(minsn.desc);
+                    modified = true;
+                }
+
+                // 4. KeyMapping <-> KeyBinding methods
+                if (isKeyMappingOrBinding(minsn.owner)) {
+                    if (("isKeyDown".equals(minsn.name) || "isDown".equals(minsn.name)) && "()Z".equals(minsn.desc)) {
+                        minsn.name = (targetSpec == null || targetSpec.getVersion().isAtLeast(MCVersion.of("1.17"))) ? "isDown" : "isKeyDown";
+                        minsn.desc = "()Z";
+                        modified = true;
+                    } else if (("consumeClick".equals(minsn.name) || "isPressed".equals(minsn.name)) && "()Z".equals(minsn.desc)) {
+                        minsn.name = (targetSpec == null || targetSpec.getVersion().isAtLeast(MCVersion.of("1.17"))) ? "consumeClick" : "isPressed";
+                        minsn.desc = "()Z";
+                        modified = true;
+                    }
+                }
+
+                // 5. VoxelShape / Shapes static helper redirects for legacy targets (< 1.13)
+                if (targetSpec != null && !targetSpec.getVersion().isAtLeast(MCVersion.of("1.13"))) {
+                    if ("box".equals(minsn.name) && (minsn.owner.contains("Shapes") || minsn.owner.contains("Block"))) {
+                        minsn.setOpcode(Opcodes.INVOKESTATIC);
+                        minsn.owner = "com/kyroxova/continuumlib/shims/VoxelShapeShim";
+                        minsn.name = "box";
+                        minsn.desc = "(DDDDDD)Ljava/lang/Object;";
+                        minsn.itf = false;
+                        modified = true;
+                    } else if ("or".equals(minsn.name) && minsn.owner.contains("Shapes")) {
+                        minsn.setOpcode(Opcodes.INVOKESTATIC);
+                        minsn.owner = "com/kyroxova/continuumlib/shims/VoxelShapeShim";
+                        minsn.name = "or";
+                        minsn.desc = "(Ljava/lang/Object;Ljava/lang/Object;)Ljava/lang/Object;";
+                        minsn.itf = false;
+                        modified = true;
+                    } else if (isVoxelShape(minsn.owner) && "bounds".equals(minsn.name)) {
+                        minsn.setOpcode(Opcodes.INVOKESTATIC);
+                        minsn.owner = "com/kyroxova/continuumlib/shims/VoxelShapeShim";
+                        minsn.name = "toAABB";
+                        minsn.desc = "(Ljava/lang/Object;)Lcom/kyroxova/continuumlib/shims/VoxelShapeShim$VirtualAABB;";
+                        minsn.itf = false;
+                        modified = true;
+                    }
+                }
             }
 
             // Check Field Instructions
             else if (insn instanceof FieldInsnNode finsn) {
                 boolean fieldPolyfilled = false;
+                if (finsn.getOpcode() == Opcodes.GETFIELD && isLevelOrWorld(finsn.owner)
+                        && ("isRemote".equals(finsn.name) || "isClientSide".equals(finsn.name))
+                        && "Z".equals(finsn.desc)) {
+                    if (targetSpec == null || targetSpec.getVersion().isAtLeast(MCVersion.of("1.17"))) {
+                        MethodInsnNode getterCall = new MethodInsnNode(
+                                Opcodes.INVOKEVIRTUAL,
+                                classRedirects.getOrDefault(finsn.owner, "net/minecraft/world/level/Level"),
+                                "isClientSide",
+                                "()Z",
+                                false
+                        );
+                        instructions.set(finsn, getterCall);
+                        fieldPolyfilled = true;
+                        modified = true;
+                    } else {
+                        finsn.name = "isRemote";
+                        finsn.desc = "Z";
+                        if (classRedirects.containsKey(finsn.owner)) {
+                            finsn.owner = classRedirects.get(finsn.owner);
+                        }
+                        modified = true;
+                    }
+                }
                 if (finsn.getOpcode() == Opcodes.GETSTATIC) {
                     for (int i = polyfillRules.size() - 1; i >= 0; i--) {
                         PolyfillRule pr = polyfillRules.get(i);
@@ -1185,5 +1347,118 @@ public final class ContinuumBytecodeTransformer {
         }
 
         return modified;
+    }
+
+    private boolean injectModernVoxelShapeBridges(ClassNode classNode) {
+        if (classNode.methods == null) return false;
+        boolean modified = false;
+
+        MethodNode legacyBoundingBox = null;
+        MethodNode legacyCollisionBox = null;
+        boolean hasModernGetShape = false;
+        boolean hasModernGetCollisionShape = false;
+
+        for (MethodNode m : classNode.methods) {
+            if ("getBoundingBox".equals(m.name)) {
+                legacyBoundingBox = m;
+            } else if ("getCollisionBoundingBox".equals(m.name)) {
+                legacyCollisionBox = m;
+            } else if ("getShape".equals(m.name)) {
+                hasModernGetShape = true;
+            } else if ("getCollisionShape".equals(m.name)) {
+                hasModernGetCollisionShape = true;
+            }
+        }
+
+        String blockStateClass = classRedirects.getOrDefault("net/minecraft/world/level/block/state/BlockState", "net/minecraft/world/level/block/state/BlockState");
+        String blockGetterClass = classRedirects.getOrDefault("net/minecraft/world/level/BlockGetter", "net/minecraft/world/level/BlockGetter");
+        String blockPosClass = classRedirects.getOrDefault("net/minecraft/core/BlockPos", "net/minecraft/core/BlockPos");
+        String collisionContextClass = classRedirects.getOrDefault("net/minecraft/world/phys/shapes/CollisionContext", "net/minecraft/world/phys/shapes/CollisionContext");
+        String voxelShapeClass = classRedirects.getOrDefault("net/minecraft/world/phys/shapes/VoxelShape", "net/minecraft/world/phys/shapes/VoxelShape");
+        String modernShapeDesc = "(L" + blockStateClass + ";L" + blockGetterClass + ";L" + blockPosClass + ";L" + collisionContextClass + ";)L" + voxelShapeClass + ";";
+
+        if (legacyBoundingBox != null && !hasModernGetShape) {
+            MethodNode shapeBridge = new MethodNode(
+                    Opcodes.ACC_PUBLIC | Opcodes.ACC_SYNTHETIC,
+                    "getShape",
+                    modernShapeDesc,
+                    null,
+                    null
+            );
+            InsnList il = shapeBridge.instructions;
+            il.add(new VarInsnNode(Opcodes.ALOAD, 0)); // this
+            il.add(new VarInsnNode(Opcodes.ALOAD, 1)); // state
+            il.add(new VarInsnNode(Opcodes.ALOAD, 2)); // level
+            il.add(new VarInsnNode(Opcodes.ALOAD, 3)); // pos
+            il.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, classNode.name, legacyBoundingBox.name, legacyBoundingBox.desc, false));
+            il.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "com/kyroxova/continuumlib/shims/VoxelShapeShim", "fromAABB", "(Ljava/lang/Object;)Ljava/lang/Object;", false));
+            il.add(new TypeInsnNode(Opcodes.CHECKCAST, voxelShapeClass));
+            il.add(new InsnNode(Opcodes.ARETURN));
+            shapeBridge.maxStack = 4;
+            shapeBridge.maxLocals = 5;
+            classNode.methods.add(shapeBridge);
+            modified = true;
+        }
+
+        if (legacyCollisionBox != null && !hasModernGetCollisionShape) {
+            MethodNode colShapeBridge = new MethodNode(
+                    Opcodes.ACC_PUBLIC | Opcodes.ACC_SYNTHETIC,
+                    "getCollisionShape",
+                    modernShapeDesc,
+                    null,
+                    null
+            );
+            InsnList il = colShapeBridge.instructions;
+            il.add(new VarInsnNode(Opcodes.ALOAD, 0)); // this
+            il.add(new VarInsnNode(Opcodes.ALOAD, 1)); // state
+            il.add(new VarInsnNode(Opcodes.ALOAD, 2)); // level
+            il.add(new VarInsnNode(Opcodes.ALOAD, 3)); // pos
+            il.add(new MethodInsnNode(Opcodes.INVOKEVIRTUAL, classNode.name, legacyCollisionBox.name, legacyCollisionBox.desc, false));
+            il.add(new MethodInsnNode(Opcodes.INVOKESTATIC, "com/kyroxova/continuumlib/shims/VoxelShapeShim", "fromAABB", "(Ljava/lang/Object;)Ljava/lang/Object;", false));
+            il.add(new TypeInsnNode(Opcodes.CHECKCAST, voxelShapeClass));
+            il.add(new InsnNode(Opcodes.ARETURN));
+            colShapeBridge.maxStack = 4;
+            colShapeBridge.maxLocals = 5;
+            classNode.methods.add(colShapeBridge);
+            modified = true;
+        }
+
+        return modified;
+    }
+
+    private boolean isLevelOrWorld(String owner) {
+        if (owner == null) return false;
+        return owner.equals("net/minecraft/world/level/Level")
+                || owner.equals("net/minecraft/world/World")
+                || owner.equals("net/minecraft/server/level/ServerLevel")
+                || owner.equals("net/minecraft/world/server/ServerWorld")
+                || owner.equals("net/minecraft/client/multiplayer/ClientLevel")
+                || owner.equals("net/minecraft/client/world/ClientWorld")
+                || owner.equals("net/minecraft/world/level/LevelAccessor")
+                || owner.equals("net/minecraft/world/level/LevelReader")
+                || owner.equals("net/minecraft/world/level/CommonLevelAccessor")
+                || owner.equals("net/minecraft/world/level/ServerLevelAccessor")
+                || owner.equals("net/minecraft/world/IWorld")
+                || owner.equals("net/minecraft/world/IWorldReader");
+    }
+
+    private boolean isBlockGetterOrReader(String owner) {
+        if (owner == null) return false;
+        return isLevelOrWorld(owner)
+                || owner.equals("net/minecraft/world/level/BlockGetter")
+                || owner.equals("net/minecraft/world/IBlockReader")
+                || owner.equals("net/minecraft/world/IBlockAccess");
+    }
+
+    private boolean isKeyMappingOrBinding(String owner) {
+        if (owner == null) return false;
+        return owner.equals("net/minecraft/client/KeyMapping")
+                || owner.equals("net/minecraft/client/settings/KeyBinding");
+    }
+
+    private boolean isVoxelShape(String owner) {
+        if (owner == null) return false;
+        return owner.equals("net/minecraft/world/phys/shapes/VoxelShape")
+                || owner.equals("net/minecraft/util/math/shapes/VoxelShape");
     }
 }

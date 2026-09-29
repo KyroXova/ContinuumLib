@@ -42,5 +42,39 @@ public final class CommandAndMenuRulesCatalog {
                 v1_20_4, null, LoaderType.NEOFORGE,
                 "RegisterCommandsEvent -> NeoForge RegisterCommandsEvent"
         ));
+
+        MCVersion v1_17_0 = MCVersion.of("1.17");
+        MCVersion v1_16_5 = MCVersion.of("1.16.5");
+
+        // 4. broadcastChanges <-> detectAndSendChanges
+        kb.registerRule(new com.kyroxova.continuumlib.knowledgebase.rules.MethodRedirectRule(
+                "net/minecraft/world/inventory/AbstractContainerMenu", "detectAndSendChanges",
+                "()V",
+                "net/minecraft/world/inventory/AbstractContainerMenu", "broadcastChanges",
+                "()V",
+                -1,
+                v1_17_0, null, null,
+                "detectAndSendChanges -> broadcastChanges (1.17+)"
+        ));
+
+        kb.registerRule(new com.kyroxova.continuumlib.knowledgebase.rules.MethodRedirectRule(
+                "net/minecraft/world/inventory/AbstractContainerMenu", "broadcastChanges",
+                "()V",
+                "net/minecraft/world/inventory/AbstractContainerMenu", "detectAndSendChanges",
+                "()V",
+                -1,
+                null, v1_16_5, null,
+                "broadcastChanges -> detectAndSendChanges (<= 1.16.5)"
+        ));
+
+        // 5. NetworkHooks.openScreen polyfill
+        kb.registerRule(new PolyfillRule(
+                "net/minecraftforge/network/NetworkHooks", "openScreen",
+                "(Lnet/minecraft/server/level/ServerPlayer;Lnet/minecraft/world/MenuProvider;Ljava/util/function/Consumer;)V",
+                "com/kyroxova/continuumlib/shims/MenuTypeShim", "openMenu",
+                "(Ljava/lang/Object;Ljava/lang/Object;Ljava/lang/Object;)V",
+                null, null, null,
+                "NetworkHooks.openScreen -> MenuTypeShim.openMenu"
+        ));
     }
 }

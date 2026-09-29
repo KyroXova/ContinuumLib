@@ -63,5 +63,8 @@ public final class ApiKnowledgeBase {
         SoundAndMusicRulesCatalog.register(this);
         DataPackPathRulesCatalog.register(this);
         CommandAndMenuRulesCatalog.register(this);
+        WorldAndDimensionRulesCatalog.register(this);
+        ParticleRulesCatalog.register(this);
+        VoxelShapeRulesCatalog.register(this);
     }
 }

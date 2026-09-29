@@ -223,4 +223,125 @@ public class CrossVersionCatalogAndShimCoverageTest {
         assertEquals("RegisteredBlock", RegistryShim.resolveHolder(testSupplier));
         assertTrue(RegistryShim.isPresent(testSupplier));
     }
+
+    @Test
+    @DisplayName("5. WorldShim and WorldAndDimensionRulesCatalog")
+    public void testWorldShimAndCatalog() {
+        ApiKnowledgeBase kb = ApiKnowledgeBase.createDefault();
+        TargetSpec base = TargetSpec.of("1.16.5", "forge");
+        TargetSpec target120 = TargetSpec.of("1.20.1", "neoforge");
+
+        List<TransformationRule> rules = kb.getApplicableRules(base, target120);
+
+        boolean hasWorldToLevel = rules.stream().anyMatch(r ->
+                r instanceof ClassRedirectRule cr &&
+                "net/minecraft/world/World".equals(cr.getSourceInternalName()) &&
+                "net/minecraft/world/level/Level".equals(cr.getTargetInternalName())
+        );
+        assertTrue(hasWorldToLevel, "World -> Level redirect must be registered for 1.17+");
+
+        boolean hasServerWorldToServerLevel = rules.stream().anyMatch(r ->
+                r instanceof ClassRedirectRule cr &&
+                "net/minecraft/world/server/ServerWorld".equals(cr.getSourceInternalName()) &&
+                "net/minecraft/server/level/ServerLevel".equals(cr.getTargetInternalName())
+        );
+        assertTrue(hasServerWorldToServerLevel, "ServerWorld -> ServerLevel redirect must be registered for 1.17+");
+
+        // Test WorldShim methods safely handle null/mock objects
+        assertNull(WorldShim.getBlockEntity(null, null));
+        assertNull(WorldShim.getTileEntity(null, null));
+        assertNull(WorldShim.getBlockState(null, null));
+        assertFalse(WorldShim.isClientSide(null));
+        assertFalse(WorldShim.isRemote(null));
+        assertNull(WorldShim.getDimensionKey(null));
+        assertNull(WorldShim.getOverworld(null));
+        assertNull(WorldShim.getDimension(null, "overworld"));
+    }
+
+    @Test
+    @DisplayName("6. KeyMappingShim and ScreenAndUIRulesCatalog key binding rules")
+    public void testKeyMappingShimAndCatalog() {
+        ApiKnowledgeBase kb = ApiKnowledgeBase.createDefault();
+        TargetSpec base = TargetSpec.of("1.16.5", "forge");
+        TargetSpec target120 = TargetSpec.of("1.20.1", "neoforge");
+
+        List<TransformationRule> rules = kb.getApplicableRules(base, target120);
+
+        boolean hasKeyBindingRedirect = rules.stream().anyMatch(r ->
+                r instanceof ClassRedirectRule cr &&
+                "net/minecraft/client/settings/KeyBinding".equals(cr.getSourceInternalName()) &&
+                "net/minecraft/client/KeyMapping".equals(cr.getTargetInternalName())
+        );
+        assertTrue(hasKeyBindingRedirect, "KeyBinding -> KeyMapping redirect must be registered");
+
+        // Mock key mapping
+        Object dummyKey = new Object() {
+            public boolean isDown() { return true; }
+            public boolean consumeClick() { return false; }
+            public boolean matches(int key, int scan) { return key == 65; }
+        };
+
+        KeyMappingShim.register(dummyKey);
+        assertTrue(KeyMappingShim.getRegisteredKeys().contains(dummyKey));
+        assertTrue(KeyMappingShim.isDown(dummyKey));
+        assertFalse(KeyMappingShim.consumeClick(dummyKey));
+        assertTrue(KeyMappingShim.matches(dummyKey, 65, 0));
+        assertFalse(KeyMappingShim.matches(dummyKey, 66, 0));
+    }
+
+    @Test
+    @DisplayName("7. ParticleShim and ParticleRulesCatalog")
+    public void testParticleShimAndCatalog() {
+        ApiKnowledgeBase kb = ApiKnowledgeBase.createDefault();
+        TargetSpec base = TargetSpec.of("1.16.5", "forge");
+        TargetSpec target120 = TargetSpec.of("1.20.1", "neoforge");
+
+        List<TransformationRule> rules = kb.getApplicableRules(base, target120);
+
+        boolean hasParticleOptionsRedirect = rules.stream().anyMatch(r ->
+                r instanceof ClassRedirectRule cr &&
+                "net/minecraft/particles/IParticleData".equals(cr.getSourceInternalName()) &&
+                "net/minecraft/core/particles/ParticleOptions".equals(cr.getTargetInternalName())
+        );
+        assertTrue(hasParticleOptionsRedirect, "IParticleData -> ParticleOptions redirect must be registered");
+
+        // ParticleShim execution without exception
+        assertDoesNotThrow(() -> ParticleShim.addParticle(null, "smoke", 0, 0, 0, 0, 0, 0));
+        assertDoesNotThrow(() -> ParticleShim.spawnParticle(null, "flame", 0, 0, 0, 0, 0, 0));
+        assertDoesNotThrow(() -> ParticleShim.sendParticles(null, "heart", 0, 0, 0, 5, 0.1, 0.1, 0.1, 0.05));
+    }
+
+    @Test
+    @DisplayName("8. VoxelShapeShim boxes and unions")
+    public void testVoxelShapeShim() {
+        assertDoesNotThrow(VoxelShapeShim::empty);
+        assertDoesNotThrow(VoxelShapeShim::block);
+        assertDoesNotThrow(() -> VoxelShapeShim.box(0, 0, 0, 16, 16, 16));
+        assertDoesNotThrow(() -> VoxelShapeShim.or(null, null));
+        assertDoesNotThrow(() -> VoxelShapeShim.toAABB(null));
+        assertDoesNotThrow(() -> VoxelShapeShim.fromAABB(null));
+    }
+
+    @Test
+    @DisplayName("9. MenuTypeShim container opening and slot sync")
+    public void testMenuTypeShimEnhancements() {
+        ApiKnowledgeBase kb = ApiKnowledgeBase.createDefault();
+        TargetSpec base = TargetSpec.of("1.16.5", "forge");
+        TargetSpec target120 = TargetSpec.of("1.20.1", "neoforge");
+
+        List<TransformationRule> rules = kb.getApplicableRules(base, target120);
+
+        boolean hasBroadcastChanges = rules.stream().anyMatch(r ->
+                r instanceof MethodRedirectRule mr &&
+                "detectAndSendChanges".equals(mr.getSourceName()) &&
+                "broadcastChanges".equals(mr.getTargetName())
+        );
+        assertTrue(hasBroadcastChanges, "detectAndSendChanges -> broadcastChanges redirect must be registered");
+
+        assertDoesNotThrow(() -> MenuTypeShim.openMenu(null, null));
+        assertDoesNotThrow(() -> MenuTypeShim.broadcastChanges(null));
+        assertDoesNotThrow(() -> MenuTypeShim.syncSlot(null, 0, null));
+        assertDoesNotThrow(() -> MenuTypeShim.addDataSlot(null, null));
+        assertDoesNotThrow(() -> MenuTypeShim.addDataSlots(null, null));
+    }
 }
