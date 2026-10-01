@@ -14,6 +14,7 @@ import com.kyroxova.continuumlib.filter.condition.TargetContext;
 import com.kyroxova.continuumlib.filter.config.ContinuumProjectConfiguration;
 import com.kyroxova.continuumlib.filter.config.FilterConfigurationReader;
 import com.kyroxova.continuumlib.filter.engine.FilterEngine;
+import org.gradle.api.file.ConfigurableFileCollection;
 import org.gradle.api.file.DirectoryProperty;
 import org.gradle.api.file.RegularFileProperty;
 import org.gradle.api.tasks.*;
@@ -28,6 +29,10 @@ public abstract class TransformSourceTask extends ArtifactRequestTask {
     @InputDirectory
     @PathSensitive(PathSensitivity.RELATIVE)
     public abstract DirectoryProperty getSourceDirectory();
+
+    @InputFiles
+    @PathSensitive(PathSensitivity.RELATIVE)
+    public abstract ConfigurableFileCollection getResourceFiles();
 
     @OutputDirectory
     public abstract DirectoryProperty getGeneratedSourceDirectory();

@@ -45,4 +45,39 @@ class ConsumerPluginTest {
         assertTrue(report.contains("INVENTORY_ONLY"));
         assertEquals(body, Files.readString(source));
     }
+    @Test void targetGenerationTracksConsumerResourcesAsInputs() throws Exception {
+        Files.writeString(project.resolve("settings.gradle"), "rootProject.name = 'consumer'");
+        Files.writeString(project.resolve("build.gradle"), """
+                plugins { id 'com.kyroxova.continuumlib' }
+                tasks.register('printContinuumResourceInputs') {
+                    doLast {
+                        ['continuumLibGenerate_demo', 'continuumLibTransformSource'].each { taskName ->
+                            tasks.named(taskName).get().resourceFiles.files.each {
+                                println(taskName + ':RESOURCE_INPUT=' + project.relativePath(it))
+                            }
+                        }
+                    }
+                }
+                """);
+
+        Path config = project.resolve("src/main/resources/continuumlib");
+        Files.createDirectories(config.resolve("inclusions"));
+        Files.writeString(config.resolve("targets.properties"),
+                "targets=demo\nperVersion=true\nuniversal=false\n");
+        Files.writeString(config.resolve("inclusions/source.json"), "{\"rules\":[]}");
+        Path asset = project.resolve("src/main/resources/assets/example/model.json");
+        Files.createDirectories(asset.getParent());
+        Files.writeString(asset, "{}");
+
+        var result = GradleRunner.create().withProjectDir(project.toFile()).withPluginClasspath()
+                .withArguments("printContinuumResourceInputs").build();
+
+        assertTrue(result.getOutput().contains(
+                "continuumLibGenerate_demo:RESOURCE_INPUT=src/main/resources/assets/example/model.json"));
+        assertTrue(result.getOutput().contains(
+                "continuumLibGenerate_demo:RESOURCE_INPUT=src/main/resources/continuumlib/inclusions/source.json"));
+        assertTrue(result.getOutput().contains(
+                "continuumLibTransformSource:RESOURCE_INPUT=src/main/resources/assets/example/model.json"));
+    }
+
 }

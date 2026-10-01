@@ -3,6 +3,7 @@ package com.kyroxova.continuumlib.gradle;
 import com.kyroxova.continuumlib.knowledge.rule.RulePack;
 import com.kyroxova.continuumlib.pipeline.*;
 import org.gradle.api.GradleException;
+import org.gradle.api.file.ConfigurableFileCollection;
 import org.gradle.api.file.DirectoryProperty;
 import org.gradle.api.file.RegularFileProperty;
 import org.gradle.api.provider.Property;
@@ -22,6 +23,10 @@ public abstract class GenerateTargetTask extends ArtifactRequestTask {
     @InputDirectory
     @PathSensitive(PathSensitivity.RELATIVE)
     public abstract DirectoryProperty getSourceDirectory();
+
+    @InputFiles
+    @PathSensitive(PathSensitivity.RELATIVE)
+    public abstract ConfigurableFileCollection getResourceFiles();
 
     @OutputDirectory
     public abstract DirectoryProperty getTargetWorkspaceDirectory();

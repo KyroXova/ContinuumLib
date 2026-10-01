@@ -53,6 +53,7 @@ public final class ContinuumLibPlugin implements Plugin<Project> {
             task.setDescription("Transform developer Java source AST into target-compatible generated source and compile target JAR");
             task.getProjectDirectory().convention(project.getLayout().getProjectDirectory());
             task.getSourceDirectory().convention(project.getLayout().getProjectDirectory().dir("src/main/java"));
+            task.getResourceFiles().from(project.fileTree("src/main/resources"));
             task.getConfigFile().convention(project.getLayout().file(project.provider(transformCfg::toFile)));
             task.getRuleFiles().from(project.fileTree("src/main/resources/continuumlib/knowledge", tree -> tree.include("**/*.xml")));
             task.getRuleFiles().from(project.fileTree("src/main/resources/data/continuumlib/knowledge", tree -> tree.include("**/*.xml")));
@@ -139,6 +140,7 @@ public final class ContinuumLibPlugin implements Plugin<Project> {
                 task.getTargetId().convention(id);
                 task.getProjectDirectory().convention(project.getLayout().getProjectDirectory());
                 task.getSourceDirectory().convention(project.getLayout().getProjectDirectory().dir("src/main/java"));
+                task.getResourceFiles().from(project.fileTree("src/main/resources"));
                 task.getConfigFile().convention(project.getLayout().file(project.provider(finalTargetConfigFile::toFile)));
                 task.getRuleFiles().from(project.fileTree("src/main/resources/continuumlib/knowledge", tree -> tree.include("**/*.xml")));
                 task.getRuleFiles().from(project.fileTree("src/main/resources/data/continuumlib/knowledge", tree -> tree.include("**/*.xml")));
