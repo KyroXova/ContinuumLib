@@ -38,9 +38,9 @@ public final class ContinuumLibPlugin implements Plugin<Project> {
             task.getSourceDirectory().convention(project.getLayout().getProjectDirectory().dir("src/main/java"));
             task.getConfigFile().convention(project.getLayout().getProjectDirectory().file("src/main/resources/data/continuumlib/transform.properties"));
             task.getRuleFiles().from(project.fileTree("src/main/resources/data/continuumlib/knowledge", tree -> tree.include("**/*.xml")));
-            task.getGeneratedSourceDirectory().convention(project.getLayout().getBuildDirectory().dir("continuum/generated-src"));
-            task.getCompiledClassesDirectory().convention(project.getLayout().getBuildDirectory().dir("continuum/classes"));
-            task.getOutputJar().convention(project.getLayout().getBuildDirectory().file("continuumlib/" + project.getName() + "-source-adapted.jar"));
+            task.getGeneratedSourceDirectory().convention(project.getLayout().getBuildDirectory().dir("continuum/targets/source/source"));
+            task.getCompiledClassesDirectory().convention(project.getLayout().getBuildDirectory().dir("continuum/targets/source/classes"));
+            task.getOutputJar().convention(project.getLayout().getBuildDirectory().file("continuum/targets/source/output/" + project.getName() + "-source-adapted.jar"));
         });
         project.getTasks().register("continuumLibAuditTarget", AuditTargetTask.class, task -> {
             task.setGroup("ContinuumLib");

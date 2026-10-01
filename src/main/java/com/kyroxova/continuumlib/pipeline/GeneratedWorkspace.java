@@ -54,8 +54,31 @@ public record GeneratedWorkspace(
     }
 
     /**
-     * Clears transient generated state while deliberately preserving output/ so a failed rebuild
-     * cannot destroy the last successfully packaged target artifact.
+     * Adapts existing Gradle output properties into a workspace without forcing consumers to
+     * immediately migrate custom task configuration. New defaults should still use {@link #under}.
+     */
+    public static GeneratedWorkspace fromOutputs(Path sourceDirectory, Path classesDirectory, Path outputJar) {
+        Path source = normalize(sourceDirectory, "sourceDirectory");
+        Path classes = normalize(classesDirectory, "classesDirectory");
+        Path jar = normalize(outputJar, "outputJar");
+        Path output = Objects.requireNonNull(jar.getParent(), "outputJar parent");
+        Path root = commonAncestor(source, classes, output);
+        Path generatedBase = Objects.requireNonNullElse(source.getParent(), root);
+        return new GeneratedWorkspace(
+                root,
+                source,
+                generatedBase.resolve("resources"),
+                classes,
+                generatedBase.resolve("reports"),
+                generatedBase.resolve("metadata"),
+                output,
+                jar
+        );
+    }
+
+    /**
+     * Clears all target-generated transient state while deliberately preserving output/ so a failed
+     * rebuild cannot destroy the last successfully packaged target artifact.
      */
     public void prepare() throws IOException {
         cleanDirectory(sourceDirectory);
@@ -71,6 +94,18 @@ public record GeneratedWorkspace(
         Files.createDirectories(outputDirectory);
     }
 
+    /**
+     * Incremental compatibility preparation used while Gradle still declares source/classes/output
+     * separately. Only those declared outputs are touched.
+     */
+    public void prepareCompilationOutputs() throws IOException {
+        cleanDirectory(sourceDirectory);
+        cleanDirectory(classesDirectory);
+        Files.createDirectories(sourceDirectory);
+        Files.createDirectories(classesDirectory);
+        Files.createDirectories(outputDirectory);
+    }
+
     private static void cleanDirectory(Path directory) throws IOException {
         if (!Files.exists(directory)) return;
         try (Stream<Path> stream = Files.walk(directory)) {
@@ -78,6 +113,17 @@ public record GeneratedWorkspace(
                 Files.delete(path);
             }
         }
+    }
+
+    private static Path commonAncestor(Path first, Path second, Path third) {
+        Path candidate = first;
+        while (candidate != null && (!second.startsWith(candidate) || !third.startsWith(candidate))) {
+            candidate = candidate.getParent();
+        }
+        if (candidate == null) {
+            throw new IllegalArgumentException("Generated outputs do not share a filesystem root");
+        }
+        return candidate;
     }
 
     private static Path child(Path parent, Path child, String name) {
