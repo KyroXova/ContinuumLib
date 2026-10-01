@@ -34,10 +34,11 @@ ContinuumLib will eventually index all classes, constructors, methods, and field
 The current prototype is valuable research and must remain recoverable. Before rebuilding:
 
 1. Record the current Git state and preserve all user changes.
-2. Move the existing production and test source trees into `legacy/prototype-v1/` in a history-preserving operation.
-3. Preserve useful existing documentation under the same legacy area unless a document is intentionally rewritten for the new architecture.
-4. Create the new multi-project build only after the legacy snapshot is verifiably present.
-5. Never delete or overwrite user changes during migration.
+2. Move the complete existing `src/` tree to `<project-root>/backup/src/` in a history-preserving operation.
+3. Keep `backup/` outside every active Gradle source set and exclude it from compilation, packaging, publication, and runtime classpaths.
+4. Preserve useful existing documentation under `<project-root>/backup/docs/` unless a document is intentionally rewritten for the new architecture.
+5. Create the new multi-project build only after the backup is verifiably present.
+6. Never delete or overwrite user changes during migration.
 
 The exact migration commit boundaries will be defined by the implementation plan.
 
@@ -60,7 +61,9 @@ ContinuumLib/
 ├─ gradle-plugin/
 ├─ testkit/
 ├─ compatibility/
-├─ legacy/prototype-v1/
+├─ backup/
+│  ├─ src/
+│  └─ docs/
 ├─ docs/
 └─ wiki/
 ```
@@ -367,7 +370,7 @@ Wiki pages remain version-controlled. Publishing them to a hosted Git wiki is a 
 
 The rebuild proceeds in vertical slices rather than creating empty modules for every future capability:
 
-1. Safely preserve the prototype and establish the multi-project skeleton.
+1. Safely move the prototype to `backup/src/`, preserve its relevant documentation in `backup/docs/`, and establish the multi-project skeleton.
 2. Implement configuration, environment identities, diagnostics, and semantic model foundations.
 3. Implement pinned artifact and mapping ingestion for Forge 1.18.2 and the first selected target.
 4. Implement project-wide analysis for the example block registry and properties pattern.
@@ -387,4 +390,4 @@ The rebuild proceeds in vertical slices rather than creating empty modules for e
 5. Version-specific modules contain deltas rather than copies of the full knowledge base.
 6. Runtime bootstrap selection chooses precompiled variants; it is not the primary compatibility compiler.
 7. Documentation and wiki pages change in the same work that introduces or changes user-facing behavior.
-8. The existing prototype remains recoverable throughout the rebuild.
+8. The existing prototype remains recoverable under `backup/` throughout the rebuild and is never included in active source sets or produced artifacts.
