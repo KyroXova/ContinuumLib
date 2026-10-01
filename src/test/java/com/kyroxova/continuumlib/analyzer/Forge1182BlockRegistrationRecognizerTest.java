@@ -5,6 +5,7 @@ import com.kyroxova.continuumlib.model.environment.Loader;
 import com.kyroxova.continuumlib.model.environment.MappingNamespace;
 import com.kyroxova.continuumlib.model.operation.DeclareRegistry;
 import com.kyroxova.continuumlib.model.operation.RegisterBlock;
+import com.kyroxova.continuumlib.model.operation.RegistryKind;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -24,7 +25,7 @@ class Forge1182BlockRegistrationRecognizerTest {
                 Path.of("src/test/resources/fixtures/forge-1.18.2"), FORGE_1182);
 
         var declaration = project.operations(DeclareRegistry.class).get(0);
-        assertEquals("BLOCK", declaration.registryKind());
+        assertEquals(RegistryKind.BLOCK, declaration.registryKind());
         assertEquals("BuildScape.MODID", declaration.modIdExpression().source());
 
         var block = project.operations(RegisterBlock.class).get(0);

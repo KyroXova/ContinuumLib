@@ -8,6 +8,7 @@
 - Explicit environment configuration and validation with no implicit defaults.
 - Descriptor-aware symbol identities and alias database.
 - Forge 1.18.2 `DeferredRegister` block registration analysis.
+- Typed registry-family recognition for blocks, items, block entity types, entity types, fluids, sounds, particles, menus, recipe serializers, creative tabs, biomes, worldgen features, and custom registries.
 - Complete per-operation resolution plans with explicit unsupported and ambiguous states.
 - Comparable release-version identities, version ranges, and symbol lifecycle metadata for introduced, deprecated, removed, and replacement boundaries.
 

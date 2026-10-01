@@ -14,6 +14,7 @@ import com.kyroxova.continuumlib.model.diagnostic.Severity;
 import com.kyroxova.continuumlib.model.operation.BlockProperties;
 import com.kyroxova.continuumlib.model.operation.DeclareRegistry;
 import com.kyroxova.continuumlib.model.operation.RegisterBlock;
+import com.kyroxova.continuumlib.model.operation.RegistryKind;
 import com.kyroxova.continuumlib.model.operation.SemanticOperation;
 import com.kyroxova.continuumlib.model.operation.SourceExpression;
 import com.kyroxova.continuumlib.model.project.ProjectModel;
@@ -74,8 +75,10 @@ public final class JavaProjectAnalyzer {
 
     private DeclareRegistry readRegistry(String fieldName, MethodCallExpr call) {
         String registry = call.getArgument(0).toString();
-        String kind = registry.substring(registry.lastIndexOf('.') + 1).replaceAll("S$", "");
-        return new DeclareRegistry(fieldName, kind, expression(call.getArgument(1)));
+        return new DeclareRegistry(
+                fieldName,
+                RegistryKind.fromForgeRegistryExpression(registry),
+                expression(call.getArgument(1)));
     }
 
     private java.util.Optional<RegisterBlock> readBlock(String fieldName, MethodCallExpr call) {
