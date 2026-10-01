@@ -444,6 +444,21 @@ public final class SourceTransformer {
 
                 var bridge = exactMethodBridge(use);
                 if (bridge.isPresent()) {
+                    Optional<Expression> boundReceiver = use.isStatic()
+                            ? Optional.empty()
+                            : boundMethodReferenceReceiver(n);
+
+                    if (boundReceiver.isPresent()) {
+                        appliedMigrations.add(AppliedMigration.from(
+                                bridge.get(),
+                                MigrationLayer.SOURCE_AST,
+                                MigrationConfidence.SEMANTICALLY_RESOLVED,
+                                sourcePath,
+                                n.getBegin().map(p -> p.line).orElse(-1)
+                        ));
+                        return boundBridgeLambda(ast, boundReceiver.get(), bridge.get());
+                    }
+
                     if (use.isStatic() || isTypeScope(n.getScope(), simpleToQualified)) {
                         setMethodReferenceTarget(ast, n, bridge.get().targetOwner(), bridge.get().targetName());
                         appliedMigrations.add(AppliedMigration.from(
@@ -454,17 +469,6 @@ public final class SourceTransformer {
                                 n.getBegin().map(p -> p.line).orElse(-1)
                         ));
                         return n;
-                    }
-
-                    if (n.getScope() instanceof NameExpr || n.getScope() instanceof ThisExpr) {
-                        appliedMigrations.add(AppliedMigration.from(
-                                bridge.get(),
-                                MigrationLayer.SOURCE_AST,
-                                MigrationConfidence.SEMANTICALLY_RESOLVED,
-                                sourcePath,
-                                n.getBegin().map(p -> p.line).orElse(-1)
-                        ));
-                        return boundBridgeLambda(ast, n.getScope(), bridge.get());
                     }
 
                     diagnostics.add(Diagnostic.builder()
@@ -974,6 +978,11 @@ public final class SourceTransformer {
             MethodReferenceExpr reference,
             Map<String, String> imports
     ) {
+        Optional<String> variableOwner = methodReferenceVariableName(reference)
+                .flatMap(name -> findVariableType(reference, name))
+                .map(type -> resolveQualified(type, imports));
+        if (variableOwner.isPresent()) return variableOwner;
+
         Optional<String> typeOwner = typeScopeOwner(reference.getScope(), imports);
         if (typeOwner.isPresent()) return typeOwner;
 
@@ -985,10 +994,34 @@ public final class SourceTransformer {
         } catch (Throwable ignored) {
         }
 
-        if (reference.getScope() instanceof NameExpr name) {
-            return findVariableType(reference, name.getNameAsString())
-                    .map(type -> resolveQualified(type, imports));
+        return Optional.empty();
+    }
+
+    private static Optional<String> methodReferenceVariableName(MethodReferenceExpr reference) {
+        Expression scope = reference.getScope();
+        if (scope instanceof NameExpr name) {
+            return Optional.of(name.getNameAsString());
         }
+        if (scope instanceof TypeExpr type) {
+            String candidate = type.getType().asString();
+            if (candidate.indexOf('.') < 0 && candidate.indexOf('<') < 0 && candidate.indexOf('[') < 0) {
+                return Optional.of(candidate);
+            }
+        }
+        return Optional.empty();
+    }
+
+    private static Optional<Expression> boundMethodReferenceReceiver(MethodReferenceExpr reference) {
+        Expression scope = reference.getScope();
+        if (scope instanceof ThisExpr) {
+            return Optional.of(scope.clone());
+        }
+
+        Optional<String> variableName = methodReferenceVariableName(reference);
+        if (variableName.isPresent() && findVariableType(reference, variableName.get()).isPresent()) {
+            return Optional.of(new NameExpr(variableName.get()));
+        }
+
         return Optional.empty();
     }
 
