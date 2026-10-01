@@ -112,11 +112,9 @@ public final class SourceApiIndex {
     }
 
     private Optional<String> internal(String owner) {
-        String sourceName = owner.replace('/', '.').replace('}
-, '.');
+        String sourceName = owner.replace('/', '.').replace((char) 36, '.');
         List<String> matches = classes.keySet().stream()
-                .filter(candidate -> candidate.replace('/', '.').replace('}
-, '.').equals(sourceName))
+                .filter(candidate -> candidate.replace('/', '.').replace((char) 36, '.').equals(sourceName))
                 .sorted()
                 .toList();
         if (matches.size() == 1) {
