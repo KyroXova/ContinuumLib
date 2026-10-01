@@ -598,4 +598,37 @@ class TargetGenerationPipelineTest {
         assertTrue(resourceFailure.getMessage().contains("Duplicate resource path across roots"));
     }
 
+    @Test
+    void directPipelineRejectsWorkspaceOverlappingSourceBeforeCleanup(@TempDir Path project) throws Exception {
+        Path sourceRoot = project.resolve("src/main/java");
+        Path source = sourceRoot.resolve("example/Keep.java");
+        Files.createDirectories(source.getParent());
+        String original = "package example; public class Keep {}";
+        Files.writeString(source, original);
+
+        EnvironmentId env = new EnvironmentId("1.20.1", Loader.FABRIC, MappingNamespace.OFFICIAL, 17);
+        GeneratedWorkspace workspace = GeneratedWorkspace.atTargetRoot(sourceRoot, "overlap");
+        ResolvedTarget target = ResolvedTarget.builder()
+                .targetId("overlap")
+                .sourceEnvironment(env)
+                .targetEnvironment(env)
+                .workspace(workspace)
+                .projectConfiguration(ContinuumProjectConfiguration.empty(
+                        project.resolve("src/main/resources/continuumlib")))
+                .build();
+
+        IOException failure = assertThrows(IOException.class, () ->
+                new TargetGenerationPipeline().execute(
+                        target,
+                        project,
+                        List.of(sourceRoot),
+                        List.of(project.resolve("src/main/resources")),
+                        "target.jar"
+                ));
+
+        assertTrue(failure.getMessage().contains("must not overlap consumer input path"));
+        assertTrue(Files.isRegularFile(source));
+        assertEquals(original, Files.readString(source));
+    }
+
 }

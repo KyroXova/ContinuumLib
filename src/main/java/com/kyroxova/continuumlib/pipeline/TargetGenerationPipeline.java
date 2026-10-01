@@ -63,6 +63,7 @@ public final class TargetGenerationPipeline {
                 .workspace(target.workspace());
 
         GeneratedWorkspace ws = target.workspace();
+        validateWorkspaceIsolation(target, sourceRoots, resourceRoots);
         ws.prepare();
         TargetContext targetContext = target.toTargetContext();
 
@@ -305,6 +306,47 @@ public final class TargetGenerationPipeline {
             } catch (IOException ignored) {}
             throw e;
         }
+    }
+
+    private static void validateWorkspaceIsolation(
+            ResolvedTarget target,
+            List<Path> sourceRoots,
+            List<Path> resourceRoots
+    ) throws IOException {
+        Path workspace = target.workspace().rootDir().toAbsolutePath().normalize();
+        List<Path> inputs = new ArrayList<>();
+        if (sourceRoots != null) inputs.addAll(sourceRoots);
+        if (resourceRoots != null) inputs.addAll(resourceRoots);
+        inputs.addAll(target.sourceArtifacts().values());
+        inputs.addAll(target.targetArtifacts().values());
+        target.sourceClasspath().values().forEach(artifact -> inputs.add(artifact.file()));
+        target.targetClasspath().values().forEach(artifact -> inputs.add(artifact.file()));
+        if (target.sourceMapping() != null) inputs.add(target.sourceMapping().file());
+        if (target.targetMapping() != null) inputs.add(target.targetMapping().file());
+        if (target.projectConfiguration() != null && target.projectConfiguration().configurationRoot() != null) {
+            inputs.add(target.projectConfiguration().configurationRoot());
+        }
+
+        for (Path input : inputs) {
+            if (input == null) continue;
+            Path normalizedInput = input.toAbsolutePath().normalize();
+            if (pathsOverlap(workspace, normalizedInput)) {
+                throw new IOException("Generated workspace must not overlap consumer input path: "
+                        + workspace + " vs " + normalizedInput);
+            }
+            if (Files.exists(workspace) && Files.exists(normalizedInput)) {
+                Path realWorkspace = workspace.toRealPath();
+                Path realInput = normalizedInput.toRealPath();
+                if (pathsOverlap(realWorkspace, realInput)) {
+                    throw new IOException("Generated workspace must not overlap consumer input path through symbolic links: "
+                            + workspace + " vs " + normalizedInput);
+                }
+            }
+        }
+    }
+
+    private static boolean pathsOverlap(Path left, Path right) {
+        return left.equals(right) || left.startsWith(right) || right.startsWith(left);
     }
 
     private static void verifyArtifacts(ResolvedTarget target) throws IOException {
