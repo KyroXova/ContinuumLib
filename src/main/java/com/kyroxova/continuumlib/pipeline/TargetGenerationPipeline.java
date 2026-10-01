@@ -17,6 +17,7 @@ import com.kyroxova.continuumlib.filter.validation.ExclusionConflictException;
 import com.kyroxova.continuumlib.model.diagnostic.Diagnostic;
 import com.kyroxova.continuumlib.model.diagnostic.DiagnosticCode;
 import com.kyroxova.continuumlib.model.diagnostic.Severity;
+import com.kyroxova.continuumlib.pipeline.config.ProjectConfigurationLocator;
 import com.kyroxova.continuumlib.pipeline.migration.*;
 import com.kyroxova.continuumlib.pipeline.report.GenerationReportWriter;
 import com.kyroxova.continuumlib.source.ast.SourceParser;
@@ -73,11 +74,8 @@ public final class TargetGenerationPipeline {
             // Stage 4: Load Configuration
             ContinuumProjectConfiguration projConfig = target.projectConfiguration();
             if (projConfig == null) {
-                Path cfgRoot = projectRoot.resolve("src/main/resources/continuumlib");
-                if (!Files.exists(cfgRoot)) {
-                    cfgRoot = projectRoot.resolve("src/main/resources/data/continuumlib");
-                }
-                projConfig = new FilterConfigurationReader().load(cfgRoot);
+                var discoveredConfig = new ProjectConfigurationLocator().locate(projectRoot);
+                projConfig = new FilterConfigurationReader().load(discoveredConfig.root());
             }
 
             InclusionRuleSet activeInclusions = projConfig.inclusions() != null
