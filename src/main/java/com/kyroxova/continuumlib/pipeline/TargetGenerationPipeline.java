@@ -33,8 +33,7 @@ import java.util.*;
 import java.util.stream.Stream;
 
 public final class TargetGenerationPipeline {
-    private final RegistryDeclarationScanner registryScanner = new RegistryDeclarationScanner();
-    private final ExclusionConflictDetector conflictDetector = new ExclusionConflictDetector();
+    private final FilterEngine filterEngine = new FilterEngine();
     private final GenerationReportWriter reportWriter = new GenerationReportWriter();
 
     public TargetGenerationResult execute(
@@ -102,10 +101,13 @@ public final class TargetGenerationPipeline {
                 Path root = findMatchingRoot(srcFile, sourceRoots);
                 String relPath = root.relativize(srcFile).toString().replace('\\', '/');
 
-                if (activeExclusions.rules().matchesSource(relPath)) {
-                    excludedSources.add(srcFile);
-                } else {
+                boolean included = !activeInclusions.rules().hasSourceRules()
+                        || activeInclusions.rules().matchesSource(relPath);
+                boolean excluded = activeExclusions.rules().matchesSource(relPath);
+                if (included && !excluded) {
                     includedSources.add(srcFile);
+                } else {
+                    excludedSources.add(srcFile);
                 }
             }
 
@@ -114,68 +116,57 @@ public final class TargetGenerationPipeline {
 
             for (var entry : discoveredResources.entrySet()) {
                 String relPath = entry.getKey();
-                if (activeExclusions.rules().matchesResource(relPath)) {
-                    excludedResources.put(relPath, entry.getValue());
-                } else {
+                boolean included = !activeInclusions.rules().hasResourceRules()
+                        || activeInclusions.rules().matchesResource(relPath);
+                boolean excluded = activeExclusions.rules().matchesResource(relPath);
+                if (included && !excluded) {
                     includedResources.put(relPath, entry.getValue());
+                } else {
+                    excludedResources.put(relPath, entry.getValue());
                 }
             }
 
             resultBuilder.includedResources(includedResources);
             resultBuilder.excludedResources(excludedResources);
 
-            // Stage 7: Parse selected Java source.
+            // Stage 7-11: Parse selected source, then apply semantic class/registry filtering.
             List<Path> srcClasspath = new ArrayList<>(target.sourceArtifacts().values());
-            for (var art : target.sourceClasspath().values()) srcClasspath.add(art.file());
+            for (var artifact : target.sourceClasspath().values()) srcClasspath.add(artifact.file());
 
             SourceParser parser = new SourceParser(sourceRoots, srcClasspath);
             List<SourceUnit> parsedUnits = parser.parseFiles(includedSources, sourceRoots);
-            List<SourceUnit> activeUnits = new ArrayList<>();
 
-            for (SourceUnit unit : parsedUnits) {
-                String primaryClass = extractPrimaryClassName(unit);
-                if (primaryClass != null && activeExclusions.rules().matchesClass(primaryClass)) {
-                    excludedSources.add(unit.sourceFile());
-                } else {
-                    activeUnits.add(unit);
-                }
-            }
-
-            includedSources = activeUnits.stream().map(SourceUnit::sourceFile).toList();
-            resultBuilder.includedSourceFiles(includedSources);
-            resultBuilder.excludedSourceFiles(excludedSources);
-
-            // Stage 8 & 9: Build source semantic and registry indexes.
-            RegistryIndex registryIndex = registryScanner.scan(activeUnits);
-
-            // Stage 10: Apply Registry Declarations Exclusions
-            List<RegistryEntry> excludedRegistry = new ArrayList<>();
-            for (RegistryFilterRule rule : activeExclusions.rules().registryRules()) {
-                List<RegistryEntry> matched = registryIndex.findByTypeAndId(rule.registryType(), rule.id());
-                for (RegistryEntry entry : matched) {
-                    RegistryEntry effective = (entry.namespace() == null && rule.id().contains(":"))
-                            ? new RegistryEntry(entry.registryType(), rule.id().substring(0, rule.id().indexOf(':')), entry.id(), entry.ownerClass(), entry.fieldName(), entry.sourcePath(), entry.lineNumber())
-                            : entry;
-                    excludedRegistry.add(effective);
-                    removeDeclarationFromUnits(entry, activeUnits);
-                }
-            }
-            resultBuilder.excludedRegistryEntries(excludedRegistry);
-
-            // Stage 11: Validate Excluded Declaration References
+            FilterEngine.FilterResult filterResult;
             try {
-                conflictDetector.validate(targetContext, excludedRegistry, activeUnits);
+                filterResult = filterEngine.process(
+                        targetContext,
+                        activeInclusions,
+                        activeExclusions,
+                        parsedUnits,
+                        includedResources
+                );
             } catch (ExclusionConflictException e) {
-                Diagnostic diag = Diagnostic.builder()
+                Diagnostic diagnostic = Diagnostic.builder()
                         .code(DiagnosticCode.EXCLUDED_DECLARATION_REFERENCED)
                         .severity(Severity.ERROR)
                         .targetId(target.targetId())
                         .stage("EXCLUSION_VALIDATION")
                         .message(e.getMessage())
                         .build();
-                resultBuilder.addDiagnostic(diag);
+                resultBuilder.addDiagnostic(diagnostic);
                 throw e;
             }
+
+            List<SourceUnit> activeUnits = filterResult.activeSources();
+            excludedSources.addAll(filterResult.excludedSources().stream()
+                    .map(SourceUnit::sourceFile)
+                    .filter(path -> !excludedSources.contains(path))
+                    .toList());
+            includedSources = activeUnits.stream().map(SourceUnit::sourceFile).toList();
+
+            resultBuilder.includedSourceFiles(includedSources);
+            resultBuilder.excludedSourceFiles(excludedSources);
+            resultBuilder.excludedRegistryEntries(filterResult.excludedRegistryEntries());
 
             // Stage 12: Resolve Canonical Verified Migration Plan
             CanonicalMigrationPlan migrationPlan = CanonicalMigrationPlan.fromRulePacks(target.rulePacks());
@@ -358,30 +349,6 @@ public final class TargetGenerationPipeline {
             if (file.startsWith(root)) return root;
         }
         return roots.get(0);
-    }
-
-    private static String extractPrimaryClassName(SourceUnit unit) {
-        String pkg = unit.ast().getPackageDeclaration()
-                .map(declaration -> declaration.getNameAsString() + ".")
-                .orElse("");
-        return unit.ast().findFirst(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class)
-                .map(type -> pkg + type.getNameAsString())
-                .orElse(null);
-    }
-
-    private static void removeDeclarationFromUnits(RegistryEntry entry, List<SourceUnit> units) {
-        for (SourceUnit unit : units) {
-            if (unit.relativePath().replace('\\', '/').equals(entry.sourcePath().replace('\\', '/'))) {
-                for (var cid : unit.ast().findAll(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class)) {
-                    for (var fd : new ArrayList<>(cid.getFields())) {
-                        fd.getVariables().removeIf(v -> v.getNameAsString().equals(entry.fieldName()));
-                        if (fd.getVariables().isEmpty()) {
-                            fd.remove();
-                        }
-                    }
-                }
-            }
-        }
     }
 
     private static int countCompiledClasses(Path classesDir) throws IOException {

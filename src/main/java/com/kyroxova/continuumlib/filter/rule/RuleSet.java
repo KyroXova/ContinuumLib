@@ -5,9 +5,6 @@ import com.kyroxova.continuumlib.filter.domain.RegistryType;
 
 import java.util.*;
 
-/**
- * Normalized collection of project filter rules.
- */
 public record RuleSet(
         List<RegistryFilterRule> registryRules,
         List<SourceFilterRule> sourceRules,
@@ -27,6 +24,11 @@ public record RuleSet(
         return registryRules.isEmpty() && sourceRules.isEmpty() && classRules.isEmpty() && resourceRules.isEmpty();
     }
 
+    public boolean hasRegistryRules() { return !registryRules.isEmpty(); }
+    public boolean hasSourceRules() { return !sourceRules.isEmpty(); }
+    public boolean hasClassRules() { return !classRules.isEmpty(); }
+    public boolean hasResourceRules() { return !resourceRules.isEmpty(); }
+
     public List<FilterRule> allRules() {
         List<FilterRule> all = new ArrayList<>();
         all.addAll(registryRules);
@@ -38,20 +40,12 @@ public record RuleSet(
 
     public RuleSet filterFor(TargetContext context) {
         Objects.requireNonNull(context, "context");
-        List<RegistryFilterRule> activeRegistry = registryRules.stream()
-                .filter(r -> r.condition().matches(context))
-                .toList();
-        List<SourceFilterRule> activeSource = sourceRules.stream()
-                .filter(r -> r.condition().matches(context))
-                .toList();
-        List<ClassFilterRule> activeClass = classRules.stream()
-                .filter(r -> r.condition().matches(context))
-                .toList();
-        List<ResourceFilterRule> activeResource = resourceRules.stream()
-                .filter(r -> r.condition().matches(context))
-                .toList();
-
-        return new RuleSet(activeRegistry, activeSource, activeClass, activeResource);
+        return new RuleSet(
+                registryRules.stream().filter(r -> r.condition().matches(context)).toList(),
+                sourceRules.stream().filter(r -> r.condition().matches(context)).toList(),
+                classRules.stream().filter(r -> r.condition().matches(context)).toList(),
+                resourceRules.stream().filter(r -> r.condition().matches(context)).toList()
+        );
     }
 
     public boolean matchesRegistry(RegistryType type, String id) {
@@ -59,12 +53,17 @@ public record RuleSet(
         Objects.requireNonNull(id, "id");
         String normId = id.trim();
         for (var rule : registryRules) {
-            if (rule.registryType().equals(type)) {
-                if (rule.id().equals(normId)) return true;
-                if (!rule.id().contains(":") && normId.contains(":")) {
-                    String pathPart = normId.substring(normId.indexOf(':') + 1);
-                    if (rule.id().equals(pathPart)) return true;
-                }
+            if (!rule.registryType().equals(type)) continue;
+            String ruleId = rule.id();
+            if (ruleId.equals(normId)) return true;
+
+            int ruleColon = ruleId.indexOf(':');
+            int idColon = normId.indexOf(':');
+            if (ruleColon >= 0 && idColon < 0 && ruleId.substring(ruleColon + 1).equals(normId)) {
+                return true;
+            }
+            if (ruleColon < 0 && idColon >= 0 && ruleId.equals(normId.substring(idColon + 1))) {
+                return true;
             }
         }
         return false;
@@ -72,31 +71,26 @@ public record RuleSet(
 
     public boolean matchesSource(String path) {
         Objects.requireNonNull(path, "path");
-        String norm = path.replace('\\', '/').trim();
-        while (norm.startsWith("/")) norm = norm.substring(1);
-        for (var rule : sourceRules) {
-            if (rule.path().equals(norm)) return true;
-        }
-        return false;
+        String norm = normalizePath(path);
+        return sourceRules.stream().anyMatch(rule -> rule.path().equals(norm));
     }
 
     public boolean matchesClass(String className) {
         Objects.requireNonNull(className, "className");
         String norm = className.replace('/', '.').trim();
-        for (var rule : classRules) {
-            if (rule.className().equals(norm)) return true;
-        }
-        return false;
+        return classRules.stream().anyMatch(rule -> rule.className().equals(norm));
     }
 
     public boolean matchesResource(String path) {
         Objects.requireNonNull(path, "path");
+        String norm = normalizePath(path);
+        return resourceRules.stream().anyMatch(rule -> rule.path().equals(norm));
+    }
+
+    private static String normalizePath(String path) {
         String norm = path.replace('\\', '/').trim();
         while (norm.startsWith("/")) norm = norm.substring(1);
-        for (var rule : resourceRules) {
-            if (rule.path().equals(norm)) return true;
-        }
-        return false;
+        return norm;
     }
 
     public static Builder builder() {
