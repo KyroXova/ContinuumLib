@@ -45,7 +45,7 @@ class BytecodeMigrationExecutorTest {
     }
 
     @Test
-    void skipsBytecodeRuleAlreadyConsumedBySource(@TempDir Path tempDir) throws Exception {
+    void sourceAccountingDoesNotSuppressRemainingBytecodeOccurrences(@TempDir Path tempDir) throws Exception {
         Path jar = tempDir.resolve("mod.jar");
         writeCallerJar(jar);
 
@@ -64,11 +64,13 @@ class BytecodeMigrationExecutorTest {
                 List.of(sourceApplied)
         );
 
-        assertEquals(0, result.adaptedClasses());
-        assertTrue(result.appliedMigrations().isEmpty());
+        assertEquals(1, result.adaptedClasses());
+        assertEquals(1, result.appliedMigrations().size());
+        assertEquals(MigrationLayer.BYTECODE, result.appliedMigrations().get(0).layer());
 
         var uses = new ReferenceScanner().scan(readClass(jar, "example/Caller.class"));
-        assertTrue(uses.stream().anyMatch(use -> use.target().equals(SOURCE)));
+        assertTrue(uses.stream().anyMatch(use -> use.target().equals(HOOK)));
+        assertFalse(uses.stream().anyMatch(use -> use.target().equals(SOURCE)));
     }
 
     private static CanonicalMigrationRule bridgeRule() {

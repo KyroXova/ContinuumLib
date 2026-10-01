@@ -29,14 +29,11 @@ public final class BytecodeMigrationExecutor {
         Objects.requireNonNull(plan, "plan");
         Objects.requireNonNull(alreadyApplied, "alreadyApplied");
 
-        Set<CanonicalMigrationRule> appliedRules = new HashSet<>();
-        for (CanonicalMigrationRule rule : plan.rules()) {
-            if (alreadyApplied.stream().anyMatch(applied -> applied.matches(rule))) {
-                appliedRules.add(rule);
-            }
-        }
-
-        List<CanonicalMigrationRule> remaining = plan.unappliedBytecodeRules(appliedRules);
+        // Source-level accounting is occurrence-based, while a canonical rule may match
+        // multiple call sites. Always run every bytecode-layer rule against the compiled JAR:
+        // source-rewritten sites no longer contain the old exact reference, and any remaining
+        // sites still need the bytecode safety net.
+        List<CanonicalMigrationRule> remaining = plan.rulesForLayer(MigrationLayer.BYTECODE);
         if (remaining.isEmpty()) {
             return new Result(0, List.of());
         }
