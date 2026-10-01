@@ -9,6 +9,7 @@
 - Descriptor-aware symbol identities and alias database.
 - Forge 1.18.2 `DeferredRegister` block registration analysis.
 - Complete per-operation resolution plans with explicit unsupported and ambiguous states.
+- Comparable release-version identities, version ranges, and symbol lifecycle metadata for introduced, deprecated, removed, and replacement boundaries.
 
 ## In progress
 
