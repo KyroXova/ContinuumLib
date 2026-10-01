@@ -151,4 +151,34 @@ class FilterInclusionTest {
                 new FilterEngine().process(TARGET, inclusion, exclusion, List.of(unit), Map.of())
         );
     }
+    @Test
+    void classRulesFilterEveryTopLevelDeclarationInACompilationUnit() {
+        var parser = new SourceParser(List.of(), List.of());
+        var unit = parser.parseString(
+                "example/Combined.java",
+                "package example; class Keep {} class Omit {}"
+        );
+
+        RuleSet includeRules = RuleSet.builder()
+                .addClass(new ClassFilterRule(
+                        "example.Keep",
+                        EnvironmentCondition.ALWAYS,
+                        Path.of("classes.json")
+                ))
+                .build();
+
+        var result = new FilterEngine().process(
+                TARGET,
+                new InclusionRuleSet(includeRules),
+                ExclusionRuleSet.EMPTY,
+                List.of(unit),
+                Map.of()
+        );
+
+        assertEquals(1, result.activeSources().size());
+        String generated = result.activeSources().get(0).ast().toString();
+        assertTrue(generated.contains("class Keep"), generated);
+        assertFalse(generated.contains("class Omit"), generated);
+    }
+
 }

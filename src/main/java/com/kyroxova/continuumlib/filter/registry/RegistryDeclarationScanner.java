@@ -6,7 +6,6 @@ import com.github.javaparser.ast.body.FieldDeclaration;
 import com.github.javaparser.ast.body.VariableDeclarator;
 import com.github.javaparser.ast.expr.Expression;
 import com.github.javaparser.ast.expr.MethodCallExpr;
-import com.github.javaparser.ast.expr.ObjectCreationExpr;
 import com.github.javaparser.ast.expr.StringLiteralExpr;
 import com.kyroxova.continuumlib.filter.domain.RegistryType;
 import com.kyroxova.continuumlib.source.ast.SourceUnit;
@@ -63,26 +62,8 @@ public final class RegistryDeclarationScanner {
             }
         }
 
-        // Registry containers describe where entries go; they are not entries themselves.
-        if (isRegistryContainerType(fieldType)) {
-            return Optional.empty();
-        }
-
-        // Pattern 2: Direct assignment of registry type (e.g. Block TEST = new TestBlock();)
-        RegistryType directType = inferFromTypeString(fieldType);
-        if (directType != null) {
-            // Check if field has an id or constructor with id
-            if (init instanceof ObjectCreationExpr objInit && !objInit.getArguments().isEmpty()) {
-                IdPair idPair = extractId(objInit.getArguments());
-                if (idPair != null) {
-                    return Optional.of(new RegistryEntry(directType, idPair.namespace(), idPair.id(), className, fieldName, sourcePath, line));
-                }
-            }
-            // Fallback: derive id from field name lowercased
-            String derivedId = fieldName.toLowerCase(Locale.ROOT);
-            return Optional.of(new RegistryEntry(directType, null, derivedId, className, fieldName, sourcePath, line));
-        }
-
+        // Merely having a registry-related Java type is not evidence that the field is a
+        // registry declaration. Only explicit registration calls are indexed.
         return Optional.empty();
     }
 
@@ -97,8 +78,8 @@ public final class RegistryDeclarationScanner {
                     return new IdPair(val.substring(0, colon), val.substring(colon + 1));
                 }
                 return new IdPair(null, val);
-            } else if (arg instanceof ObjectCreationExpr creation) {
-                // e.g. new Identifier("mod", "id") or new ResourceLocation("mod", "id")
+            } else if (arg instanceof com.github.javaparser.ast.expr.ObjectCreationExpr creation) {
+                // Explicit identifier values passed to Registry.register(...).
                 var args = creation.getArguments();
                 if (args.size() >= 2 && args.get(0) instanceof StringLiteralExpr ns && args.get(1) instanceof StringLiteralExpr path) {
                     return new IdPair(ns.getValue(), path.getValue());

@@ -404,4 +404,23 @@ class FilterSystemTest {
                 """);
         assertThrows(FilterConfigurationException.class, () -> reader.loadExclusions(configRoot));
     }
+    @Test
+    void typedFieldsWithoutExplicitRegistrationAreNotInventedAsRegistryEntries() {
+        String code = """
+                package com.example;
+                import net.minecraft.world.level.block.Block;
+                public class Blocks {
+                    public static final Block DECORATIVE_ONLY = null;
+                }
+                """;
+
+        SourceUnit unit = new SourceParser(List.of(), List.of())
+                .parseString("com/example/Blocks.java", code);
+
+        var result = new com.kyroxova.continuumlib.filter.registry.RegistryDeclarationScanner()
+                .scan(List.of(unit));
+
+        assertTrue(result.entries().isEmpty(), result.entries().toString());
+    }
+
 }

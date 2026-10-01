@@ -3,6 +3,7 @@ package com.kyroxova.continuumlib.filter.engine;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.FieldDeclaration;
+import com.github.javaparser.ast.body.TypeDeclaration;
 import com.kyroxova.continuumlib.filter.condition.TargetContext;
 import com.kyroxova.continuumlib.filter.config.FilterConfigurationException;
 import com.kyroxova.continuumlib.filter.registry.RegistryDeclarationScanner;
@@ -42,15 +43,15 @@ public final class FilterEngine {
 
         for (SourceUnit unit : sourceUnits) {
             String relPath = unit.relativePath().replace('\\', '/');
-            String primaryClass = extractPrimaryClassName(unit.ast());
-
             boolean sourceAllowed = !include.hasSourceRules() || include.matchesSource(relPath);
-            boolean classAllowed = !include.hasClassRules()
-                    || (primaryClass != null && include.matchesClass(primaryClass));
-            boolean explicitlyExcluded = exclude.matchesSource(relPath)
-                    || (primaryClass != null && exclude.matchesClass(primaryClass));
+            boolean sourceExcluded = exclude.matchesSource(relPath);
 
-            if (sourceAllowed && classAllowed && !explicitlyExcluded) {
+            if (!sourceAllowed || sourceExcluded) {
+                excludedSourceUnits.add(unit);
+                continue;
+            }
+
+            if (applyTopLevelClassFilters(unit.ast(), include, exclude)) {
                 activeSourceUnits.add(unit);
             } else {
                 excludedSourceUnits.add(unit);
@@ -156,11 +157,30 @@ public final class FilterEngine {
                 .orElse(entry);
     }
 
-    private static String extractPrimaryClassName(CompilationUnit ast) {
+    private static boolean applyTopLevelClassFilters(
+            CompilationUnit ast,
+            RuleSet inclusions,
+            RuleSet exclusions
+    ) {
+        if (!inclusions.hasClassRules() && !exclusions.hasClassRules()) {
+            return true;
+        }
+
+        if (ast.getTypes().isEmpty()) {
+            // package-info.java and other source units without top-level types are outside CLASS filtering.
+            return true;
+        }
+
         String pkg = ast.getPackageDeclaration().map(p -> p.getNameAsString() + ".").orElse("");
-        return ast.findFirst(ClassOrInterfaceDeclaration.class)
-                .map(c -> pkg + c.getNameAsString())
-                .orElse(null);
+        for (TypeDeclaration<?> type : new ArrayList<>(ast.getTypes())) {
+            String qualifiedName = pkg + type.getNameAsString();
+            boolean included = !inclusions.hasClassRules() || inclusions.matchesClass(qualifiedName);
+            boolean excluded = exclusions.matchesClass(qualifiedName);
+            if (!included || excluded) {
+                type.remove();
+            }
+        }
+        return !ast.getTypes().isEmpty();
     }
 
     private static void removeDeclarationFromAst(RegistryEntry entry, List<SourceUnit> units) {
