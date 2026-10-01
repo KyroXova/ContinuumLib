@@ -81,4 +81,35 @@ See [Rule Packs](Rule-Packs) for the implemented knowledge format and artifact-b
 - Target reference audits now perform complete JVM-aligned interface and default method resolution (JVMS §5.4.3.3/§5.4.3.4), searching superclasses before superinterfaces and resolving public `Object` methods on interfaces. Conflicting default methods from multiple superinterfaces are identified as `INHERITANCE_REQUIRES_REVIEW`.
 - Target linkage verification now indexes `NestHost` and `NestMembers` (Java 11+ nestmates), granting verified nestmate private access (`DECLARATION_FOUND`) and rejecting cross-nest or cross-package private access (`ACCESS_DENIED`).
 - Array types are synthesized per JVMS §5.4.3.3 with `java/lang/Object` superclass, `Cloneable`, `Serializable`, and public `clone()`. Signature-polymorphic calls (`MethodHandle`/`VarHandle`) match arbitrary invocation descriptors. `INVOKESPECIAL` targets validate subclass and interface implementation constraints, and protected receiver checks statically verify calls directed to caller subclasses.
+- Continuum Knowledge Generation Pipeline implemented:
+  - Durable `ApiSnapshot`, `ClassSnapshot`, and `MemberSnapshot` capture exact classes, members, access flags, descriptors, signatures, interfaces, superclasses, and artifact SHA-256 manifests.
+  - Multi-version symbol lineage tracking with `SymbolId`, `SymbolVersion`, and `SymbolLineage` supports tracking conceptual identities across Minecraft versions, loaders, and mapping namespaces without collapsing overloads.
+  - Conservative, evidence-backed candidate discovery (`CandidateDetector`) detects unchanged members, method renames, constructor-to-factory, and field-to-accessor patterns across 16 categorized evidence types (`EvidenceType`).
+  - Strict ambiguity handling: ambiguous candidates (e.g. multiple same-descriptor methods or parameter permutations) are marked as `REVIEW_REQUIRED` and strictly prevented from automatic acceptance.
+  - Verification gates (`RulePromoter`) enforce that only verified candidates (`VERIFIED_TRANSFORMATION`, `VERIFIED_LINKAGE`, `VERIFIED_RUNTIME`, `VERIFIED_BEHAVIOR`) can be promoted to executable `RulePack` rules; unverified candidates fail fast.
+- Pre-Compilation Java Source Transformation Pipeline implemented:
+  - Developer source files in `src/main/java` are preserved completely unmodified on disk; generated source is written strictly to temporary build directories (`build/continuum/<target>/generated-src/`).
+  - JavaParser AST parser and symbol solver (`SourceParser`, `SourceUnit`) resolve API usages in native Minecraft mod sources.
+  - Full AST-level rewriting (`SourceTransformer`) supports method renames, class renames with import reconciliation, bidirectional constructor ↔ static factory transformations (e.g. `Identifier.of("mod", "block")` ↔ `new Identifier("mod", "block")`), and field-to-accessor rewriting.
+  - Target source compilation (`SourceCompiler`) compiles temporary generated Java sources against target Minecraft/loader dependencies using `javax.tools.JavaCompiler`.
+  - Packaging (`TargetJarPackager`) produces target mod JARs, verified end-to-end against target declarations using `TargetReferenceAudit`.
+  - New Gradle task `continuumLibTransformSource` orchestrates the complete source transformation workflow.
+- Generic Target-Aware Inclusion/Exclusion Configuration System implemented:
+  - Configuration structure under consumer mod's `src/main/resources/continuumlib/` (with fallback to `data/continuumlib/`):
+    - `inclusions/`: optional directory of inclusion rules merged into a single logical `InclusionRuleSet`. Missing or empty means no inclusion filtering.
+    - `exclusions/`: optional directory of exclusion rules merged into a single logical `ExclusionRuleSet`. Missing or empty means nothing is excluded.
+  - Filter Domains:
+    - `REGISTRY`: identifies elements by categorized, extensible `RegistryType` (`BLOCK`, `ITEM`, `BLOCK_ENTITY`, `ENTITY_TYPE`, `FLUID`, `MENU`, `SOUND_EVENT`, `PARTICLE`, `RECIPE_TYPE`, `RECIPE_SERIALIZER`, `ENCHANTMENT`, `EFFECT`, `ATTRIBUTE`, `CUSTOM_REGISTRY_ENTRY`). Independent filtering ensures removing a block does not implicitly remove its item.
+    - `SOURCE`: filters source files by relative path (e.g. `com/example/legacy/OldFeature.java`).
+    - `CLASS`: filters by fully-qualified class name (e.g. `com.example.legacy.OldFeature`).
+    - `RESOURCE`: filters asset/data resource files by relative path (e.g. `assets/example/models/block/old_block.json`).
+  - Reusable Target Environment Conditions (`EnvironmentCondition`):
+    - Multi-operator version constraints (`>=`, `<=`, `>`, `<`, `=`, `!=`, compound ranges such as `>=1.20 <1.21`).
+    - Evaluates against target Minecraft version, loader, loader version, Java version, mapping namespace, and output mode.
+  - Semantic Registry Indexing and Conflict Detection:
+    - `RegistryDeclarationScanner` indexes AST registrations from Forge/NeoForge `DeferredRegister` and Fabric/Vanilla `Registry.register`.
+    - `ExclusionConflictDetector` verifies that excluded registry declarations are not referenced by target-enabled source code, producing formatted diagnostics (`CONTINUUM EXCLUSION CONFLICT`) and preventing silent compilation failures.
+  - Zero modification to developer's original files: filtering applies strictly to generated target trees and packaged target JARs.
+
+
 

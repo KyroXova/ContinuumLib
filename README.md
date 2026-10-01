@@ -45,9 +45,34 @@ All consumer configuration lives under the **consumer mod's** `src/main/resource
 | `continuumLibInspect` | Compiled class/type/member-reference inventory |
 | `continuumLibCompareApis` | Exact source/target API declaration differences |
 | `continuumLibValidateRules` | Consumer XML rule schema and composition checks |
+| `continuumLibTransformSource` | Pre-compilation AST source transformation into target source, compilation, packaging, and auditing |
 | `continuumLibTransformJar` | One artifact-bound, uncertified development JAR |
 | `continuumLibBuildTargets` | All configured per-version development JAR tasks |
 | `continuumLibAuditTarget` / `continuumLibAuditTargets` | Member-reference declaration audits of transformed outputs |
+
+## Architecture Pipelines
+
+1. **Pre-Compilation Java Source Transformation Pipeline**:
+   - Parses developer Java source in `src/main/java` into ASTs using JavaParser and symbol solver.
+   - Preserves developer source files completely unmodified on disk.
+   - Applies AST migrations (`ClassRename`, `MethodRename`, `ConstructorToFactory`, `FactoryToConstructor`, `FieldToAccessor`).
+   - Generates temporary target-specific Java source under `build/continuum/<target>/generated-src/`.
+   - Compiles temporary source against target Minecraft/loader dependencies using `javax.tools.JavaCompiler`.
+   - Packages target JARs and audits bytecode references against target declarations via `TargetReferenceAudit`.
+
+2. **Knowledge Generation Pipeline**:
+   - Durable API snapshots (`ApiSnapshot`, `ClassSnapshot`, `MemberSnapshot`) capturing exact classes, members, access, descriptors, and SHA-256 manifests.
+   - Lineage analysis across environments with `SymbolId`, `SymbolVersion`, and `SymbolLineage`.
+   - Evidence-backed candidate discovery (`CandidateDetector`) assessing 16 evidence dimensions (`EvidenceType`, `Confidence`) with explicit ambiguity preservation (`REVIEW_REQUIRED`).
+   - Verification gates (`RulePromoter`) strictly preventing unverified candidates from being promoted to executable `RulePack` rules.
+
+3. **Generic Target-Aware Inclusion/Exclusion System**:
+   - Discovers configuration from `src/main/resources/continuumlib/` (with fallback to `data/continuumlib/`).
+   - Supports recursive multi-file rules across `inclusions/` and `exclusions/` directories.
+   - Domains: `REGISTRY` (categorized and extensible `RegistryType` like block, item, block entity), `SOURCE` (paths), `CLASS` (names), and `RESOURCE` (assets/data).
+   - Reusable `EnvironmentCondition` with multi-operator compound version ranges (`>=`, `<=`, `>`, `<`, `=`, `!=`).
+   - Semantic AST registry declaration scanning and reference conflict validation with descriptive diagnostics (`CONTINUUM EXCLUSION CONFLICT`).
+   - Developer source files and original assets are never modified.
 
 See the [developer guide](wiki/Developer-Guide.md), [JAR configuration](wiki/Jar-Transformation.md), [rule format](wiki/Rule-Packs.md), [namespace mappings](wiki/Namespace-Mappings.md), and [current status](wiki/Development-Status.md). Universal requests fail explicitly until bootstrap support exists.
 

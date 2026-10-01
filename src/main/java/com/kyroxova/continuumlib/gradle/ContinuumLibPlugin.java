@@ -31,6 +31,17 @@ public final class ContinuumLibPlugin implements Plugin<Project> {
             task.getRuleFiles().from(project.fileTree("src/main/resources/data/continuumlib/knowledge", tree -> tree.include("**/*.xml")));
             task.getOutputJar().convention(project.getLayout().getBuildDirectory().file("continuumlib/" + project.getName() + "-transformed.jar"));
         });
+        var transformSource = project.getTasks().register("continuumLibTransformSource", TransformSourceTask.class, task -> {
+            task.setGroup("ContinuumLib");
+            task.setDescription("Transform developer Java source AST into target-compatible generated source and compile target JAR");
+            task.getProjectDirectory().convention(project.getLayout().getProjectDirectory());
+            task.getSourceDirectory().convention(project.getLayout().getProjectDirectory().dir("src/main/java"));
+            task.getConfigFile().convention(project.getLayout().getProjectDirectory().file("src/main/resources/data/continuumlib/transform.properties"));
+            task.getRuleFiles().from(project.fileTree("src/main/resources/data/continuumlib/knowledge", tree -> tree.include("**/*.xml")));
+            task.getGeneratedSourceDirectory().convention(project.getLayout().getBuildDirectory().dir("continuum/generated-src"));
+            task.getCompiledClassesDirectory().convention(project.getLayout().getBuildDirectory().dir("continuum/classes"));
+            task.getOutputJar().convention(project.getLayout().getBuildDirectory().file("continuumlib/" + project.getName() + "-source-adapted.jar"));
+        });
         project.getTasks().register("continuumLibAuditTarget", AuditTargetTask.class, task -> {
             task.setGroup("ContinuumLib");
             task.setDescription("Audit all transformed member references against supplied target declarations");
