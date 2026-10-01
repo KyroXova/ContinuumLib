@@ -237,8 +237,23 @@ public final class TargetGenerationPipeline {
                     migrationPlan,
                     transformResult.appliedMigrations()
             );
-            resultBuilder.bytecodeAdaptedCount(bytecodeResult.adaptedClasses());
             resultBuilder.appliedMigrations(bytecodeResult.appliedMigrations());
+
+            int namespaceAdapted;
+            try {
+                namespaceAdapted = new NamespaceExporter().export(stagedJar, target).adaptedClasses();
+            } catch (IOException | IllegalArgumentException e) {
+                Diagnostic diagnostic = Diagnostic.builder()
+                        .code(DiagnosticCode.INVALID_MAPPING_SETUP)
+                        .severity(Severity.ERROR)
+                        .targetId(target.targetId())
+                        .stage("NAMESPACE_EXPORT")
+                        .message("Namespace export failed: " + e.getMessage())
+                        .build();
+                resultBuilder.addDiagnostic(diagnostic);
+                throw new PipelineExecutionException("Namespace export failed", diagnostic);
+            }
+            resultBuilder.bytecodeAdaptedCount(bytecodeResult.adaptedClasses() + namespaceAdapted);
 
             // Stage 19: Run Final Bytecode/Target Reference Audit
             List<TargetReferenceAudit.Finding> findings = auditTargetArtifact(target, stagedJar);
@@ -377,11 +392,10 @@ public final class TargetGenerationPipeline {
     }
 
     private List<TargetReferenceAudit.Finding> auditTargetArtifact(ResolvedTarget target, Path jarPath) throws IOException {
-        List<Path> targetApiPaths = new ArrayList<>(target.targetArtifacts().values());
-        for (var dep : target.targetClasspath().values()) {
-            targetApiPaths.add(dep.file());
-        }
-        Map<String, ClassInfo> targetApi = ArtifactIndex.read(targetApiPaths).classes();
+        Map<String, ClassInfo> targetApi = new TargetApiResolver().forNamespace(
+                target,
+                target.mappingNamespace()
+        );
         TargetReferenceAudit audit = new TargetReferenceAudit(targetApi);
         ReferenceScanner scanner = new ReferenceScanner();
 
