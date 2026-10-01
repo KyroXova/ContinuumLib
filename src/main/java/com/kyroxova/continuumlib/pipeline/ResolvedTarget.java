@@ -35,9 +35,14 @@ public record ResolvedTarget(
         ContinuumProjectConfiguration projectConfiguration
 ) {
     public ResolvedTarget {
-        Objects.requireNonNull(targetId, "targetId");
+        targetId = GeneratedWorkspace.validateTargetId(targetId);
         Objects.requireNonNull(sourceEnvironment, "sourceEnvironment");
         Objects.requireNonNull(targetEnvironment, "targetEnvironment");
+        Objects.requireNonNull(workspace, "workspace");
+        if (!workspace.targetId().equals(targetId)) {
+            throw new IllegalArgumentException("Workspace target ID '" + workspace.targetId()
+                    + "' does not match resolved target '" + targetId + "'");
+        }
         if (outputMode == null || outputMode.isBlank()) {
             outputMode = "per_version";
         }

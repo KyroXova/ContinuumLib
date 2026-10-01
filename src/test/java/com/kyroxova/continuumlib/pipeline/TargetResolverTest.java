@@ -94,4 +94,29 @@ class TargetResolverTest {
         assertEquals(source, resolved.sourceEnvironment());
         assertEquals(target, resolved.targetEnvironment());
     }
+    @Test
+    void rejectsUnsafeOrMismatchedWorkspaceIdentity(@TempDir Path root) {
+        EnvironmentId env = new EnvironmentId("1.20.1", Loader.FORGE, MappingNamespace.MOJMAP, 17);
+
+        assertThrows(IllegalArgumentException.class, () -> ResolvedTarget.builder()
+                .targetId("../escape")
+                .sourceEnvironment(env)
+                .targetEnvironment(env)
+                .workspace(new GeneratedWorkspace(root.resolve("build"), "safe"))
+                .build());
+
+        assertThrows(IllegalArgumentException.class, () -> ResolvedTarget.builder()
+                .targetId("expected")
+                .sourceEnvironment(env)
+                .targetEnvironment(env)
+                .workspace(new GeneratedWorkspace(root.resolve("build"), "different"))
+                .build());
+
+        assertThrows(NullPointerException.class, () -> ResolvedTarget.builder()
+                .targetId("missing-workspace")
+                .sourceEnvironment(env)
+                .targetEnvironment(env)
+                .build());
+    }
+
 }
