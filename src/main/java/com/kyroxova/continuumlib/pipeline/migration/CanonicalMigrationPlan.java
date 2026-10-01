@@ -176,6 +176,11 @@ public final class CanonicalMigrationPlan {
                 .findFirst();
     }
 
+    public List<CanonicalMigrationRule> findCallBridges(String owner, String name) {
+        return rules(callBridges, owner, name);
+    }
+
+
     public List<CanonicalMigrationRule> findConstructorToFactories(String owner) {
         String key = normalize(owner);
         var list = constructorToFactories.get(key);
