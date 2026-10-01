@@ -32,7 +32,7 @@ public final class RegistryDeclarationScanner {
         String pkg = ast.getPackageDeclaration().map(p -> p.getNameAsString() + ".").orElse("");
 
         for (var typeDecl : ast.findAll(ClassOrInterfaceDeclaration.class)) {
-            String className = pkg + typeDecl.getNameAsString();
+            String className = typeDecl.getFullyQualifiedName().orElse(pkg + typeDecl.getNameAsString());
 
             for (FieldDeclaration field : typeDecl.getFields()) {
                 for (VariableDeclarator varDecl : field.getVariables()) {

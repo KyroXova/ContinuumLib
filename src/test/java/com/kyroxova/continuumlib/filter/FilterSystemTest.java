@@ -423,4 +423,131 @@ class FilterSystemTest {
         assertTrue(result.entries().isEmpty(), result.entries().toString());
     }
 
+    @Test
+    void exclusionValidationDoesNotConfuseSameNamedFieldsOnOtherOwners() {
+        String declarations = """
+                package com.example;
+                class ModBlocks {
+                    static final Object BLOCKS = null;
+                    static final Object TEST = BLOCKS.register("test", () -> null);
+                }
+                """;
+        String user = """
+                package com.example;
+                import com.example.ModBlocks;
+                class Other { static final Object TEST = new Object(); }
+                class User { Object value() { return Other.TEST; } }
+                """;
+
+        SourceParser parser = new SourceParser(List.of(), List.of());
+        SourceUnit declarationUnit = parser.parseString("com/example/ModBlocks.java", declarations);
+        SourceUnit userUnit = parser.parseString("com/example/User.java", user);
+        var rule = new RegistryFilterRule(
+                RegistryType.CUSTOM_REGISTRY_ENTRY,
+                "test",
+                EnvironmentCondition.ALWAYS,
+                Path.of("rules.json")
+        );
+        var exclusions = new ExclusionRuleSet(
+                com.kyroxova.continuumlib.filter.rule.RuleSet.builder().addRegistry(rule).build());
+
+        assertDoesNotThrow(() -> new FilterEngine().process(
+                TargetContext.of(env1211),
+                InclusionRuleSet.EMPTY,
+                exclusions,
+                List.of(declarationUnit, userUnit),
+                Map.of()
+        ));
+    }
+
+    @Test
+    void exclusionValidationCatchesUnqualifiedSameClassReferenceBeforeRemoval() {
+        String code = """
+                package com.example;
+                class ModBlocks {
+                    static final Object BLOCKS = null;
+                    static final Object TEST = BLOCKS.register("test", () -> null);
+                    Object use() { return TEST; }
+                }
+                """;
+
+        SourceUnit unit = new SourceParser(List.of(), List.of())
+                .parseString("com/example/ModBlocks.java", code);
+        var rule = new RegistryFilterRule(
+                RegistryType.CUSTOM_REGISTRY_ENTRY,
+                "test",
+                EnvironmentCondition.ALWAYS,
+                Path.of("rules.json")
+        );
+        var exclusions = new ExclusionRuleSet(
+                com.kyroxova.continuumlib.filter.rule.RuleSet.builder().addRegistry(rule).build());
+
+        assertThrows(ExclusionConflictException.class, () -> new FilterEngine().process(
+                TargetContext.of(env1211),
+                InclusionRuleSet.EMPTY,
+                exclusions,
+                List.of(unit),
+                Map.of()
+        ));
+    }
+
+    @Test
+    void registryRemovalTargetsExactOwnerWhenFieldNamesRepeat() {
+        String code = """
+                package com.example;
+                class First {
+                    static final Object BLOCKS = null;
+                    static final Object SAME = BLOCKS.register("first", () -> null);
+                }
+                class Second {
+                    static final Object BLOCKS = null;
+                    static final Object SAME = BLOCKS.register("second", () -> null);
+                }
+                """;
+
+        SourceUnit unit = new SourceParser(List.of(), List.of())
+                .parseString("com/example/Combined.java", code);
+        var rule = new RegistryFilterRule(
+                RegistryType.CUSTOM_REGISTRY_ENTRY,
+                "first",
+                EnvironmentCondition.ALWAYS,
+                Path.of("rules.json")
+        );
+        var exclusions = new ExclusionRuleSet(
+                com.kyroxova.continuumlib.filter.rule.RuleSet.builder().addRegistry(rule).build());
+
+        var result = new FilterEngine().process(
+                TargetContext.of(env1211),
+                InclusionRuleSet.EMPTY,
+                exclusions,
+                List.of(unit),
+                Map.of()
+        );
+
+        String generated = result.activeSources().get(0).ast().toString();
+        assertFalse(generated.contains("SAME = BLOCKS.register(\"first\""), generated);
+        assertTrue(generated.contains("SAME = BLOCKS.register(\"second\""), generated);
+    }
+
+    @Test
+    void nestedRegistryDeclarationsKeepQualifiedOwnerIdentity() {
+        String code = """
+                package com.example;
+                class Outer {
+                    static class Inner {
+                        static final Object BLOCKS = null;
+                        static final Object VALUE = BLOCKS.register("nested", () -> null);
+                    }
+                }
+                """;
+
+        SourceUnit unit = new SourceParser(List.of(), List.of())
+                .parseString("com/example/Outer.java", code);
+        var index = new com.kyroxova.continuumlib.filter.registry.RegistryDeclarationScanner()
+                .scan(List.of(unit));
+
+        assertEquals(1, index.entries().size());
+        assertEquals("com.example.Outer.Inner", index.entries().get(0).ownerClass());
+    }
+
 }

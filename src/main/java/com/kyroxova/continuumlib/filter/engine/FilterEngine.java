@@ -68,11 +68,15 @@ public final class FilterEngine {
 
             if (!included || excluded) {
                 excludedRegistryEntries.add(effectiveEntry(entry, excluded ? exclude : include));
-                removeDeclarationFromAst(entry, activeSourceUnits);
             }
         }
 
+        // Validate while declarations are still present so symbol resolution can distinguish the
+        // excluded field from unrelated locals/fields with the same simple name.
         conflictDetector.validate(context, excludedRegistryEntries, activeSourceUnits);
+        for (RegistryEntry entry : excludedRegistryEntries) {
+            removeDeclarationFromAst(entry, activeSourceUnits);
+        }
 
         Map<String, Path> activeResources = new TreeMap<>();
         Map<String, Path> excludedResources = new TreeMap<>();
@@ -188,7 +192,13 @@ public final class FilterEngine {
             if (!unit.relativePath().replace('\\', '/').equals(entry.sourcePath().replace('\\', '/'))) {
                 continue;
             }
+            String pkg = unit.ast().getPackageDeclaration()
+                    .map(declaration -> declaration.getNameAsString() + ".")
+                    .orElse("");
             for (var type : unit.ast().findAll(ClassOrInterfaceDeclaration.class)) {
+                String owner = type.getFullyQualifiedName().orElse(pkg + type.getNameAsString());
+                if (!owner.equals(entry.ownerClass())) continue;
+
                 for (FieldDeclaration field : new ArrayList<>(type.getFields())) {
                     field.getVariables().removeIf(variable -> variable.getNameAsString().equals(entry.fieldName()));
                     if (field.getVariables().isEmpty()) field.remove();
