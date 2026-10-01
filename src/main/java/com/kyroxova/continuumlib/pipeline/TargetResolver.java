@@ -83,6 +83,7 @@ public final class TargetResolver {
                 .targetId(targetId)
                 .sourceEnvironment(selected.source())
                 .targetEnvironment(selected.target())
+                .loaderVersion(req.targetLoaderVersion())
                 .outputMode("per_version")
                 .sourceArtifacts(req.sourceArtifacts())
                 .targetArtifacts(req.targetArtifacts())

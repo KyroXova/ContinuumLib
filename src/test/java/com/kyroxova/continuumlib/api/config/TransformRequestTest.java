@@ -49,4 +49,20 @@ class TransformRequestTest {
         Files.writeString(config, base + mapping + "mapping.source.typo=ignored\n");
         assertThrows(IOException.class, () -> TransformRequest.read(config, dir));
     }
+    @Test
+    void readsExplicitTargetLoaderVersionWithoutTreatingItAsAnArtifact() throws Exception {
+        Path config = dir.resolve("transform.properties");
+        Files.writeString(config,
+                "pack=fixture\nsource.minecraft=old.jar\ntarget.minecraft=new.jar\ntarget.loaderVersion=47.2.17\n");
+
+        var request = TransformRequest.read(config, dir);
+
+        assertEquals("47.2.17", request.targetLoaderVersion());
+        assertEquals(java.util.Set.of("minecraft"), request.targetArtifacts().keySet());
+
+        Files.writeString(config,
+                "pack=fixture\nsource.minecraft=old.jar\ntarget.minecraft=new.jar\ntarget.loaderVersion=   \n");
+        assertThrows(IOException.class, () -> TransformRequest.read(config, dir));
+    }
+
 }

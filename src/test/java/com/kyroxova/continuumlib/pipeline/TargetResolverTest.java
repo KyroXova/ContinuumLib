@@ -119,4 +119,47 @@ class TargetResolverTest {
                 .build());
     }
 
+    @Test
+    void carriesConfiguredLoaderVersionIntoTargetContext(@TempDir Path project) throws Exception {
+        String hash = "0".repeat(64);
+        Path sourceArtifact = project.resolve("source.jar");
+        Path targetArtifact = project.resolve("target.jar");
+        Files.write(sourceArtifact, new byte[0]);
+        Files.write(targetArtifact, new byte[0]);
+
+        EnvironmentId env = new EnvironmentId("1.20.1", Loader.FORGE, MappingNamespace.MOJMAP, 17);
+        RulePack pack = new RulePack(
+                "loader-version-route",
+                "fixture",
+                env,
+                env,
+                Map.of("api", hash),
+                Map.of("api", hash),
+                Map.of(),
+                Map.of(),
+                List.of(),
+                List.of()
+        );
+
+        Path configRoot = project.resolve("src/main/resources/continuumlib");
+        Files.createDirectories(configRoot);
+        Path transform = configRoot.resolve("transform.properties");
+        Files.writeString(transform,
+                "pack=loader-version-route\n"
+                        + "source.api=source.jar\n"
+                        + "target.api=target.jar\n"
+                        + "target.loaderVersion=47.2.17\n");
+
+        ResolvedTarget resolved = new TargetResolver().resolve(
+                project,
+                "loader-version",
+                project.resolve("build"),
+                List.of(pack),
+                transform
+        );
+
+        assertEquals("47.2.17", resolved.loaderVersion());
+        assertEquals("47.2.17", resolved.toTargetContext().loaderVersion());
+    }
+
 }
