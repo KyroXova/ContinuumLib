@@ -21,11 +21,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
 
-/**
- * Transforms Java ASTs using full semantic identity and explicit confidence levels.
- * Distinguishes SEMANTICALLY_RESOLVED, STRUCTURALLY_RESOLVED, AMBIGUOUS, and UNRESOLVED.
- * Never guesses ambiguous overloads or blindly applies name-only replacements.
- */
 public final class SourceTransformer {
     private final CanonicalMigrationPlan plan;
 
@@ -90,7 +85,8 @@ public final class SourceTransformer {
     }
 
     public TransformationResult transform(List<SourceUnit> sourceUnits, Path outputDir) throws IOException {
-        Files.createDirectories(outputDir);
+        Path normalizedOutput = outputDir.toAbsolutePath().normalize();
+        Files.createDirectories(normalizedOutput);
         List<Path> generatedFiles = new ArrayList<>();
         List<AppliedMigration> applied = new ArrayList<>();
         List<Diagnostic> diagnostics = new ArrayList<>();
@@ -99,7 +95,10 @@ public final class SourceTransformer {
             CompilationUnit astCopy = unit.ast().clone();
             transformAstWithAccounting(astCopy, unit.relativePath(), applied, diagnostics);
 
-            Path targetFile = outputDir.resolve(unit.relativePath()).toAbsolutePath().normalize();
+            Path targetFile = normalizedOutput.resolve(unit.relativePath()).normalize();
+            if (!targetFile.startsWith(normalizedOutput)) {
+                throw new IOException("Generated source escapes output directory: " + unit.relativePath());
+            }
             Files.createDirectories(targetFile.getParent());
             Files.writeString(targetFile, astCopy.toString(), StandardCharsets.UTF_8);
             generatedFiles.add(targetFile);

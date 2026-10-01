@@ -69,15 +69,28 @@ public final class SourceParser {
     }
 
     public List<SourceUnit> parseFiles(List<Path> files, List<Path> sourceRoots) throws IOException {
+        if (sourceRoots == null || sourceRoots.isEmpty()) {
+            throw new IOException("At least one source root is required");
+        }
+
+        List<Path> roots = sourceRoots.stream()
+                .map(path -> path.toAbsolutePath().normalize())
+                .toList();
+        List<Path> ordered = files.stream()
+                .map(path -> path.toAbsolutePath().normalize())
+                .sorted()
+                .toList();
+
         List<SourceUnit> units = new ArrayList<>();
-        for (Path file : files) {
-            Path matchingRoot = sourceRoots.get(0);
-            for (Path root : sourceRoots) {
-                if (file.startsWith(root)) {
-                    matchingRoot = root;
-                    break;
-                }
+        for (Path file : ordered) {
+            Path matchingRoot = roots.stream()
+                    .filter(file::startsWith)
+                    .findFirst()
+                    .orElseThrow(() -> new IOException("Selected source is outside configured source roots: " + file));
+            if (!Files.isRegularFile(file) || !file.toString().endsWith(".java")) {
+                throw new IOException("Selected source is not a Java file: " + file);
             }
+
             String relative = matchingRoot.relativize(file).toString().replace('\\', '/');
             ParseResult<CompilationUnit> result = parser.parse(file);
             if (result.isSuccessful() && result.getResult().isPresent()) {
@@ -86,7 +99,7 @@ public final class SourceParser {
                 throw new IOException("Failed to parse Java file: " + file + " -> " + result.getProblems());
             }
         }
-        return units;
+        return List.copyOf(units);
     }
 
     public SourceUnit parseString(String relativePath, String code) {

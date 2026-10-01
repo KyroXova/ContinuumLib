@@ -5,11 +5,6 @@ import java.nio.file.*;
 import java.util.*;
 import java.util.stream.Stream;
 
-/**
- * Encapsulates a deterministic, target-isolated workspace under build/continuum/targets/<target-id>/.
- * Prevents targets from leaking state into each other, validates target ID safety,
- * and ensures partial final JARs are not exposed on failure by staging them first.
- */
 public final class GeneratedWorkspace {
     private final String targetId;
     private final Path rootDir;
@@ -59,6 +54,16 @@ public final class GeneratedWorkspace {
         Files.createDirectories(outputDir);
     }
 
+    public void prepare() throws IOException {
+        clean(sourceDir);
+        clean(resourcesDir);
+        clean(classesDir);
+        clean(reportsDir);
+        clean(metadataDir);
+        clean(stagingDir);
+        init();
+    }
+
     public String targetId() { return targetId; }
     public Path rootDir() { return rootDir; }
     public Path sourceDir() { return sourceDir; }
@@ -95,17 +100,20 @@ public final class GeneratedWorkspace {
         return finalDest;
     }
 
-    /**
-     * Cleans up staging artifacts on failure or completion.
-     */
     public void cleanStaging() {
-        if (!Files.isDirectory(stagingDir)) return;
-        try (Stream<Path> stream = Files.walk(stagingDir)) {
-            stream.sorted(Comparator.reverseOrder())
-                    .filter(p -> !p.equals(stagingDir))
-                    .forEach(p -> {
-                        try { Files.deleteIfExists(p); } catch (IOException ignored) {}
-                    });
-        } catch (IOException ignored) {}
+        try {
+            clean(stagingDir);
+            Files.createDirectories(stagingDir);
+        } catch (IOException ignored) {
+        }
+    }
+
+    private static void clean(Path directory) throws IOException {
+        if (!Files.exists(directory)) return;
+        try (Stream<Path> stream = Files.walk(directory)) {
+            for (Path path : stream.sorted(Comparator.reverseOrder()).toList()) {
+                if (!path.equals(directory)) Files.deleteIfExists(path);
+            }
+        }
     }
 }

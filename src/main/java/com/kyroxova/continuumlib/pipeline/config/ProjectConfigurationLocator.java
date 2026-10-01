@@ -12,12 +12,6 @@ import java.util.List;
 import java.util.Objects;
 import java.util.stream.Stream;
 
-/**
- * Unified project configuration discovery service.
- * Finds canonical config under src/main/resources/continuumlib,
- * detects legacy config under src/main/resources/data/continuumlib,
- * and detects conflicting dual configuration.
- */
 public final class ProjectConfigurationLocator {
     public static final String CANONICAL_PATH = "src/main/resources/continuumlib";
     public static final String LEGACY_PATH = "src/main/resources/data/continuumlib";
@@ -43,8 +37,8 @@ public final class ProjectConfigurationLocator {
         Path canonical = projectRoot.resolve(CANONICAL_PATH).toAbsolutePath().normalize();
         Path legacy = projectRoot.resolve(LEGACY_PATH).toAbsolutePath().normalize();
 
-        boolean canonicalHasFiles = hasConfigFiles(canonical);
-        boolean legacyHasFiles = hasConfigFiles(legacy);
+        boolean canonicalHasFiles = hasProjectConfigFiles(canonical);
+        boolean legacyHasFiles = hasProjectConfigFiles(legacy);
 
         List<Diagnostic> diagnostics = new ArrayList<>();
 
@@ -64,9 +58,14 @@ public final class ProjectConfigurationLocator {
         Path selectedRoot;
         boolean isLegacy = false;
 
-        if (canonicalHasFiles || Files.isDirectory(canonical)) {
+        if (canonicalHasFiles) {
             selectedRoot = canonical;
-        } else if (legacyHasFiles || Files.isDirectory(legacy)) {
+        } else if (legacyHasFiles) {
+            selectedRoot = legacy;
+            isLegacy = true;
+        } else if (Files.isDirectory(canonical)) {
+            selectedRoot = canonical;
+        } else if (Files.isDirectory(legacy)) {
             selectedRoot = legacy;
             isLegacy = true;
         } else {
@@ -93,15 +92,15 @@ public final class ProjectConfigurationLocator {
         );
     }
 
-    private static boolean hasConfigFiles(Path dir) {
+    private static boolean hasProjectConfigFiles(Path dir) {
         if (!Files.isDirectory(dir)) return false;
+        Path knowledge = dir.resolve("knowledge").toAbsolutePath().normalize();
         try (Stream<Path> stream = Files.walk(dir)) {
-            return stream.anyMatch(p -> {
-                if (Files.isRegularFile(p)) {
-                    String name = p.getFileName().toString().toLowerCase(java.util.Locale.ROOT);
-                    return name.endsWith(".properties") || name.endsWith(".json") || name.endsWith(".xml");
-                }
-                return false;
+            return stream.filter(Files::isRegularFile).anyMatch(path -> {
+                Path normalized = path.toAbsolutePath().normalize();
+                if (normalized.startsWith(knowledge)) return false;
+                String name = path.getFileName().toString().toLowerCase(java.util.Locale.ROOT);
+                return name.endsWith(".properties") || name.endsWith(".json") || name.endsWith(".xml");
             });
         } catch (IOException e) {
             return false;

@@ -31,10 +31,6 @@ import java.nio.file.Path;
 import java.util.*;
 import java.util.stream.Stream;
 
-/**
- * Coherent, reusable target-generation pipeline orchestrating source filtering,
- * AST transformation, compilation, bytecode adaptation, and target reference auditing.
- */
 public final class TargetGenerationPipeline {
     private final RegistryDeclarationScanner registryScanner = new RegistryDeclarationScanner();
     private final ExclusionConflictDetector conflictDetector = new ExclusionConflictDetector();
@@ -55,7 +51,7 @@ public final class TargetGenerationPipeline {
                 .workspace(target.workspace());
 
         GeneratedWorkspace ws = target.workspace();
-        ws.init();
+        ws.prepare();
         TargetContext targetContext = target.toTargetContext();
 
         try {
@@ -124,19 +120,31 @@ public final class TargetGenerationPipeline {
                 }
             }
 
-            resultBuilder.includedSourceFiles(includedSources);
-            resultBuilder.excludedSourceFiles(excludedSources);
             resultBuilder.includedResources(includedResources);
             resultBuilder.excludedResources(excludedResources);
 
-            // Stage 7: Parse Selected Java Source (Only non-excluded files!)
+            // Stage 7: Parse selected Java source.
             List<Path> srcClasspath = new ArrayList<>(target.sourceArtifacts().values());
             for (var art : target.sourceClasspath().values()) srcClasspath.add(art.file());
 
             SourceParser parser = new SourceParser(sourceRoots, srcClasspath);
-            List<SourceUnit> activeUnits = parser.parseFiles(includedSources, sourceRoots);
+            List<SourceUnit> parsedUnits = parser.parseFiles(includedSources, sourceRoots);
+            List<SourceUnit> activeUnits = new ArrayList<>();
 
-            // Stage 8 & 9: Build Source Semantic and Registry Indexes
+            for (SourceUnit unit : parsedUnits) {
+                String primaryClass = extractPrimaryClassName(unit);
+                if (primaryClass != null && activeExclusions.rules().matchesClass(primaryClass)) {
+                    excludedSources.add(unit.sourceFile());
+                } else {
+                    activeUnits.add(unit);
+                }
+            }
+
+            includedSources = activeUnits.stream().map(SourceUnit::sourceFile).toList();
+            resultBuilder.includedSourceFiles(includedSources);
+            resultBuilder.excludedSourceFiles(excludedSources);
+
+            // Stage 8 & 9: Build source semantic and registry indexes.
             RegistryIndex registryIndex = registryScanner.scan(activeUnits);
 
             // Stage 10: Apply Registry Declarations Exclusions
@@ -177,13 +185,15 @@ public final class TargetGenerationPipeline {
             resultBuilder.appliedMigrations(transformResult.appliedMigrations());
             resultBuilder.diagnostics(transformResult.diagnostics());
 
-            // Stage 14 & 15: Target Workspace Generated Sources & Resources Written
-            // Generated sources were written to ws.sourceDir() by transform()
-            // Copy active resources into workspace resources
+            Map<String, Path> workspaceResources = new TreeMap<>();
             for (var entry : includedResources.entrySet()) {
                 Path dest = ws.resourcesDir().resolve(entry.getKey()).toAbsolutePath().normalize();
+                if (!dest.startsWith(ws.resourcesDir().toAbsolutePath().normalize())) {
+                    throw new IOException("Resource path escapes workspace: " + entry.getKey());
+                }
                 Files.createDirectories(dest.getParent());
                 Files.copy(entry.getValue(), dest, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                workspaceResources.put(entry.getKey(), dest);
             }
 
             // Stage 16: Compile Generated Target Source
@@ -212,7 +222,7 @@ public final class TargetGenerationPipeline {
             // Stage 17: Package Target Artifact into Staging
             String jarName = (artifactName != null && !artifactName.isBlank()) ? artifactName : (target.targetId() + ".jar");
             Path stagedJar = ws.stagingJar(jarName);
-            TargetJarPackager.packageJarWithResources(ws.classesDir(), includedResources, stagedJar);
+            TargetJarPackager.packageJarWithResources(ws.classesDir(), workspaceResources, stagedJar);
 
             // Stage 18: Apply Bytecode-Level Work Where Explicitly Required
             int bytecodeAdapted = applyBytecodeWork(target, stagedJar, transformResult.appliedMigrations(), migrationPlan);
@@ -303,6 +313,15 @@ public final class TargetGenerationPipeline {
             if (file.startsWith(root)) return root;
         }
         return roots.get(0);
+    }
+
+    private static String extractPrimaryClassName(SourceUnit unit) {
+        String pkg = unit.ast().getPackageDeclaration()
+                .map(declaration -> declaration.getNameAsString() + ".")
+                .orElse("");
+        return unit.ast().findFirst(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class)
+                .map(type -> pkg + type.getNameAsString())
+                .orElse(null);
     }
 
     private static void removeDeclarationFromUnits(RegistryEntry entry, List<SourceUnit> units) {
