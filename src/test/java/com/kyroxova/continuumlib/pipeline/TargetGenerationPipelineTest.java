@@ -437,6 +437,47 @@ class TargetGenerationPipelineTest {
         assertFalse(Files.exists(workspace.stagingJar("conflict-target.jar")));
     }
 
+    @Test
+    void pipelineFallbackRejectsDualProjectConfiguration(@TempDir Path tempDir) throws Exception {
+        Path srcApiJar = tempDir.resolve("src-api.jar");
+        createApiJar(srcApiJar, "example/SourceApi", false);
+        Path tgtApiJar = tempDir.resolve("tgt-api.jar");
+        createApiJar(tgtApiJar, "example/TargetApi", true);
+
+        Path projectRoot = tempDir.resolve("dual-config-project");
+        Path srcDir = projectRoot.resolve("src/main/java");
+        Path resDir = projectRoot.resolve("src/main/resources");
+        Path canonical = resDir.resolve("continuumlib");
+        Path legacy = resDir.resolve("data/continuumlib");
+        Files.createDirectories(srcDir);
+        Files.createDirectories(canonical);
+        Files.createDirectories(legacy);
+        Files.writeString(canonical.resolve("targets.properties"), "targets=test-target\n");
+        Files.writeString(legacy.resolve("transform.properties"), "pack=test\n");
+
+        EnvironmentId source = new EnvironmentId("1.20.1", Loader.FABRIC, MappingNamespace.OFFICIAL, 17);
+        EnvironmentId targetEnv = new EnvironmentId("1.21.1", Loader.FABRIC, MappingNamespace.OFFICIAL, 17);
+        GeneratedWorkspace workspace = new GeneratedWorkspace(projectRoot.resolve("build"), "test-target");
+
+        ResolvedTarget target = ResolvedTarget.builder()
+                .targetId("test-target")
+                .sourceEnvironment(source)
+                .targetEnvironment(targetEnv)
+                .sourceArtifacts(Map.of("game", srcApiJar))
+                .targetArtifacts(Map.of("game", tgtApiJar))
+                .workspace(workspace)
+                .build();
+
+        assertThrows(ProjectConfigurationLocator.DualConfigurationException.class, () ->
+                new TargetGenerationPipeline().execute(
+                        target,
+                        projectRoot,
+                        List.of(srcDir),
+                        List.of(resDir),
+                        "test-target.jar"
+                ));
+    }
+
     private static void createApiJar(Path jarPath, String className, boolean isTarget) throws IOException {
         Files.createDirectories(jarPath.getParent());
         ClassWriter cw = new ClassWriter(0);
