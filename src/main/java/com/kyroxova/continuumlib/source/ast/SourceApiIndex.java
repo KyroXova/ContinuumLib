@@ -21,7 +21,9 @@ public final class SourceApiIndex {
     }
 
     public Optional<Method> uniqueMethod(String owner, String name) {
-        String internalOwner = internal(owner);
+        Optional<String> resolvedOwner = internal(owner);
+        if (resolvedOwner.isEmpty()) return Optional.empty();
+        String internalOwner = resolvedOwner.get();
         LinkedHashMap<String, Method> candidates = new LinkedHashMap<>();
         collectMethods(internalOwner, internalOwner, name, new HashSet<>(), candidates);
         return candidates.size() == 1
@@ -30,7 +32,9 @@ public final class SourceApiIndex {
     }
 
     public Optional<MemberReference> uniqueConstructor(String owner) {
-        ClassInfo type = classes.get(internal(owner));
+        Optional<String> resolvedOwner = internal(owner);
+        if (resolvedOwner.isEmpty()) return Optional.empty();
+        ClassInfo type = classes.get(resolvedOwner.get());
         if (type == null) return Optional.empty();
 
         List<MemberReference> constructors = type.methods().stream()
@@ -41,8 +45,10 @@ public final class SourceApiIndex {
     }
 
     public Optional<Field> uniqueField(String owner, String name) {
+        Optional<String> resolvedOwner = internal(owner);
+        if (resolvedOwner.isEmpty()) return Optional.empty();
         List<Field> fields = new ArrayList<>();
-        collectFields(internal(owner), name, new HashSet<>(), fields);
+        collectFields(resolvedOwner.get(), name, new HashSet<>(), fields);
         return fields.size() == 1 ? Optional.of(fields.get(0)) : Optional.empty();
     }
 
@@ -105,7 +111,22 @@ public final class SourceApiIndex {
         }
     }
 
-    private static String internal(String owner) {
-        return owner.replace('.', '/');
+    private Optional<String> internal(String owner) {
+        String sourceName = owner.replace('/', '.').replace('}
+, '.');
+        List<String> matches = classes.keySet().stream()
+                .filter(candidate -> candidate.replace('/', '.').replace('}
+, '.').equals(sourceName))
+                .sorted()
+                .toList();
+        if (matches.size() == 1) {
+            return Optional.of(matches.get(0));
+        }
+        if (matches.size() > 1) {
+            // A source spelling can theoretically collide between a package class and a nested
+            // class. Do not guess which binary owner was intended.
+            return Optional.empty();
+        }
+        return Optional.of(owner.replace('.', '/'));
     }
 }

@@ -140,7 +140,14 @@ public final class CanonicalMigrationPlan {
     public List<CanonicalMigrationRule> rules() { return rules; }
 
     public Optional<CanonicalMigrationRule> findClassRename(String className) {
-        return Optional.ofNullable(classRenames.get(normalize(className)));
+        CanonicalMigrationRule exact = classRenames.get(normalize(className));
+        if (exact != null) return Optional.of(exact);
+
+        String sourceName = sourceName(className);
+        List<CanonicalMigrationRule> aliases = classRenames.values().stream()
+                .filter(rule -> sourceName(rule.sourceOwner()).equals(sourceName))
+                .toList();
+        return aliases.size() == 1 ? Optional.of(aliases.get(0)) : Optional.empty();
     }
 
     public List<CanonicalMigrationRule> findMethodRules(String owner, String methodName) {
@@ -162,7 +169,7 @@ public final class CanonicalMigrationPlan {
     }
 
     public Optional<CanonicalMigrationRule> findExactConstructorFactory(com.kyroxova.continuumlib.bytecode.MemberReference source) {
-        return findConstructorToFactories(source.owner()).stream()
+        return exactOwnerRules(constructorToFactories, source.owner()).stream()
                 .filter(rule -> Objects.equals(rule.sourceDescriptor(), source.descriptor()))
                 .findFirst();
     }
@@ -171,7 +178,7 @@ public final class CanonicalMigrationPlan {
             com.kyroxova.continuumlib.bytecode.MemberReference source,
             int opcode
     ) {
-        return rules(callBridges, source.owner(), source.name()).stream()
+        return exactRules(callBridges, source.owner(), source.name()).stream()
                 .filter(rule -> Objects.equals(rule.sourceDescriptor(), source.descriptor()) && rule.opcode() == opcode)
                 .findFirst();
     }
@@ -182,9 +189,7 @@ public final class CanonicalMigrationPlan {
 
 
     public List<CanonicalMigrationRule> findConstructorToFactories(String owner) {
-        String key = normalize(owner);
-        var list = constructorToFactories.get(key);
-        return list != null ? Collections.unmodifiableList(list) : List.of();
+        return ownerRules(constructorToFactories, owner);
     }
 
     public List<CanonicalMigrationRule> findFactoryToConstructors(String owner, String methodName) {
@@ -204,8 +209,54 @@ public final class CanonicalMigrationPlan {
             String owner,
             String name
     ) {
+        List<CanonicalMigrationRule> exact = exactRules(index, owner, name);
+        if (!exact.isEmpty()) return exact;
+
+        String requestedOwner = sourceName(owner);
+        List<CanonicalMigrationRule> aliases = new ArrayList<>();
+        for (var entry : index.entrySet()) {
+            int separator = entry.getKey().lastIndexOf('#');
+            if (separator < 0 || !entry.getKey().substring(separator + 1).equals(name)) continue;
+            String indexedOwner = entry.getKey().substring(0, separator);
+            if (sourceName(indexedOwner).equals(requestedOwner)) {
+                aliases.addAll(entry.getValue());
+            }
+        }
+        return List.copyOf(aliases);
+    }
+
+    private static List<CanonicalMigrationRule> exactRules(
+            Map<String, List<CanonicalMigrationRule>> index,
+            String owner,
+            String name
+    ) {
         String key = normalize(owner) + "#" + name;
         var list = index.get(key);
+        return list != null ? Collections.unmodifiableList(list) : List.of();
+    }
+
+    private static List<CanonicalMigrationRule> ownerRules(
+            Map<String, List<CanonicalMigrationRule>> index,
+            String owner
+    ) {
+        List<CanonicalMigrationRule> exact = exactOwnerRules(index, owner);
+        if (!exact.isEmpty()) return exact;
+
+        String requestedOwner = sourceName(owner);
+        List<CanonicalMigrationRule> aliases = new ArrayList<>();
+        for (var entry : index.entrySet()) {
+            if (sourceName(entry.getKey()).equals(requestedOwner)) {
+                aliases.addAll(entry.getValue());
+            }
+        }
+        return List.copyOf(aliases);
+    }
+
+    private static List<CanonicalMigrationRule> exactOwnerRules(
+            Map<String, List<CanonicalMigrationRule>> index,
+            String owner
+    ) {
+        var list = index.get(normalize(owner));
         return list != null ? Collections.unmodifiableList(list) : List.of();
     }
 
@@ -213,7 +264,7 @@ public final class CanonicalMigrationPlan {
             Map<String, List<CanonicalMigrationRule>> index,
             com.kyroxova.continuumlib.bytecode.MemberReference source
     ) {
-        return rules(index, source.owner(), source.name()).stream()
+        return exactRules(index, source.owner(), source.name()).stream()
                 .filter(rule -> Objects.equals(rule.sourceDescriptor(), source.descriptor()))
                 .findFirst();
     }
@@ -231,5 +282,10 @@ public final class CanonicalMigrationPlan {
     private static String normalize(String name) {
         if (name == null) return "";
         return name.replace('/', '.');
+    }
+
+    private static String sourceName(String name) {
+        return normalize(name).replace('}
+, '.');
     }
 }

@@ -208,4 +208,46 @@ class SourceReferenceTransformationTest {
                 .findFirst()
                 .orElseThrow();
     }
+    @Test
+    void sourceApiIndexResolvesNestedSourceOwnerToBinaryName() {
+        var api = new com.kyroxova.continuumlib.source.ast.SourceApiIndex(java.util.Map.of(
+                "api/Outer$Inner",
+                new ClassInfo(
+                        "api/Outer$Inner",
+                        "java/lang/Object",
+                        List.of(),
+                        Opcodes.ACC_PUBLIC,
+                        List.of(),
+                        List.of(new ClassInfo.Member("oldCall", "(I)I", Opcodes.ACC_PUBLIC, null))
+                )
+        ));
+
+        var method = api.uniqueMethod("api.Outer.Inner", "oldCall").orElseThrow();
+
+        assertEquals("api/Outer$Inner", method.reference().owner());
+        assertEquals("(I)I", method.reference().descriptor());
+    }
+
+    @Test
+    void canonicalPlanAliasesNestedSourceNamesWithoutAliasingExactBinaryOwners() {
+        CanonicalMigrationRule nested = CanonicalMigrationRule.builder()
+                .type(MigrationType.MEMBER_RENAME)
+                .sourceOwner("api/Outer$Inner")
+                .sourceName("oldCall")
+                .sourceDescriptor("(I)I")
+                .targetOwner("api/Outer$Inner")
+                .targetName("newCall")
+                .targetDescriptor("(I)I")
+                .build();
+        CanonicalMigrationPlan plan = new CanonicalMigrationPlan(List.of(nested));
+
+        assertEquals(1, plan.findMethodRules("api.Outer.Inner", "oldCall").size());
+        assertTrue(plan.findExactMemberRename(
+                new com.kyroxova.continuumlib.bytecode.MemberReference(
+                        "api/Outer$Inner", "oldCall", "(I)I")).isPresent());
+        assertTrue(plan.findExactMemberRename(
+                new com.kyroxova.continuumlib.bytecode.MemberReference(
+                        "api/Outer/Inner", "oldCall", "(I)I")).isEmpty());
+    }
+
 }
