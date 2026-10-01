@@ -7,10 +7,12 @@ import com.github.javaparser.ast.expr.*;
 import com.github.javaparser.ast.type.ClassOrInterfaceType;
 import com.github.javaparser.ast.visitor.ModifierVisitor;
 import com.github.javaparser.ast.visitor.Visitable;
+import com.kyroxova.continuumlib.bytecode.MemberReference;
 import com.kyroxova.continuumlib.model.diagnostic.Diagnostic;
 import com.kyroxova.continuumlib.model.diagnostic.DiagnosticCode;
 import com.kyroxova.continuumlib.model.diagnostic.Severity;
 import com.kyroxova.continuumlib.pipeline.migration.*;
+import com.kyroxova.continuumlib.source.ast.JvmDescriptors;
 import com.kyroxova.continuumlib.source.ast.SourceUnit;
 import com.kyroxova.continuumlib.source.rule.SourceMigrationPlan;
 import com.kyroxova.continuumlib.source.rule.SourceMigrationRule;
@@ -19,6 +21,8 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import org.objectweb.asm.Opcodes;
+
 import java.util.*;
 
 public final class SourceTransformer {
@@ -171,7 +175,22 @@ public final class SourceTransformer {
 
             @Override
             public Visitable visit(ObjectCreationExpr n, Void arg) {
+                Optional<MemberReference> resolvedConstructor = resolveConstructor(n);
                 super.visit(n, arg);
+
+                if (resolvedConstructor.isPresent()) {
+                    var exact = plan.findExactConstructorFactory(resolvedConstructor.get());
+                    if (exact.isPresent()) {
+                        appliedMigrations.add(AppliedMigration.from(
+                                exact.get(),
+                                MigrationLayer.SOURCE_AST,
+                                MigrationConfidence.SEMANTICALLY_RESOLVED,
+                                sourcePath,
+                                n.getBegin().map(p -> p.line).orElse(-1)
+                        ));
+                        return staticCall(ast, exact.get(), List.copyOf(n.getArguments()));
+                    }
+                }
 
                 String typeName = n.getType().getNameAsString();
                 String qualified = resolveQualified(typeName, simpleToQualified);
@@ -218,7 +237,44 @@ public final class SourceTransformer {
 
             @Override
             public Visitable visit(MethodCallExpr n, Void arg) {
+                Optional<ResolvedMethodUse> resolvedUse = resolveMethod(n);
                 super.visit(n, arg);
+
+                if (resolvedUse.isPresent()) {
+                    ResolvedMethodUse use = resolvedUse.get();
+                    Optional<CanonicalMigrationRule> bridge = exactMethodBridge(use);
+                    if (bridge.isPresent() && !(n.getScope().orElse(null) instanceof SuperExpr)) {
+                        List<Expression> arguments = new ArrayList<>();
+                        if (!use.isStatic()) {
+                            arguments.add(n.getScope().<Expression>map(Expression::clone).orElseGet(ThisExpr::new));
+                        }
+                        n.getArguments().forEach(argument -> arguments.add(argument.clone()));
+                        appliedMigrations.add(AppliedMigration.from(
+                                bridge.get(),
+                                MigrationLayer.SOURCE_AST,
+                                MigrationConfidence.SEMANTICALLY_RESOLVED,
+                                sourcePath,
+                                n.getBegin().map(p -> p.line).orElse(-1)
+                        ));
+                        return staticCall(ast, bridge.get(), arguments);
+                    }
+
+                    var exactRename = plan.findExactMemberRename(use.member());
+                    if (exactRename.isPresent()) {
+                        n.setName(exactRename.get().targetName());
+                        if (use.isStatic() && n.getScope().isPresent()) {
+                            replaceStaticOwnerIfTypeName(ast, n, exactRename.get().targetOwner(), simpleToQualified);
+                        }
+                        appliedMigrations.add(AppliedMigration.from(
+                                exactRename.get(),
+                                MigrationLayer.SOURCE_AST,
+                                MigrationConfidence.SEMANTICALLY_RESOLVED,
+                                sourcePath,
+                                n.getBegin().map(p -> p.line).orElse(-1)
+                        ));
+                        return n;
+                    }
+                }
 
                 String methodName = n.getNameAsString();
                 Optional<Expression> scope = n.getScope();
@@ -321,7 +377,44 @@ public final class SourceTransformer {
 
             @Override
             public Visitable visit(FieldAccessExpr n, Void arg) {
+                Optional<ResolvedFieldUse> resolvedField = resolveField(n);
                 super.visit(n, arg);
+
+                if (resolvedField.isPresent()) {
+                    ResolvedFieldUse use = resolvedField.get();
+                    var exactRename = plan.findExactFieldRename(use.member());
+                    if (exactRename.isPresent()) {
+                        n.setName(exactRename.get().targetName());
+                        if (use.isStatic()) {
+                            replaceStaticOwnerIfTypeName(ast, n, exactRename.get().targetOwner(), simpleToQualified);
+                        }
+                        appliedMigrations.add(AppliedMigration.from(
+                                exactRename.get(),
+                                MigrationLayer.SOURCE_AST,
+                                MigrationConfidence.SEMANTICALLY_RESOLVED,
+                                sourcePath,
+                                n.getBegin().map(p -> p.line).orElse(-1)
+                        ));
+                    }
+
+                    if (!isWriteTarget(n)) {
+                        int opcode = use.isStatic() ? Opcodes.GETSTATIC : Opcodes.GETFIELD;
+                        var bridge = plan.findExactCallBridge(use.member(), opcode);
+                        if (bridge.isPresent()) {
+                            List<Expression> arguments = use.isStatic()
+                                    ? List.of()
+                                    : List.of(n.getScope().clone());
+                            appliedMigrations.add(AppliedMigration.from(
+                                    bridge.get(),
+                                    MigrationLayer.SOURCE_AST,
+                                    MigrationConfidence.SEMANTICALLY_RESOLVED,
+                                    sourcePath,
+                                    n.getBegin().map(p -> p.line).orElse(-1)
+                            ));
+                            return staticCall(ast, bridge.get(), arguments);
+                        }
+                    }
+                }
 
                 String fieldName = n.getNameAsString();
                 Expression scope = n.getScope();
@@ -330,6 +423,18 @@ public final class SourceTransformer {
                     String scopeText = scopeName.getNameAsString();
                     if (simpleToQualified.containsKey(scopeText) || (!scopeText.isEmpty() && Character.isUpperCase(scopeText.charAt(0)))) {
                         String qualified = resolveQualified(scopeText, simpleToQualified);
+                        var renameRules = plan.findFieldRenames(qualified, fieldName);
+                        if (renameRules.size() == 1) {
+                            CanonicalMigrationRule rename = renameRules.get(0);
+                            n.setName(rename.targetName());
+                            appliedMigrations.add(AppliedMigration.from(
+                                    rename,
+                                    MigrationLayer.SOURCE_AST,
+                                    MigrationConfidence.STRUCTURALLY_RESOLVED,
+                                    sourcePath,
+                                    n.getBegin().map(p -> p.line).orElse(-1)
+                            ));
+                        }
                         var f2aRules = plan.findFieldToAccessors(qualified, fieldName);
                         if (!f2aRules.isEmpty()) {
                             CanonicalMigrationRule f2a = f2aRules.get(0);
@@ -345,6 +450,18 @@ public final class SourceTransformer {
                         Optional<String> varType = findVariableType(n, scopeText);
                         if (varType.isPresent()) {
                             String qualified = resolveQualified(varType.get(), simpleToQualified);
+                            var renameRules = plan.findFieldRenames(qualified, fieldName);
+                            if (renameRules.size() == 1) {
+                                CanonicalMigrationRule rename = renameRules.get(0);
+                                n.setName(rename.targetName());
+                                appliedMigrations.add(AppliedMigration.from(
+                                        rename,
+                                        MigrationLayer.SOURCE_AST,
+                                        MigrationConfidence.STRUCTURALLY_RESOLVED,
+                                        sourcePath,
+                                        n.getBegin().map(p -> p.line).orElse(-1)
+                                ));
+                            }
                             var f2aRules = plan.findFieldToAccessors(qualified, fieldName);
                             if (!f2aRules.isEmpty()) {
                                 CanonicalMigrationRule f2a = f2aRules.get(0);
@@ -379,7 +496,172 @@ public final class SourceTransformer {
 
                 return n;
             }
+
+            @Override
+            public Visitable visit(AssignExpr n, Void arg) {
+                Optional<ResolvedFieldUse> assignedField = resolveAssignedField(n.getTarget());
+                super.visit(n, arg);
+
+                if (assignedField.isEmpty()) return n;
+
+                ResolvedFieldUse use = assignedField.get();
+                int opcode = use.isStatic() ? Opcodes.PUTSTATIC : Opcodes.PUTFIELD;
+                var bridge = plan.findExactCallBridge(use.member(), opcode);
+                if (bridge.isEmpty()) return n;
+
+                if (n.getOperator() != AssignExpr.Operator.ASSIGN) {
+                    diagnostics.add(Diagnostic.builder()
+                            .code(DiagnosticCode.MIGRATION_UNRESOLVED)
+                            .severity(Severity.ERROR)
+                            .message("Compound field assignment requires an explicit source strategy for " + use.member())
+                            .path(Path.of(sourcePath))
+                            .line(n.getBegin().map(p -> p.line).orElse(-1))
+                            .build());
+                    return n;
+                }
+
+                List<Expression> arguments = new ArrayList<>();
+                if (!use.isStatic()) {
+                    arguments.add(receiverForAssignment(n.getTarget()));
+                }
+                arguments.add(n.getValue().clone());
+                appliedMigrations.add(AppliedMigration.from(
+                        bridge.get(),
+                        MigrationLayer.SOURCE_AST,
+                        MigrationConfidence.SEMANTICALLY_RESOLVED,
+                        sourcePath,
+                        n.getBegin().map(p -> p.line).orElse(-1)
+                ));
+                return staticCall(ast, bridge.get(), arguments);
+            }
         }, null);
+    }
+
+    private Optional<CanonicalMigrationRule> exactMethodBridge(ResolvedMethodUse use) {
+        if (use.isStatic()) {
+            return plan.findExactCallBridge(use.member(), Opcodes.INVOKESTATIC);
+        }
+        return plan.findExactCallBridge(
+                use.member(),
+                use.isInterface() ? Opcodes.INVOKEINTERFACE : Opcodes.INVOKEVIRTUAL
+        );
+    }
+
+    private static Optional<MemberReference> resolveConstructor(ObjectCreationExpr expression) {
+        try {
+            return JvmDescriptors.constructor(expression.resolve());
+        } catch (Throwable ignored) {
+            return Optional.empty();
+        }
+    }
+
+    private static Optional<ResolvedMethodUse> resolveMethod(MethodCallExpr expression) {
+        try {
+            var resolved = expression.resolve();
+            return JvmDescriptors.method(resolved)
+                    .map(member -> new ResolvedMethodUse(
+                            member,
+                            resolved.isStatic(),
+                            resolved.declaringType().isInterface()
+                    ));
+        } catch (Throwable ignored) {
+            return Optional.empty();
+        }
+    }
+
+    private static Optional<ResolvedFieldUse> resolveField(FieldAccessExpr expression) {
+        try {
+            var field = expression.resolve().asField();
+            return JvmDescriptors.field(field).map(member -> new ResolvedFieldUse(member, field.isStatic()));
+        } catch (Throwable ignored) {
+            return Optional.empty();
+        }
+    }
+
+    private static Optional<ResolvedFieldUse> resolveAssignedField(Expression expression) {
+        if (expression instanceof FieldAccessExpr fieldAccess) {
+            return resolveField(fieldAccess);
+        }
+        if (expression instanceof NameExpr name) {
+            try {
+                var resolved = name.resolve();
+                if (!resolved.isField()) return Optional.empty();
+                var field = resolved.asField();
+                return JvmDescriptors.field(field).map(member -> new ResolvedFieldUse(member, field.isStatic()));
+            } catch (Throwable ignored) {
+                return Optional.empty();
+            }
+        }
+        return Optional.empty();
+    }
+
+    private static boolean isWriteTarget(Expression expression) {
+        return expression.getParentNode()
+                .filter(AssignExpr.class::isInstance)
+                .map(AssignExpr.class::cast)
+                .map(assign -> assign.getTarget() == expression)
+                .orElse(false);
+    }
+
+    private static Expression receiverForAssignment(Expression target) {
+        if (target instanceof FieldAccessExpr fieldAccess) {
+            return fieldAccess.getScope().clone();
+        }
+        return new ThisExpr();
+    }
+
+    private static MethodCallExpr staticCall(
+            CompilationUnit ast,
+            CanonicalMigrationRule rule,
+            List<Expression> arguments
+    ) {
+        String owner = rule.targetOwner().replace('/', '.');
+        ensureImport(ast, owner);
+        NodeList<Expression> cloned = new NodeList<>();
+        arguments.forEach(argument -> cloned.add(argument.clone()));
+        return new MethodCallExpr(new NameExpr(simpleName(owner)), rule.targetName(), cloned);
+    }
+
+    private static void replaceStaticOwnerIfTypeName(
+            CompilationUnit ast,
+            MethodCallExpr call,
+            String targetOwner,
+            Map<String, String> imports
+    ) {
+        if (targetOwner == null || call.getScope().isEmpty() || !(call.getScope().get() instanceof NameExpr scope)) {
+            return;
+        }
+        String current = scope.getNameAsString();
+        if (!imports.containsKey(current) && (current.isEmpty() || !Character.isUpperCase(current.charAt(0)))) {
+            return;
+        }
+        String owner = targetOwner.replace('/', '.');
+        scope.setName(simpleName(owner));
+        ensureImport(ast, owner);
+    }
+
+    private static void replaceStaticOwnerIfTypeName(
+            CompilationUnit ast,
+            FieldAccessExpr access,
+            String targetOwner,
+            Map<String, String> imports
+    ) {
+        if (targetOwner == null || !(access.getScope() instanceof NameExpr scope)) {
+            return;
+        }
+        String current = scope.getNameAsString();
+        if (!imports.containsKey(current) && (current.isEmpty() || !Character.isUpperCase(current.charAt(0)))) {
+            return;
+        }
+        String owner = targetOwner.replace('/', '.');
+        scope.setName(simpleName(owner));
+        ensureImport(ast, owner);
+    }
+
+    private record ResolvedMethodUse(MemberReference member, boolean isStatic, boolean isInterface) {
+    }
+
+    private record ResolvedFieldUse(MemberReference member, boolean isStatic) {
     }
 
     private static CanonicalMigrationRule selectConstructorRule(

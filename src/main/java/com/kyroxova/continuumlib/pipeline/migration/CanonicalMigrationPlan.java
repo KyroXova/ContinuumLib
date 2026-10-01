@@ -8,16 +8,15 @@ import com.kyroxova.continuumlib.model.environment.EnvironmentId;
 
 import java.util.*;
 
-/**
- * Unified canonical migration plan containing full semantic rules across source and bytecode layers.
- */
 public final class CanonicalMigrationPlan {
     private final List<CanonicalMigrationRule> rules;
     private final Map<String, CanonicalMigrationRule> classRenames = new HashMap<>();
     private final Map<String, List<CanonicalMigrationRule>> methodRules = new HashMap<>();
+    private final Map<String, List<CanonicalMigrationRule>> fieldRenames = new HashMap<>();
     private final Map<String, List<CanonicalMigrationRule>> constructorToFactories = new HashMap<>();
     private final Map<String, List<CanonicalMigrationRule>> factoryToConstructors = new HashMap<>();
     private final Map<String, List<CanonicalMigrationRule>> fieldToAccessors = new HashMap<>();
+    private final Map<String, List<CanonicalMigrationRule>> callBridges = new HashMap<>();
 
     public CanonicalMigrationPlan(Collection<CanonicalMigrationRule> rules) {
         this.rules = List.copyOf(rules);
@@ -27,6 +26,10 @@ public final class CanonicalMigrationPlan {
                 case MEMBER_RENAME -> {
                     String key = normalize(rule.sourceOwner()) + "#" + rule.sourceName();
                     methodRules.computeIfAbsent(key, k -> new ArrayList<>()).add(rule);
+                }
+                case FIELD_RENAME -> {
+                    String key = normalize(rule.sourceOwner()) + "#" + rule.sourceName();
+                    fieldRenames.computeIfAbsent(key, k -> new ArrayList<>()).add(rule);
                 }
                 case CONSTRUCTOR_TO_FACTORY -> {
                     String key = normalize(rule.sourceOwner());
@@ -42,7 +45,7 @@ public final class CanonicalMigrationPlan {
                 }
                 case CALL_BRIDGE -> {
                     String key = normalize(rule.sourceOwner()) + "#" + rule.sourceName();
-                    methodRules.computeIfAbsent(key, k -> new ArrayList<>()).add(rule);
+                    callBridges.computeIfAbsent(key, k -> new ArrayList<>()).add(rule);
                 }
             }
         }
@@ -80,7 +83,7 @@ public final class CanonicalMigrationPlan {
                 boolean isMethod = src.descriptor().startsWith("(");
                 rules.add(new CanonicalMigrationRule(
                         packId,
-                        isMethod ? MigrationType.MEMBER_RENAME : MigrationType.FIELD_TO_ACCESSOR,
+                        isMethod ? MigrationType.MEMBER_RENAME : MigrationType.FIELD_RENAME,
                         src.owner(),
                         src.name(),
                         src.descriptor(),
@@ -146,6 +149,33 @@ public final class CanonicalMigrationPlan {
         return list != null ? Collections.unmodifiableList(list) : List.of();
     }
 
+    public List<CanonicalMigrationRule> findFieldRenames(String owner, String fieldName) {
+        return rules(fieldRenames, owner, fieldName);
+    }
+
+    public Optional<CanonicalMigrationRule> findExactMemberRename(com.kyroxova.continuumlib.bytecode.MemberReference source) {
+        return findExact(methodRules, source);
+    }
+
+    public Optional<CanonicalMigrationRule> findExactFieldRename(com.kyroxova.continuumlib.bytecode.MemberReference source) {
+        return findExact(fieldRenames, source);
+    }
+
+    public Optional<CanonicalMigrationRule> findExactConstructorFactory(com.kyroxova.continuumlib.bytecode.MemberReference source) {
+        return findConstructorToFactories(source.owner()).stream()
+                .filter(rule -> Objects.equals(rule.sourceDescriptor(), source.descriptor()))
+                .findFirst();
+    }
+
+    public Optional<CanonicalMigrationRule> findExactCallBridge(
+            com.kyroxova.continuumlib.bytecode.MemberReference source,
+            int opcode
+    ) {
+        return rules(callBridges, source.owner(), source.name()).stream()
+                .filter(rule -> Objects.equals(rule.sourceDescriptor(), source.descriptor()) && rule.opcode() == opcode)
+                .findFirst();
+    }
+
     public List<CanonicalMigrationRule> findConstructorToFactories(String owner) {
         String key = normalize(owner);
         var list = constructorToFactories.get(key);
@@ -164,13 +194,32 @@ public final class CanonicalMigrationPlan {
         return list != null ? Collections.unmodifiableList(list) : List.of();
     }
 
+    private static List<CanonicalMigrationRule> rules(
+            Map<String, List<CanonicalMigrationRule>> index,
+            String owner,
+            String name
+    ) {
+        String key = normalize(owner) + "#" + name;
+        var list = index.get(key);
+        return list != null ? Collections.unmodifiableList(list) : List.of();
+    }
+
+    private static Optional<CanonicalMigrationRule> findExact(
+            Map<String, List<CanonicalMigrationRule>> index,
+            com.kyroxova.continuumlib.bytecode.MemberReference source
+    ) {
+        return rules(index, source.owner(), source.name()).stream()
+                .filter(rule -> Objects.equals(rule.sourceDescriptor(), source.descriptor()))
+                .findFirst();
+    }
+
     public List<CanonicalMigrationRule> rulesForLayer(MigrationLayer layer) {
         return rules.stream().filter(r -> r.layer() == layer).toList();
     }
 
     public List<CanonicalMigrationRule> unappliedBytecodeRules(Set<CanonicalMigrationRule> appliedRules) {
         return rules.stream()
-                .filter(r -> r.layer() == MigrationLayer.BYTECODE || !appliedRules.contains(r))
+                .filter(r -> r.layer() == MigrationLayer.BYTECODE && !appliedRules.contains(r))
                 .toList();
     }
 
