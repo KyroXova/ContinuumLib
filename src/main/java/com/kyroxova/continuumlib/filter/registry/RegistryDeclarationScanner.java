@@ -63,6 +63,11 @@ public final class RegistryDeclarationScanner {
             }
         }
 
+        // Registry containers describe where entries go; they are not entries themselves.
+        if (isRegistryContainerType(fieldType)) {
+            return Optional.empty();
+        }
+
         // Pattern 2: Direct assignment of registry type (e.g. Block TEST = new TestBlock();)
         RegistryType directType = inferFromTypeString(fieldType);
         if (directType != null) {
@@ -151,6 +156,14 @@ public final class RegistryDeclarationScanner {
         }
 
         return RegistryType.CUSTOM_REGISTRY_ENTRY;
+    }
+
+
+    private static boolean isRegistryContainerType(String type) {
+        String lower = type.toLowerCase(Locale.ROOT).replace(" ", "");
+        return lower.contains("deferredregister<")
+                || lower.startsWith("registry<")
+                || lower.contains(".registry<");
     }
 
     private RegistryType inferFromTypeString(String type) {
