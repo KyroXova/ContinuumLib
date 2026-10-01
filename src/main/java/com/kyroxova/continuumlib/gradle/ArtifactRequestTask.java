@@ -41,7 +41,7 @@ public abstract class ArtifactRequestTask extends DefaultTask {
         for (Path input : trackedInputs(additionalInputs)) {
             if (overlaps(normalizedOutput, input)) {
                 throw new org.gradle.api.GradleException(
-                        "Output must not overlap an input artifact, mapping, rule, configuration, source, or resource path: "
+                        "Output must not overwrite or overlap an input artifact, mapping, rule, configuration, source, or resource path: "
                                 + normalizedOutput + " vs " + input);
             }
         }
