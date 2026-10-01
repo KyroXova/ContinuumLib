@@ -12,9 +12,6 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
-/**
- * Consumer integration orchestrating target generation, inspection, transformation, and auditing.
- */
 public final class ContinuumLibPlugin implements Plugin<Project> {
     @Override public void apply(Project project) {
         project.getPluginManager().apply("java");
@@ -149,6 +146,7 @@ public final class ContinuumLibPlugin implements Plugin<Project> {
                 task.getOutputJar().convention(project.getLayout().getBuildDirectory().file("continuumlib/" + id + ".jar"));
             });
             generateTargets.configure(task -> task.dependsOn(generate));
+            aggregate.configure(task -> task.dependsOn(generate));
 
             var target = project.getTasks().register("continuumLibTransform_" + id, TransformJarTask.class, task -> {
                 task.setGroup("ContinuumLib");
@@ -159,15 +157,14 @@ public final class ContinuumLibPlugin implements Plugin<Project> {
                 task.getConfigFile().convention(project.getLayout().file(project.provider(finalTargetConfigFile::toFile)));
                 task.getRuleFiles().from(project.fileTree("src/main/resources/continuumlib/knowledge", tree -> tree.include("**/*.xml")));
                 task.getRuleFiles().from(project.fileTree("src/main/resources/data/continuumlib/knowledge", tree -> tree.include("**/*.xml")));
-                task.getOutputJar().convention(project.getLayout().getBuildDirectory().file("continuumlib/" + id + ".jar"));
+                task.getOutputJar().convention(project.getLayout().getBuildDirectory().file("continuum/legacy-bytecode/" + id + ".jar"));
             });
-            aggregate.configure(task -> task.dependsOn(target));
 
             var audit = project.getTasks().register("continuumLibAudit_" + id, AuditTargetTask.class, task -> {
                 task.setGroup("ContinuumLib");
                 task.getProjectDirectory().convention(project.getLayout().getProjectDirectory());
-                task.getConfigFile().convention(target.flatMap(TransformJarTask::getConfigFile));
-                task.getInputJar().convention(target.flatMap(TransformJarTask::getOutputJar));
+                task.getConfigFile().convention(generate.flatMap(GenerateTargetTask::getConfigFile));
+                task.getInputJar().convention(generate.flatMap(GenerateTargetTask::getOutputJar));
                 task.getReportFile().convention(project.getLayout().getBuildDirectory().file("reports/continuumlib/" + id + "-audit.tsv"));
                 task.getTypeReportFile().convention(project.getLayout().getBuildDirectory().file("reports/continuumlib/" + id + "-types.tsv"));
             });

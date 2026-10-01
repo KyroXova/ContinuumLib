@@ -24,6 +24,7 @@ import com.kyroxova.continuumlib.source.ast.SourceUnit;
 import com.kyroxova.continuumlib.source.compile.SourceCompiler;
 import com.kyroxova.continuumlib.source.compile.TargetJarPackager;
 import com.kyroxova.continuumlib.source.transform.SourceTransformer;
+import com.kyroxova.continuumlib.resolver.ClassAdaptationPlan;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -300,20 +301,28 @@ public final class TargetGenerationPipeline {
 
     private static void verifyArtifacts(ResolvedTarget target) throws IOException {
         for (var entry : target.sourceArtifacts().entrySet()) {
-            if (!Files.exists(entry.getValue())) {
+            if (!Files.isRegularFile(entry.getValue())) {
                 throw new IOException("Missing source artifact '" + entry.getKey() + "': " + entry.getValue());
             }
         }
         for (var entry : target.targetArtifacts().entrySet()) {
-            if (!Files.exists(entry.getValue())) {
+            if (!Files.isRegularFile(entry.getValue())) {
                 throw new IOException("Missing target artifact '" + entry.getKey() + "': " + entry.getValue());
             }
         }
-        for (var dep : target.sourceClasspath().values()) {
-            dep.verify();
+        for (var dependency : target.sourceClasspath().values()) {
+            dependency.verify();
         }
-        for (var dep : target.targetClasspath().values()) {
-            dep.verify();
+        for (var dependency : target.targetClasspath().values()) {
+            dependency.verify();
+        }
+
+        if (!target.rulePacks().isEmpty()) {
+            new ClassAdaptationPlan(
+                    target.sourceEnvironment(),
+                    target.targetEnvironment(),
+                    target.rulePacks()
+            ).bind(target.sourceArtifacts(), target.targetArtifacts());
         }
     }
 
@@ -408,6 +417,9 @@ public final class TargetGenerationPipeline {
                     bytes = stream.readAllBytes();
                 }
                 for (var use : scanner.scan(bytes)) {
+                    if (isPlatformOwner(use.target().owner())) {
+                        continue;
+                    }
                     var finding = audit.check(use);
                     if (finding.status() != TargetReferenceAudit.Status.DECLARATION_FOUND) {
                         findings.add(finding);
@@ -416,6 +428,16 @@ public final class TargetGenerationPipeline {
             }
         }
         return findings;
+    }
+
+    private static boolean isPlatformOwner(String owner) {
+        return owner.startsWith("java/")
+                || owner.startsWith("javax/")
+                || owner.startsWith("jdk/")
+                || owner.startsWith("sun/")
+                || owner.startsWith("com/sun/")
+                || owner.startsWith("org/w3c/dom/")
+                || owner.startsWith("org/xml/sax/");
     }
 
     public static final class PipelineExecutionException extends RuntimeException {

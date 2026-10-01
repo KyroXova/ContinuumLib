@@ -8,16 +8,12 @@ import org.gradle.api.file.RegularFileProperty;
 import org.gradle.api.provider.Property;
 import org.gradle.api.tasks.*;
 
-import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.List;
 
-/**
- * Gradle task executing the unified target-generation pipeline for a single target.
- */
 @CacheableTask
 public abstract class GenerateTargetTask extends ArtifactRequestTask {
     @Input
@@ -40,12 +36,27 @@ public abstract class GenerateTargetTask extends ArtifactRequestTask {
         Path buildRoot = getProjectDirectory().get().dir("build").getAsFile().toPath();
         Path srcDir = getSourceDirectory().get().getAsFile().toPath();
         Path resDir = projectRoot.resolve("src/main/resources");
+        Path configFile = getConfigFile().get().getAsFile().toPath();
+        Path finalTaskJar = getOutputJar().get().getAsFile().toPath();
+
+        protectOutput(finalTaskJar, List.of());
 
         List<RulePack> packs = rulePacks();
-        ResolvedTarget target = new TargetResolver().resolve(projectRoot, targetId, buildRoot, packs);
+        GeneratedWorkspace workspace = GeneratedWorkspace.atTargetRoot(
+                getTargetWorkspaceDirectory().get().getAsFile().toPath(),
+                targetId
+        );
+        ResolvedTarget target = new TargetResolver().resolve(
+                projectRoot,
+                targetId,
+                buildRoot,
+                packs,
+                configFile,
+                workspace
+        );
 
         TargetGenerationPipeline pipeline = new TargetGenerationPipeline();
-        String outputJarName = getOutputJar().get().getAsFile().getName();
+        String outputJarName = finalTaskJar.getFileName().toString();
         TargetGenerationResult result = pipeline.execute(
                 target,
                 projectRoot,
@@ -60,7 +71,6 @@ public abstract class GenerateTargetTask extends ArtifactRequestTask {
         }
 
         Path generatedJar = result.outputJar();
-        Path finalTaskJar = getOutputJar().get().getAsFile().toPath();
         if (generatedJar != null && !generatedJar.equals(finalTaskJar) && Files.exists(generatedJar)) {
             Files.createDirectories(finalTaskJar.getParent());
             Files.copy(generatedJar, finalTaskJar, StandardCopyOption.REPLACE_EXISTING);

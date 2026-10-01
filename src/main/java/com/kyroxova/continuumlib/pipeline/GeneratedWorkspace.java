@@ -17,16 +17,26 @@ public final class GeneratedWorkspace {
     private final Path outputDir;
 
     public GeneratedWorkspace(Path buildRoot, String targetId) {
+        this(validateTargetId(targetId), Objects.requireNonNull(buildRoot, "buildRoot")
+                .resolve("continuum/targets/" + targetId)
+                .toAbsolutePath()
+                .normalize());
+    }
+
+    private GeneratedWorkspace(String targetId, Path rootDir) {
         this.targetId = validateTargetId(targetId);
-        Objects.requireNonNull(buildRoot, "buildRoot");
-        this.rootDir = buildRoot.resolve("continuum/targets/" + this.targetId).toAbsolutePath().normalize();
-        this.sourceDir = rootDir.resolve("source");
-        this.resourcesDir = rootDir.resolve("resources");
-        this.classesDir = rootDir.resolve("classes");
-        this.reportsDir = rootDir.resolve("reports");
-        this.metadataDir = rootDir.resolve("metadata");
-        this.stagingDir = rootDir.resolve("staging");
-        this.outputDir = rootDir.resolve("output");
+        this.rootDir = Objects.requireNonNull(rootDir, "rootDir").toAbsolutePath().normalize();
+        this.sourceDir = this.rootDir.resolve("source");
+        this.resourcesDir = this.rootDir.resolve("resources");
+        this.classesDir = this.rootDir.resolve("classes");
+        this.reportsDir = this.rootDir.resolve("reports");
+        this.metadataDir = this.rootDir.resolve("metadata");
+        this.stagingDir = this.rootDir.resolve("staging");
+        this.outputDir = this.rootDir.resolve("output");
+    }
+
+    public static GeneratedWorkspace atTargetRoot(Path targetRoot, String targetId) {
+        return new GeneratedWorkspace(validateTargetId(targetId), targetRoot);
     }
 
     public static String validateTargetId(String targetId) {
@@ -82,9 +92,6 @@ public final class GeneratedWorkspace {
         return outputDir.resolve(jarName);
     }
 
-    /**
-     * Atomically publishes the successfully built JAR from staging to final output.
-     */
     public Path finalizeJar(Path stagedJar, String jarName) throws IOException {
         Objects.requireNonNull(stagedJar, "stagedJar");
         if (!Files.exists(stagedJar) || !Files.isRegularFile(stagedJar)) {
