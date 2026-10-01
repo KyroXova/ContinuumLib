@@ -117,6 +117,7 @@ public final class SourceCompiler {
                     argFile,
                     String.join(System.lineSeparator(), args) + System.lineSeparator(),
                     StandardCharsets.UTF_8,
+                    StandardOpenOption.WRITE,
                     StandardOpenOption.TRUNCATE_EXISTING
             );
 
