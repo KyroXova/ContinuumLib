@@ -54,6 +54,7 @@ public final class ContinuumLibPlugin implements Plugin<Project> {
             task.getProjectDirectory().convention(project.getLayout().getProjectDirectory());
             task.getSourceDirectory().convention(project.getLayout().getProjectDirectory().dir("src/main/java"));
             task.getResourceFiles().from(project.fileTree("src/main/resources"));
+            task.getTargetWorkspaceDirectory().convention(project.getLayout().getBuildDirectory().dir("continuum/targets/source"));
             task.getConfigFile().convention(project.getLayout().file(project.provider(transformCfg::toFile)));
             task.getRuleFiles().from(project.fileTree("src/main/resources/continuumlib/knowledge", tree -> tree.include("**/*.xml")));
             task.getRuleFiles().from(project.fileTree("src/main/resources/data/continuumlib/knowledge", tree -> tree.include("**/*.xml")));
