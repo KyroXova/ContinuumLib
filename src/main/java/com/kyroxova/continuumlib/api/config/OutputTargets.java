@@ -12,12 +12,18 @@ public record OutputTargets(List<String> targets, boolean perVersion, boolean un
         if (targets.isEmpty() || (!perVersion && !universal)) throw new IllegalArgumentException("Targets and at least one output mode are required");
         Set<String> ids = new HashSet<>();
         for (String id : targets) {
-            String base = id.split("\\.", 2)[0].toUpperCase(Locale.ROOT);
-            if (!id.matches("[A-Za-z0-9][A-Za-z0-9._-]{0,63}") || base.matches("CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9]"))
-                throw new IllegalArgumentException("Unsafe target ID: " + id);
+            validateTargetId(id);
             if (!ids.add(id.toLowerCase(Locale.ROOT))) throw new IllegalArgumentException("Duplicate target ID: " + id);
         }
     }
+
+    public static void validateTargetId(String id) {
+        Objects.requireNonNull(id, "id");
+        String base = id.split("\\.", 2)[0].toUpperCase(Locale.ROOT);
+        if (!id.matches("[A-Za-z0-9][A-Za-z0-9._-]{0,63}") || base.matches("CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9]"))
+            throw new IllegalArgumentException("Unsafe target ID: " + id);
+    }
+
     public static OutputTargets read(Path file) throws IOException {
         var values = new Properties() {
             @Override public synchronized Object put(Object key, Object value) {
