@@ -1,5 +1,6 @@
 plugins {
     id 'java-library'
+    id 'java-gradle-plugin'
     id 'maven-publish'
 }
 
@@ -18,16 +19,62 @@ repositories {
 }
 
 dependencies {
-    // JavaParser powers the source analyzer. Symbol solving and target toolchains
-    // are added only when their real-artifact integration is implemented.
-    implementation 'com.github.javaparser:javaparser-core:3.26.1'
-
+    implementation 'org.ow2.asm:asm:9.10.1'
+    implementation 'org.ow2.asm:asm-commons:9.10.1'
+    implementation 'org.ow2.asm:asm-tree:9.10.1'
+    implementation 'org.ow2.asm:asm-analysis:9.10.1'
+    implementation 'net.fabricmc:mapping-io:0.9.1'
+    testImplementation gradleTestKit()
     testImplementation platform('org.junit:junit-bom:5.10.2')
     testImplementation 'org.junit.jupiter:junit-jupiter'
 }
 
+gradlePlugin {
+    plugins {
+        continuumLib {
+            id = 'com.kyroxova.continuumlib'
+            implementationClass = 'com.kyroxova.continuumlib.gradle.ContinuumLibPlugin'
+            displayName = 'ContinuumLib'
+            description = 'Inspects compiled mod APIs for ContinuumLib adaptation'
+        }
+    }
+}
+
+// A portable Maven repository, including the Gradle plugin marker and dependency metadata.
+// No remote upload or modification of the developer's Maven cache is performed.
+publishing {
+    repositories {
+        maven {
+            name = 'distribution'
+            url = layout.buildDirectory.dir('repository')
+        }
+    }
+}
+
 tasks.named('test') {
     useJUnitPlatform()
+    dependsOn 'publishAllPublicationsToDistributionRepository'
+    inputs.dir(layout.buildDirectory.dir('repository'))
+    systemProperty 'continuumlib.testRepository', layout.buildDirectory.dir('repository').get().asFile.absolutePath
+    systemProperty 'continuumlib.testVersion', project.version.toString()
+    if (project.hasProperty('inspectionArtifact')) {
+        systemProperty 'continuumlib.testArtifact', project.property('inspectionArtifact')
+    }
+    if (project.hasProperty('forgeArtifacts')) {
+        systemProperty 'continuumlib.forgeArtifacts', project.property('forgeArtifacts')
+    }
+    if (project.hasProperty('referenceClasses')) {
+        systemProperty 'continuumlib.referenceClasses', project.property('referenceClasses')
+    }
+    if (project.hasProperty('officialMappings')) {
+        systemProperty 'continuumlib.officialMappings', project.property('officialMappings')
+    }
+    if (project.hasProperty('minecraftArtifacts')) {
+        systemProperty 'continuumlib.minecraftArtifacts', project.property('minecraftArtifacts')
+    }
+    if (project.hasProperty('minecraftJava21')) {
+        systemProperty 'continuumlib.minecraftJava21', project.property('minecraftJava21')
+    }
     testLogging {
         events "passed", "skipped", "failed"
     }

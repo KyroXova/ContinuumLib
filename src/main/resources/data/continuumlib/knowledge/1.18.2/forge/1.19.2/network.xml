@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rules schema="1" id="forge-network-1.18.2-to-1.19.2"
+       evidence="Verified public static declarations in net.minecraftforge:forge:1.18.2-40.3.12:universal and 1.19.2-43.5.1:universal from https://maven.minecraftforge.net/ and matching NetworkHooks.java in their sources artifacts. Forge-owned method names and Minecraft descriptor class names match this MOJMAP symbol slice. This is not whole-classpath or gameplay certification.">
+  <source minecraft="1.18.2" loader="FORGE" namespace="MOJMAP" java="17">
+    <artifact name="forge" sha256="d699e54a6a7bbe31efb40d39c21cc2425dc0648590350bcc85a39943ff729da0"/>
+  </source>
+  <target minecraft="1.19.2" loader="FORGE" namespace="MOJMAP" java="17">
+    <artifact name="forge" sha256="b249ba6191938094e531f50d7bcb62cbb48e967d48d211a46cdbf2862681ae36"/>
+  </target>
+  <member from-owner="net/minecraftforge/network/NetworkHooks" from-name="openGui"
+          from-descriptor="(Lnet/minecraft/server/level/ServerPlayer;Lnet/minecraft/world/MenuProvider;)V"
+          to-owner="net/minecraftforge/network/NetworkHooks" to-name="openScreen"
+          to-descriptor="(Lnet/minecraft/server/level/ServerPlayer;Lnet/minecraft/world/MenuProvider;)V"/>
+  <member from-owner="net/minecraftforge/network/NetworkHooks" from-name="openGui"
+          from-descriptor="(Lnet/minecraft/server/level/ServerPlayer;Lnet/minecraft/world/MenuProvider;Lnet/minecraft/core/BlockPos;)V"
+          to-owner="net/minecraftforge/network/NetworkHooks" to-name="openScreen"
+          to-descriptor="(Lnet/minecraft/server/level/ServerPlayer;Lnet/minecraft/world/MenuProvider;Lnet/minecraft/core/BlockPos;)V"/>
+  <member from-owner="net/minecraftforge/network/NetworkHooks" from-name="openGui"
+          from-descriptor="(Lnet/minecraft/server/level/ServerPlayer;Lnet/minecraft/world/MenuProvider;Ljava/util/function/Consumer;)V"
+          to-owner="net/minecraftforge/network/NetworkHooks" to-name="openScreen"
+          to-descriptor="(Lnet/minecraft/server/level/ServerPlayer;Lnet/minecraft/world/MenuProvider;Ljava/util/function/Consumer;)V"/>
+</rules>

@@ -1,0 +1,43 @@
+plugins {
+    id 'java-library'
+    id 'maven-publish'
+}
+
+group = 'com.kyroxova'
+version = '1.0.0'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
+    withSourcesJar()
+}
+
+repositories {
+    mavenCentral()
+}
+
+dependencies {
+    implementation 'org.ow2.asm:asm:9.10.1'
+    implementation 'org.ow2.asm:asm-commons:9.10.1'
+    // JavaParser powers the source analyzer. Symbol solving and target toolchains
+    // are added only when their real-artifact integration is implemented.
+    implementation 'com.github.javaparser:javaparser-core:3.26.1'
+
+    testImplementation platform('org.junit:junit-bom:5.10.2')
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+}
+
+tasks.named('test') {
+    useJUnitPlatform()
+    if (project.hasProperty('inspectionArtifact')) {
+        systemProperty 'continuumlib.testArtifact', project.property('inspectionArtifact')
+    }
+    testLogging {
+        events "passed", "skipped", "failed"
+    }
+}
+
+tasks.withType(JavaCompile).configureEach { task ->
+    options.encoding = 'UTF-8'
+}

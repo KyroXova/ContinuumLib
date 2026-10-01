@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rules schema="1" id="vanilla-identifiers-1.21.1-to-26.3"
+       evidence="Official 1.21.1 server JAR and Mojang server mappings; local pinned 26.3 server JAR version.json identifies stable 26.3, Java 25. ResourceLocation public method and field declaration coverage checked against Identifier; not behavioral or full-version certification.">
+    <source minecraft="1.21.1" loader="VANILLA" namespace="MOJMAP" java="21">
+        <artifact name="minecraft" sha256="c301de10f575027d13eac18c7f34409d60648cf56a35d566aa1f530ff617840a"/>
+    </source>
+    <target minecraft="26.3" loader="VANILLA" namespace="MOJMAP" java="25">
+        <artifact name="minecraft" sha256="a362163eec5d1612d520772bc16e5b39c09e3b234fdc045f56bf544284ee8ae6"/>
+    </target>
+    <class from="net/minecraft/resources/ResourceLocation" to="net/minecraft/resources/Identifier"/>
+    <member from-owner="net/minecraft/resources/ResourceLocation" from-name="isAllowedInResourceLocation" from-descriptor="(C)Z"
+            to-owner="net/minecraft/resources/Identifier" to-name="isAllowedInIdentifier" to-descriptor="(C)Z"/>
+</rules>

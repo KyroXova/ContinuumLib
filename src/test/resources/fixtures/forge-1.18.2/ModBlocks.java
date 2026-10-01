@@ -1,9 +1,9 @@
-package com.example.buildscape;
+package com.example.mod;
 
 public class ModBlocks {
     public static final DeferredRegister<Block> BLOCKS = DeferredRegister.create(
             ForgeRegistries.BLOCKS,
-            BuildScape.MODID);
+            "examplemod");
 
     public static final RegistryObject<Block> BUILDERS_WORKBENCH = BLOCKS.register(
             "builders_workbench",

@@ -48,6 +48,17 @@ class InMemorySymbolDatabaseTest {
         assertTrue(database.find(constructor).isPresent());
         assertTrue(database.find(field).isPresent());
     }
+    @Test
+    void keepsDistinctLegalObfuscatedNamesInsteadOfTrimmingThemIntoACollision() {
+        var plain = key("a", "()V");
+        var spaced = key(" a ", "()V");
+        var first = new SymbolName("plain", List.of(plain));
+        var second = new SymbolName("spaced", List.of(spaced));
+        var database = new InMemorySymbolDatabase(List.of(first, second));
+        assertEquals(first, database.find(plain).orElseThrow());
+        assertEquals(second, database.find(spaced).orElseThrow());
+        assertNotEquals(plain, spaced);
+    }
 
     private SymbolKey key(String name, String descriptor) {
         return new SymbolKey(FORGE_1182, "net/minecraft/world/level/block/Block",

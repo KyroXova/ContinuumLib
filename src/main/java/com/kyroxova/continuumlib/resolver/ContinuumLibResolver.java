@@ -36,6 +36,6 @@ public final class ContinuumLibResolver {
                 resolutions.add(matches.get(0));
             }
         }
-        return new ResolutionPlan(source, target, resolutions);
+        return new ResolutionPlan(source, target, resolutions, project.diagnostics());
     }
 }

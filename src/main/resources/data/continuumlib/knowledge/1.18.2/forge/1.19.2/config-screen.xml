@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rules schema="1" id="forge-config-screen-1.18.2-to-1.19.2"
+       evidence="Compared ConfigGuiHandler.java and ConfigScreenHandler.java in the official net.minecraftforge:forge:1.18.2-40.3.12:sources and 1.19.2-43.5.1:sources artifacts, and verified class, method and both factory constructor descriptors in their universal JARs from https://maven.minecraftforge.net/. This is a class/member rename, not target-game certification.">
+  <source minecraft="1.18.2" loader="FORGE" namespace="MOJMAP" java="17">
+    <artifact name="forge" sha256="d699e54a6a7bbe31efb40d39c21cc2425dc0648590350bcc85a39943ff729da0"/>
+  </source>
+  <target minecraft="1.19.2" loader="FORGE" namespace="MOJMAP" java="17">
+    <artifact name="forge" sha256="b249ba6191938094e531f50d7bcb62cbb48e967d48d211a46cdbf2862681ae36"/>
+  </target>
+  <class from="net/minecraftforge/client/ConfigGuiHandler" to="net/minecraftforge/client/ConfigScreenHandler"/>
+  <class from="net/minecraftforge/client/ConfigGuiHandler$ConfigGuiFactory" to="net/minecraftforge/client/ConfigScreenHandler$ConfigScreenFactory"/>
+  <member from-owner="net/minecraftforge/client/ConfigGuiHandler" from-name="getGuiFactoryFor"
+          from-descriptor="(Lnet/minecraftforge/forgespi/language/IModInfo;)Ljava/util/Optional;"
+          to-owner="net/minecraftforge/client/ConfigScreenHandler" to-name="getScreenFactoryFor"
+          to-descriptor="(Lnet/minecraftforge/forgespi/language/IModInfo;)Ljava/util/Optional;"/>
+</rules>

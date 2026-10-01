@@ -1,0 +1,38 @@
+// Opt-in verification against any compatible external mod build, without a source checkout.
+// Supply continuumlib.repository (Maven URL), continuumlib.version and continuumlib.config (absolute file).
+// continuumlib.project selects exactly one Gradle project path (default ':').
+initscript {
+    repositories {
+        maven {
+            def repository = System.getProperty('continuumlib.repository')
+            if (!repository) throw new GradleException('Set -Dcontinuumlib.repository to a published Maven repository URL')
+            url = uri(repository)
+        }
+        mavenCentral()
+    }
+    dependencies {
+        def version = System.getProperty('continuumlib.version')
+        if (!version) throw new GradleException('Set -Dcontinuumlib.version to the published plugin version')
+        classpath "com.kyroxova:continuumlib:${version}"
+    }
+}
+
+allprojects {
+    if (path != System.getProperty('continuumlib.project', ':')) return
+    def configPath = System.getProperty('continuumlib.config')
+    if (!configPath || !new File(configPath).isAbsolute() || !new File(configPath).isFile())
+        throw new GradleException('Set -Dcontinuumlib.config to an existing absolute transform.properties path')
+    apply plugin: com.kyroxova.continuumlib.gradle.ContinuumLibPlugin
+    tasks.named('continuumLibTransformJar') {
+        configFile.set(new File(configPath))
+    }
+    tasks.named('continuumLibCompareApis') {
+        configFile.set(new File(configPath))
+    }
+}
+
+gradle.projectsEvaluated {
+    def selected = System.getProperty('continuumlib.project', ':')
+    if (!selected.startsWith(':') || rootProject.findProject(selected) == null)
+        throw new GradleException("ContinuumLib integration project does not exist: ${selected}")
+}

@@ -24,10 +24,10 @@ public record SymbolKey(
 
     private static String requireText(String value, String label) {
         Objects.requireNonNull(value, label);
-        String normalized = value.trim().replace('.', '/');
-        if (normalized.isEmpty()) {
-            throw new IllegalArgumentException(label + " cannot be blank");
+        if (value.isEmpty()) {
+            throw new IllegalArgumentException(label + " cannot be empty");
         }
-        return normalized;
+        // JVM identifiers are not Java source identifiers. Preserve obfuscated names exactly.
+        return value;
     }
 }

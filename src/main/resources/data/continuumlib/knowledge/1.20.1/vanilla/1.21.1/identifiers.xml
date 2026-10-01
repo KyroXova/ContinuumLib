@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<rules schema="1" id="vanilla-identifiers-1.20.1-to-1.21.1"
+       evidence="Mojang official server JARs and server mappings for 1.20.1 and 1.21.1; https://neoforged.net/news/21.0release/ ; public ResourceLocation constructors replaced by factories, of renamed bySeparator. Vanilla API slice only, no loader or full-class compatibility claim.">
+    <source minecraft="1.20.1" loader="VANILLA" namespace="MOJMAP" java="17">
+        <artifact name="minecraft" sha256="80db52b203ac5de6e5fc1c5082259df440fb2b5390b4c61d474e8fbc63cc41f5"/>
+    </source>
+    <target minecraft="1.21.1" loader="VANILLA" namespace="MOJMAP" java="21">
+        <artifact name="minecraft" sha256="c301de10f575027d13eac18c7f34409d60648cf56a35d566aa1f530ff617840a"/>
+    </target>
+    <constructor-factory from-owner="net/minecraft/resources/ResourceLocation" from-name="&lt;init&gt;" from-descriptor="(Ljava/lang/String;Ljava/lang/String;)V"
+                         to-owner="net/minecraft/resources/ResourceLocation" to-name="fromNamespaceAndPath" to-descriptor="(Ljava/lang/String;Ljava/lang/String;)Lnet/minecraft/resources/ResourceLocation;"/>
+    <constructor-factory from-owner="net/minecraft/resources/ResourceLocation" from-name="&lt;init&gt;" from-descriptor="(Ljava/lang/String;)V"
+                         to-owner="net/minecraft/resources/ResourceLocation" to-name="parse" to-descriptor="(Ljava/lang/String;)Lnet/minecraft/resources/ResourceLocation;"/>
+    <member from-owner="net/minecraft/resources/ResourceLocation" from-name="of" from-descriptor="(Ljava/lang/String;C)Lnet/minecraft/resources/ResourceLocation;"
+            to-owner="net/minecraft/resources/ResourceLocation" to-name="bySeparator" to-descriptor="(Ljava/lang/String;C)Lnet/minecraft/resources/ResourceLocation;"/>
+</rules>
