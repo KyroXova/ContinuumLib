@@ -143,10 +143,10 @@ class SourceReferenceTransformationTest {
         new SourceTransformer(new CanonicalMigrationPlan(List.of(constructor)), constructorApi())
                 .transformAstWithAccounting(unit.ast(), unit.relativePath(), new ArrayList<>(), diagnostics);
 
-        assertTrue(unit.ast().toString().contains("Legacy::new"));
-        assertEquals(1, diagnostics.size());
-        assertEquals(com.kyroxova.continuumlib.model.diagnostic.DiagnosticCode.MIGRATION_UNRESOLVED,
-                diagnostics.get(0).code());
+        String generated = unit.ast().toString();
+        assertFalse(generated.contains("Legacy::new"), generated);
+        assertTrue(generated.contains("Legacy::create"), generated);
+        assertTrue(diagnostics.isEmpty(), diagnostics.toString());
     }
 
     private static java.util.Map<String, ClassInfo> methodApi(boolean isStatic) {

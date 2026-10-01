@@ -399,9 +399,12 @@ public final class SourceTransformer {
             public Visitable visit(MethodReferenceExpr n, Void arg) {
                 String sourceOwner = methodReferenceOwner(n, simpleToQualified).orElse(null);
                 Optional<ResolvedMethodUse> resolvedUse = resolveMethodReference(n);
-                if (resolvedUse.isEmpty() && sourceOwner != null && !"new".equals(n.getIdentifier())) {
-                    resolvedUse = sourceApi.uniqueMethod(sourceOwner, n.getIdentifier())
+                if (sourceOwner != null && !"new".equals(n.getIdentifier())) {
+                    Optional<ResolvedMethodUse> indexed = sourceApi.uniqueMethod(sourceOwner, n.getIdentifier())
                             .map(SourceTransformer::resolvedMethodUse);
+                    if (indexed.isPresent()) {
+                        resolvedUse = indexed;
+                    }
                 }
                 super.visit(n, arg);
 
