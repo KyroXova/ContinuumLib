@@ -75,6 +75,10 @@ public final class SourceParser {
 
         List<Path> roots = sourceRoots.stream()
                 .map(path -> path.toAbsolutePath().normalize())
+                .distinct()
+                .sorted(Comparator.comparingInt(Path::getNameCount)
+                        .reversed()
+                        .thenComparing(Path::toString))
                 .toList();
         List<Path> ordered = files.stream()
                 .map(path -> path.toAbsolutePath().normalize())

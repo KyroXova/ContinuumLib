@@ -323,15 +323,17 @@ public final class TargetGenerationPipeline {
     }
 
     private static List<Path> discoverJavaSources(List<Path> sourceRoots) throws IOException {
-        List<Path> list = new ArrayList<>();
+        Set<Path> files = new TreeSet<>(Comparator.comparing(Path::toString));
         for (Path root : sourceRoots) {
-            if (!Files.isDirectory(root)) continue;
-            try (Stream<Path> stream = Files.walk(root)) {
+            Path normalizedRoot = root.toAbsolutePath().normalize();
+            if (!Files.isDirectory(normalizedRoot)) continue;
+            try (Stream<Path> stream = Files.walk(normalizedRoot)) {
                 stream.filter(p -> Files.isRegularFile(p) && p.getFileName().toString().endsWith(".java"))
-                        .forEach(list::add);
+                        .map(path -> path.toAbsolutePath().normalize())
+                        .forEach(files::add);
             }
         }
-        return Collections.unmodifiableList(list);
+        return List.copyOf(files);
     }
 
     private static Map<String, Path> discoverProjectResources(List<Path> resourceRoots) throws IOException {
@@ -350,10 +352,13 @@ public final class TargetGenerationPipeline {
     }
 
     private static Path findMatchingRoot(Path file, List<Path> roots) {
-        for (Path root : roots) {
-            if (file.startsWith(root)) return root;
-        }
-        return roots.get(0);
+        Path normalizedFile = file.toAbsolutePath().normalize();
+        return roots.stream()
+                .map(root -> root.toAbsolutePath().normalize())
+                .filter(normalizedFile::startsWith)
+                .max(Comparator.comparingInt(Path::getNameCount))
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "Source file is outside configured source roots: " + normalizedFile));
     }
 
     private static int countCompiledClasses(Path classesDir) throws IOException {
