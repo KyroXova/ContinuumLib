@@ -1,6 +1,6 @@
 # ContinuumLib
 
-ContinuumLib is a work-in-progress Minecraft API adaptation library and Gradle plugin. It transforms compiled mod classes using version-scoped rules, namespace mappings and explicit semantic bridge hooks. It does not regenerate the mod's Java source.
+ContinuumLib is a work-in-progress Minecraft API adaptation library and Gradle plugin. It supports both pre-compilation target-source generation in isolated build directories and compiled mod-class/JAR adaptation using version-scoped rules, namespace mappings and explicit semantic bridge hooks. Developer source files are never rewritten in place.
 
 **Current boundary:** development JAR transformation works, including a real BuildScape reference check. Complete Minecraft version compatibility and universal runtime bootstrapping are not implemented. A transformed JAR is explicitly **NOT_CERTIFIED** for gameplay.
 
