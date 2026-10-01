@@ -29,7 +29,7 @@ public final class SourceParser {
                     typeSolver.add(new JarTypeSolver(jar));
                 }
             } catch (IOException ignored) {
-                // Ignore unreadable or corrupt supplemental jars in type solver
+                // Supplemental classpath entries remain optional for parsing. Required artifacts are verified elsewhere.
             }
         }
 
@@ -50,22 +50,44 @@ public final class SourceParser {
             return List.of();
         }
 
-        List<SourceUnit> units = new ArrayList<>();
+        List<Path> javaFiles;
         try (Stream<Path> stream = Files.walk(sourceDir)) {
-            var javaFiles = stream.filter(p -> Files.isRegularFile(p) && p.toString().endsWith(".java"))
+            javaFiles = stream.filter(p -> Files.isRegularFile(p) && p.toString().endsWith(".java"))
                     .sorted()
                     .toList();
-            for (Path file : javaFiles) {
-                String relative = sourceDir.relativize(file).toString().replace('\\', '/');
-                ParseResult<CompilationUnit> result = parser.parse(file);
-                if (result.isSuccessful() && result.getResult().isPresent()) {
-                    units.add(new SourceUnit(file, relative, result.getResult().get()));
-                } else {
-                    throw new IOException("Failed to parse Java file: " + file + " -> " + result.getProblems());
-                }
+        }
+        return parseFiles(sourceDir, javaFiles);
+    }
+
+    /** Parses an already-selected set of source files. File selection intentionally happens before AST creation. */
+    public List<SourceUnit> parseFiles(Path sourceRoot, Collection<Path> sourceFiles) throws IOException {
+        Objects.requireNonNull(sourceRoot, "sourceRoot");
+        Objects.requireNonNull(sourceFiles, "sourceFiles");
+
+        Path root = sourceRoot.toAbsolutePath().normalize();
+        List<Path> ordered = sourceFiles.stream()
+                .map(path -> path.toAbsolutePath().normalize())
+                .sorted()
+                .toList();
+
+        List<SourceUnit> units = new ArrayList<>();
+        for (Path file : ordered) {
+            if (!file.startsWith(root)) {
+                throw new IOException("Source file is outside source root: " + file);
+            }
+            if (!Files.isRegularFile(file) || !file.toString().endsWith(".java")) {
+                throw new IOException("Selected source is not a Java file: " + file);
+            }
+
+            String relative = root.relativize(file).toString().replace('\\', '/');
+            ParseResult<CompilationUnit> result = parser.parse(file);
+            if (result.isSuccessful() && result.getResult().isPresent()) {
+                units.add(new SourceUnit(file, relative, result.getResult().get()));
+            } else {
+                throw new IOException("Failed to parse Java file: " + file + " -> " + result.getProblems());
             }
         }
-        return units;
+        return List.copyOf(units);
     }
 
     public SourceUnit parseString(String relativePath, String code) {
