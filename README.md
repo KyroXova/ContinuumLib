@@ -74,6 +74,16 @@ All consumer configuration lives under the **consumer mod's** `src/main/resource
    - Semantic AST registry declaration scanning and reference conflict validation with descriptive diagnostics (`CONTINUUM EXCLUSION CONFLICT`).
    - Developer source files and original assets are never modified.
 
+4. **Unified Per-Target Generation Architecture**:
+   - Canonical `ResolvedTarget` consolidating environments, manifests, classpaths, mappings, rule packs, isolated workspaces, and project configuration.
+   - Deterministic, target-isolated workspaces (`GeneratedWorkspace`) under `build/continuum/targets/<target-id>/`. Staging ensures failed builds never expose partial final JARs.
+   - Pre-AST file selection: source files and resources are filtered prior to JavaParser parsing.
+   - Unified configuration discovery service (`ProjectConfigurationLocator`) with dual-configuration conflict detection (`DUAL_CONFIGURATION_CONFLICT`).
+   - High-precision migration plan (`CanonicalMigrationPlan`) maintaining JVM descriptors and confidence levels (`SEMANTICALLY_RESOLVED`, `STRUCTURALLY_RESOLVED`, `AMBIGUOUS_MIGRATION`).
+   - Clean layer separation (`MigrationLayer`): `SOURCE_AST` migrations are accounted for and not duplicated in the `BYTECODE` layer.
+   - Deterministic per-target reporting (`generation.txt`).
+   - Integrated via Gradle (`GenerateTargetTask`, `continuumLibGenerate_<id>`, and `continuumLibGenerateTargets`).
+
 See the [developer guide](wiki/Developer-Guide.md), [JAR configuration](wiki/Jar-Transformation.md), [rule format](wiki/Rule-Packs.md), [namespace mappings](wiki/Namespace-Mappings.md), and [current status](wiki/Development-Status.md). Universal requests fail explicitly until bootstrap support exists.
 
 ## Verification

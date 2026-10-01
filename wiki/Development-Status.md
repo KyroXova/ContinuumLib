@@ -110,6 +110,17 @@ See [Rule Packs](Rule-Packs) for the implemented knowledge format and artifact-b
     - `RegistryDeclarationScanner` indexes AST registrations from Forge/NeoForge `DeferredRegister` and Fabric/Vanilla `Registry.register`.
     - `ExclusionConflictDetector` verifies that excluded registry declarations are not referenced by target-enabled source code, producing formatted diagnostics (`CONTINUUM EXCLUSION CONFLICT`) and preventing silent compilation failures.
   - Zero modification to developer's original files: filtering applies strictly to generated target trees and packaged target JARs.
+- Unified Per-Target Generation Architecture:
+  - Canonical `ResolvedTarget` representation consolidating environments, artifact manifests, classpaths, mappings, rule packs, isolated workspaces, and project configuration.
+  - Deterministic, target-isolated workspaces (`GeneratedWorkspace`) under `build/continuum/targets/<target-id>/` (`source/`, `resources/`, `classes/`, `reports/`, `metadata/`, `staging/`, `output/`). Staged output ensures failed builds never expose partial final JARs.
+  - File-level source selection performed before AST parsing (`FILE SELECTION -> AST PARSING -> SEMANTIC TRANSFORMATION`), preventing excluded files from being unnecessarily parsed.
+  - Unified configuration discovery service (`ProjectConfigurationLocator`) discovering canonical config at `src/main/resources/continuumlib`, with fallback to `src/main/resources/data/continuumlib`, and fast failure upon conflicting dual configurations (`DUAL_CONFIGURATION_CONFLICT`).
+  - Canonical migration precision (`CanonicalMigrationRule`, `CanonicalMigrationPlan`): preserves exact source/target owners, names, descriptors, opcodes, environments, originating rule packs, and evidence.
+  - Explicit matching confidence (`MigrationConfidence`): `SEMANTICALLY_RESOLVED`, `STRUCTURALLY_RESOLVED`, `HEURISTIC`, `AMBIGUOUS`, and `UNRESOLVED`. Ambiguous overloads emit clear diagnostics (`AMBIGUOUS_MIGRATION`) and never guess.
+  - Layer-aware transformation dispatch (`MigrationLayer`): clearly distinguishes `SOURCE_AST`, `BYTECODE`, and `VALIDATION_ONLY` rules to prevent duplicating transformations.
+  - Transformation accounting and deterministic reporting (`AppliedMigration`, `GenerationReportWriter`) outputting `build/continuum/targets/<target-id>/reports/generation.txt`.
+  - Reusable target generation pipeline (`TargetGenerationPipeline`) orchestrating the entire lifecycle, callable independently and integrated via Gradle (`GenerateTargetTask` and `continuumLibGenerate_<id>`).
+
 
 
 

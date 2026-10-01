@@ -222,12 +222,74 @@ com/example/SomeFeature.java:42
 The excluded registry element is still referenced by target-enabled source.
 ```
 
+## Unified Per-Target Generation Architecture
+
+ContinuumLib coordinates source filtering, AST rewriting, compilation, bytecode adaptations, and reference auditing through one unified per-target lifecycle:
+
+```text
+Consumer Project
+      ↓
+Resolve Target (ResolvedTarget)
+      ↓
+Discover Project Inputs (ProjectConfigurationLocator)
+      ↓
+Load Project Configuration (inclusions / exclusions)
+      ↓
+File-Level Selection (included / excluded sources & resources)
+      ↓
+Parse + Index Active Java Source (SourceParser, RegistryDeclarationScanner)
+      ↓
+Apply Project Filtering (remove excluded registry AST declarations)
+      ↓
+Validate Excluded Declaration References (ExclusionConflictDetector)
+      ↓
+Resolve Verified Migration Plan (CanonicalMigrationPlan, layer distinction)
+      ↓
+Apply Source-Level Transformations (SourceTransformer, confidence accounting)
+      ↓
+Generate Target Workspace (build/continuum/targets/<target-id>/)
+      ↓
+Compile Against Target (SourceCompiler)
+      ↓
+Package Target JAR (TargetJarPackager into staging)
+      ↓
+Apply Bytecode-Level Work Where Explicitly Required (CallBridge, namespace remapping)
+      ↓
+Run Target Audit / Verification (TargetReferenceAudit)
+      ↓
+Produce Target Result & Deterministic Reports (TargetGenerationResult, generation.txt)
+```
+
+### Key Architectural Contracts
+
+1. **File Selection Before AST Parsing**:
+   - Files excluded by path or class-level exclusion rules are omitted before JavaParser parsing, keeping AST indexing focused exclusively on participating target source units.
+2. **Deterministic, Isolated Workspaces**:
+   - Each target executes in complete isolation under `build/continuum/targets/<target-id>/`:
+     - `source/`: Generated target Java sources
+     - `resources/`: Transformed/filtered mod resources
+     - `classes/`: Compiled bytecode classes
+     - `staging/`: Intermediate artifacts prior to successful validation
+     - `output/`: Final target JAR (e.g. `<mod>-<target-id>.jar`)
+     - `reports/`: Generation accounting and audit reports (`generation.txt`)
+   - Failed builds clean staging directories immediately, ensuring no partial or invalid final JARs are exposed.
+3. **Descriptor Precision & Overload Disambiguation**:
+   - Rules retain full JVM member identities (`owner`, `name`, `descriptor`, `opcode`).
+   - `SourceTransformer` classifies transformation confidence: `SEMANTICALLY_RESOLVED`, `STRUCTURALLY_RESOLVED`, `HEURISTIC`, `AMBIGUOUS`, or `UNRESOLVED`.
+   - Ambiguous method overloads or constructors that cannot be deterministically resolved emit structured diagnostics (`AMBIGUOUS_MIGRATION`) and are never guessed.
+4. **Layer-Aware Transformation Dispatch**:
+   - Transformations applied in the `SOURCE_AST` layer are recorded in `AppliedMigration` logs and omitted from secondary bytecode rewriting to prevent duplicate migrations.
+5. **Unified Configuration Discovery & Dual-Conflict Detection**:
+   - Finds canonical configuration under `src/main/resources/continuumlib/` with automatic fallback to `src/main/resources/data/continuumlib/`.
+   - If both directories contain configuration files simultaneously, the build halts with `DUAL_CONFIGURATION_CONFLICT` to enforce configuration consistency.
+
 ## Intended configuration location
 
-The consumer's configuration belongs in `src/main/resources/continuumlib/` (or `src/main/resources/data/continuumlib/`), not in the ContinuumLib checkout. XML knowledge packs can be placed under its `knowledge/` subtree and checked with `gradlew continuumLibValidateRules`. The `transform.properties` file selects a route and supplies source/target artifact paths for `continuumLibTransformJar` and `continuumLibTransformSource`. For multiple outputs, `targets.properties` and `targets/<id>.properties` drive `continuumLibBuildTargets`. Universal output is explicitly rejected until runtime bootstrap support exists.
+The consumer's configuration belongs in `src/main/resources/continuumlib/` (or `src/main/resources/data/continuumlib/`), not in the ContinuumLib checkout. XML knowledge packs can be placed under its `knowledge/` subtree and checked with `gradlew continuumLibValidateRules`. The `transform.properties` file selects a route and supplies source/target artifact paths for `continuumLibTransformJar` and `continuumLibTransformSource`. For multiple outputs, `targets.properties` and `targets/<id>.properties` drive `continuumLibBuildTargets` and `continuumLibGenerateTargets`. Universal output is explicitly rejected until runtime bootstrap support exists.
 
 ## Coverage policy
 
 A numeric version entry, indexed method, or successful rename is not proof of supported gameplay. A certified migration requires real source/target artifacts, namespace and loader identities, an evidenced rule, linkage checks and relevant execution tests. Reflection, resources, mixins and access transformers need explicit handling outside ordinary instruction renames.
 
 See [Development Status](Development-Status) for the implemented boundary and remaining work.
+

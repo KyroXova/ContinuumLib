@@ -68,6 +68,27 @@ public final class SourceParser {
         return units;
     }
 
+    public List<SourceUnit> parseFiles(List<Path> files, List<Path> sourceRoots) throws IOException {
+        List<SourceUnit> units = new ArrayList<>();
+        for (Path file : files) {
+            Path matchingRoot = sourceRoots.get(0);
+            for (Path root : sourceRoots) {
+                if (file.startsWith(root)) {
+                    matchingRoot = root;
+                    break;
+                }
+            }
+            String relative = matchingRoot.relativize(file).toString().replace('\\', '/');
+            ParseResult<CompilationUnit> result = parser.parse(file);
+            if (result.isSuccessful() && result.getResult().isPresent()) {
+                units.add(new SourceUnit(file, relative, result.getResult().get()));
+            } else {
+                throw new IOException("Failed to parse Java file: " + file + " -> " + result.getProblems());
+            }
+        }
+        return units;
+    }
+
     public SourceUnit parseString(String relativePath, String code) {
         ParseResult<CompilationUnit> result = parser.parse(code);
         if (result.isSuccessful() && result.getResult().isPresent()) {
