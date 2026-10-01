@@ -162,4 +162,19 @@ class TargetResolverTest {
         assertEquals("47.2.17", resolved.toTargetContext().loaderVersion());
     }
 
+    @Test
+    void targetContextUsesFinalOutputNamespace(@TempDir Path root) {
+        EnvironmentId env = new EnvironmentId("1.20.1", Loader.FORGE, MappingNamespace.MOJMAP, 17);
+        ResolvedTarget target = ResolvedTarget.builder()
+                .targetId("obfuscated")
+                .sourceEnvironment(env)
+                .targetEnvironment(env)
+                .outputNamespace(MappingNamespace.OBFUSCATED)
+                .workspace(new GeneratedWorkspace(root.resolve("build"), "obfuscated"))
+                .build();
+
+        assertEquals(MappingNamespace.OBFUSCATED, target.mappingNamespace());
+        assertEquals(MappingNamespace.OBFUSCATED, target.toTargetContext().environmentId().mappings());
+    }
+
 }

@@ -70,7 +70,16 @@ public record ResolvedTarget(
     }
 
     public TargetContext toTargetContext() {
-        return new TargetContext(targetEnvironment, loaderVersion, outputMode);
+        MappingNamespace effectiveNamespace = mappingNamespace();
+        EnvironmentId contextEnvironment = effectiveNamespace == targetEnvironment.mappings()
+                ? targetEnvironment
+                : new EnvironmentId(
+                        targetEnvironment.minecraftVersion(),
+                        targetEnvironment.loader(),
+                        effectiveNamespace,
+                        targetEnvironment.javaVersion()
+                );
+        return new TargetContext(contextEnvironment, loaderVersion, outputMode);
     }
 
     public static Builder builder() {
