@@ -44,11 +44,13 @@ public abstract class GenerateTargetTask extends ArtifactRequestTask {
         Path configFile = getConfigFile().get().getAsFile().toPath();
         Path finalTaskJar = getOutputJar().get().getAsFile().toPath();
 
-        protectOutput(finalTaskJar, List.of());
+        Path workspaceRoot = getTargetWorkspaceDirectory().get().getAsFile().toPath();
+        protectGeneratedDirectory(workspaceRoot, List.of(srcDir, resDir, finalTaskJar));
+        protectOutput(finalTaskJar, List.of(srcDir, resDir, workspaceRoot));
 
         List<RulePack> packs = rulePacks();
         GeneratedWorkspace workspace = GeneratedWorkspace.atTargetRoot(
-                getTargetWorkspaceDirectory().get().getAsFile().toPath(),
+                workspaceRoot,
                 targetId
         );
         ResolvedTarget target = new TargetResolver().resolve(

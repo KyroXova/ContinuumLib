@@ -37,16 +37,51 @@ public abstract class ArtifactRequestTask extends DefaultTask {
         return TransformRequest.read(getConfigFile().get().getAsFile().toPath(), getProjectDirectory().get().getAsFile().toPath());
     }
     protected void protectOutput(Path output, Collection<Path> additionalInputs) throws IOException {
-        var inputs = new ArrayList<>(additionalInputs);
+        Path normalizedOutput = output.toAbsolutePath().normalize();
+        for (Path input : trackedInputs(additionalInputs)) {
+            if (overlaps(normalizedOutput, input)) {
+                throw new org.gradle.api.GradleException(
+                        "Output must not overlap an input artifact, mapping, rule, configuration, source, or resource path: "
+                                + normalizedOutput + " vs " + input);
+            }
+        }
+        rejectSymbolicLink(normalizedOutput, "Output");
+    }
+
+    protected void protectGeneratedDirectory(Path outputDirectory, Collection<Path> additionalInputs) throws IOException {
+        Path normalizedOutput = outputDirectory.toAbsolutePath().normalize();
+        for (Path input : trackedInputs(additionalInputs)) {
+            if (overlaps(normalizedOutput, input)) {
+                throw new org.gradle.api.GradleException(
+                        "Generated output directory must be disjoint from all inputs and other declared outputs: "
+                                + normalizedOutput + " vs " + input);
+            }
+        }
+        rejectSymbolicLink(normalizedOutput, "Generated output directory");
+    }
+
+    private List<Path> trackedInputs(Collection<Path> additionalInputs) throws IOException {
+        var inputs = new ArrayList<Path>();
+        if (additionalInputs != null) inputs.addAll(additionalInputs);
         getArtifactFiles().forEach(file -> inputs.add(file.toPath()));
         getRuleFiles().forEach(file -> inputs.add(file.toPath()));
         inputs.add(getConfigFile().get().getAsFile().toPath());
-        for (Path input : inputs) {
-            if (output.toAbsolutePath().normalize().equals(input.toAbsolutePath().normalize())
-                    || (Files.exists(output) && Files.exists(input) && Files.isSameFile(output, input)))
-                throw new org.gradle.api.GradleException("Output must not overwrite an input artifact, mapping, rule or configuration");
+        return inputs.stream()
+                .filter(Objects::nonNull)
+                .map(path -> path.toAbsolutePath().normalize())
+                .distinct()
+                .toList();
+    }
+
+    private static boolean overlaps(Path first, Path second) throws IOException {
+        if (first.startsWith(second) || second.startsWith(first)) return true;
+        return Files.exists(first) && Files.exists(second) && Files.isSameFile(first, second);
+    }
+
+    private static void rejectSymbolicLink(Path path, String label) {
+        if (Files.isSymbolicLink(path)) {
+            throw new org.gradle.api.GradleException(label + " must not be a symbolic link: " + path);
         }
-        if (Files.isSymbolicLink(output)) throw new org.gradle.api.GradleException("Output must not be a symbolic link");
     }
     protected List<RulePack> rulePacks() throws IOException {
         var packs = new ArrayList<>(BuiltinRulePacks.load());

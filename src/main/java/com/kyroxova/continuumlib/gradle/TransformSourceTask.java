@@ -53,11 +53,20 @@ public abstract class TransformSourceTask extends ArtifactRequestTask {
         Path compiledClassesOutput = getCompiledClassesDirectory().get().getAsFile().toPath();
         Path finalTaskJar = getOutputJar().get().getAsFile().toPath();
 
-        protectOutput(finalTaskJar, List.of(sourceRoot));
+        Path workspaceRoot = getTargetWorkspaceDirectory().get().getAsFile().toPath();
+        protectGeneratedDirectory(workspaceRoot, List.of(
+                sourceRoot, resourcesRoot, generatedSourceOutput, compiledClassesOutput, finalTaskJar));
+        protectGeneratedDirectory(generatedSourceOutput, List.of(
+                sourceRoot, resourcesRoot, workspaceRoot, compiledClassesOutput, finalTaskJar));
+        protectGeneratedDirectory(compiledClassesOutput, List.of(
+                sourceRoot, resourcesRoot, workspaceRoot, generatedSourceOutput, finalTaskJar));
+        protectOutput(finalTaskJar, List.of(
+                sourceRoot, resourcesRoot, workspaceRoot, generatedSourceOutput, compiledClassesOutput));
+
         List<RulePack> packs = rulePacks();
 
         GeneratedWorkspace workspace = GeneratedWorkspace.atTargetRoot(
-                getTargetWorkspaceDirectory().get().getAsFile().toPath(),
+                workspaceRoot,
                 "source"
         );
         ResolvedTarget target = new TargetResolver().resolve(
