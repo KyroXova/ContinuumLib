@@ -97,6 +97,13 @@ public final class JvmDescriptors {
         return Optional.empty();
     }
 
+    private static String internal(com.github.javaparser.resolution.declarations.ResolvedTypeDeclaration type) {
+        if (type instanceof ResolvedReferenceTypeDeclaration reference) {
+            return internal(reference);
+        }
+        return type.getQualifiedName().replace('.', '/');
+    }
+
     private static String internal(ResolvedReferenceTypeDeclaration type) {
         return type.containerType()
                 .map(container -> internal(container) + "$" + type.getName())
