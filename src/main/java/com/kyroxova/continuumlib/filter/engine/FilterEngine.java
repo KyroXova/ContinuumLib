@@ -187,6 +187,76 @@ public final class FilterEngine {
         return !ast.getTypes().isEmpty();
     }
 
+    private static String sourceTypeName(ClassOrInterfaceDeclaration type, String pkg) {
+        Deque<String> names = new ArrayDeque<>();
+        com.github.javaparser.ast.Node current = type;
+        while (current != null) {
+            if (current instanceof ClassOrInterfaceDeclaration declaration) {
+                names.addFirst(declaration.getNameAsString());
+            }
+            current = current.getParentNode().orElse(null);
+        }
+        return pkg + String.join(".", names);
+    }
+
+    private static boolean sameOwner(String left, String right) {
+        return left.replace('        for (SourceUnit unit : units) {
+            if (!unit.relativePath().replace('\\', '/').equals(entry.sourcePath().replace('\\', '/'))) {
+                continue;
+            }
+            String pkg = unit.ast().getPackageDeclaration()
+                    .map(declaration -> declaration.getNameAsString() + ".")
+                    .orElse("");
+            for (var type : unit.ast().findAll(ClassOrInterfaceDeclaration.class)) {
+                String owner = sourceTypeName(type, pkg);
+                if (!sameOwner(owner, entry.ownerClass())) continue;
+
+                for (FieldDeclaration field : new ArrayList<>(type.getFields())) {
+                    field.getVariables().removeIf(variable -> variable.getNameAsString().equals(entry.fieldName()));
+                    if (field.getVariables().isEmpty()) field.remove();
+                }
+            }
+        }
+    }
+
+    public record FilterResult(
+            List<SourceUnit> activeSources,
+            List<SourceUnit> excludedSources,
+            List<RegistryEntry> excludedRegistryEntries,
+            Map<String, Path> activeResources,
+            Map<String, Path> excludedResources
+    ) {}
+}
+, '.').equals(right.replace('        for (SourceUnit unit : units) {
+            if (!unit.relativePath().replace('\\', '/').equals(entry.sourcePath().replace('\\', '/'))) {
+                continue;
+            }
+            String pkg = unit.ast().getPackageDeclaration()
+                    .map(declaration -> declaration.getNameAsString() + ".")
+                    .orElse("");
+            for (var type : unit.ast().findAll(ClassOrInterfaceDeclaration.class)) {
+                String owner = sourceTypeName(type, pkg);
+                if (!sameOwner(owner, entry.ownerClass())) continue;
+
+                for (FieldDeclaration field : new ArrayList<>(type.getFields())) {
+                    field.getVariables().removeIf(variable -> variable.getNameAsString().equals(entry.fieldName()));
+                    if (field.getVariables().isEmpty()) field.remove();
+                }
+            }
+        }
+    }
+
+    public record FilterResult(
+            List<SourceUnit> activeSources,
+            List<SourceUnit> excludedSources,
+            List<RegistryEntry> excludedRegistryEntries,
+            Map<String, Path> activeResources,
+            Map<String, Path> excludedResources
+    ) {}
+}
+, '.'));
+    }
+
     private static void removeDeclarationFromAst(RegistryEntry entry, List<SourceUnit> units) {
         for (SourceUnit unit : units) {
             if (!unit.relativePath().replace('\\', '/').equals(entry.sourcePath().replace('\\', '/'))) {
@@ -196,8 +266,8 @@ public final class FilterEngine {
                     .map(declaration -> declaration.getNameAsString() + ".")
                     .orElse("");
             for (var type : unit.ast().findAll(ClassOrInterfaceDeclaration.class)) {
-                String owner = type.getFullyQualifiedName().orElse(pkg + type.getNameAsString());
-                if (!owner.equals(entry.ownerClass())) continue;
+                String owner = sourceTypeName(type, pkg);
+                if (!sameOwner(owner, entry.ownerClass())) continue;
 
                 for (FieldDeclaration field : new ArrayList<>(type.getFields())) {
                     field.getVariables().removeIf(variable -> variable.getNameAsString().equals(entry.fieldName()));

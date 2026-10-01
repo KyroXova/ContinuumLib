@@ -443,7 +443,7 @@ class FilterSystemTest {
         SourceUnit declarationUnit = parser.parseString("com/example/ModBlocks.java", declarations);
         SourceUnit userUnit = parser.parseString("com/example/User.java", user);
         var rule = new RegistryFilterRule(
-                RegistryType.CUSTOM_REGISTRY_ENTRY,
+                RegistryType.BLOCK,
                 "test",
                 EnvironmentCondition.ALWAYS,
                 Path.of("rules.json")
@@ -474,7 +474,7 @@ class FilterSystemTest {
         SourceUnit unit = new SourceParser(List.of(), List.of())
                 .parseString("com/example/ModBlocks.java", code);
         var rule = new RegistryFilterRule(
-                RegistryType.CUSTOM_REGISTRY_ENTRY,
+                RegistryType.BLOCK,
                 "test",
                 EnvironmentCondition.ALWAYS,
                 Path.of("rules.json")
@@ -508,7 +508,7 @@ class FilterSystemTest {
         SourceUnit unit = new SourceParser(List.of(), List.of())
                 .parseString("com/example/Combined.java", code);
         var rule = new RegistryFilterRule(
-                RegistryType.CUSTOM_REGISTRY_ENTRY,
+                RegistryType.BLOCK,
                 "first",
                 EnvironmentCondition.ALWAYS,
                 Path.of("rules.json")

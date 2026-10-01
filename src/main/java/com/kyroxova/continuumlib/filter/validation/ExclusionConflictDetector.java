@@ -115,14 +115,64 @@ public final class ExclusionConflictDetector {
         Node current = node;
         while (current != null) {
             if (current instanceof ClassOrInterfaceDeclaration type) {
-                Optional<String> qualified = type.getFullyQualifiedName();
-                if (qualified.isPresent()) {
-                    return sameOwner(qualified.get(), ownerClass);
+                String sourceName = sourceTypeName(type);
+                if (sameOwner(sourceName, ownerClass)
+                        || sameOwner(ownerClass, sourceName)
+                        || ownerClass.replace('
+    private static boolean sameOwner(String left, String right) {
+        return left.replace('$', '.').equals(right.replace('$', '.'));
+    }
+
+    private static void fail(
+            TargetContext context,
+            String targetEnvDesc,
+            RegistryEntry entry,
+            SourceUnit unit,
+            Node reference
+    ) {
+        int line = reference.getRange().map(r -> r.begin.line).orElse(1);
+        throw new ExclusionConflictException(
+                targetEnvDesc,
+                entry.registryType().name().toUpperCase() + " " + entry.fullId(),
+                entry.declaration(),
+                unit.relativePath() + ":" + line
+        );
+    }
+
+    private static boolean isInsideDeclaration(Node node, String fieldName) {
+        Node current = node;
+        while (current != null) {
+            if (current instanceof FieldDeclaration field) {
+                for (var variable : field.getVariables()) {
+                    if (variable.getNameAsString().equals(fieldName)) {
+                        return true;
+                    }
                 }
             }
             current = current.getParentNode().orElse(null);
         }
         return false;
+    }
+}
+, '.').endsWith("." + sourceName)) {
+                    return true;
+                }
+            }
+            current = current.getParentNode().orElse(null);
+        }
+        return false;
+    }
+
+    private static String sourceTypeName(ClassOrInterfaceDeclaration type) {
+        Deque<String> names = new ArrayDeque<>();
+        Node current = type;
+        while (current != null) {
+            if (current instanceof ClassOrInterfaceDeclaration declaration) {
+                names.addFirst(declaration.getNameAsString());
+            }
+            current = current.getParentNode().orElse(null);
+        }
+        return String.join(".", names);
     }
 
     private static boolean sameOwner(String left, String right) {
