@@ -185,6 +185,13 @@ public final class TargetGenerationPipeline {
             resultBuilder.appliedMigrations(transformResult.appliedMigrations());
             resultBuilder.diagnostics(transformResult.diagnostics());
 
+            Optional<Diagnostic> transformFailure = transformResult.diagnostics().stream()
+                    .filter(diagnostic -> diagnostic.severity() == Severity.ERROR)
+                    .findFirst();
+            if (transformFailure.isPresent()) {
+                throw new PipelineExecutionException("Source transformation produced fatal diagnostics", transformFailure.get());
+            }
+
             Map<String, Path> workspaceResources = new TreeMap<>();
             for (var entry : includedResources.entrySet()) {
                 Path dest = ws.resourcesDir().resolve(entry.getKey()).toAbsolutePath().normalize();
@@ -224,24 +231,38 @@ public final class TargetGenerationPipeline {
             Path stagedJar = ws.stagingJar(jarName);
             TargetJarPackager.packageJarWithResources(ws.classesDir(), workspaceResources, stagedJar);
 
-            // Stage 18: Apply Bytecode-Level Work Where Explicitly Required
-            int bytecodeAdapted = applyBytecodeWork(target, stagedJar, transformResult.appliedMigrations(), migrationPlan);
-            resultBuilder.bytecodeAdaptedCount(bytecodeAdapted);
+            // Stage 18: Apply bytecode-only migrations that source transformation did not consume.
+            var bytecodeResult = new BytecodeMigrationExecutor().apply(
+                    stagedJar,
+                    migrationPlan,
+                    transformResult.appliedMigrations()
+            );
+            resultBuilder.bytecodeAdaptedCount(bytecodeResult.adaptedClasses());
+            resultBuilder.appliedMigrations(bytecodeResult.appliedMigrations());
 
             // Stage 19: Run Final Bytecode/Target Reference Audit
             List<TargetReferenceAudit.Finding> findings = auditTargetArtifact(target, stagedJar);
             resultBuilder.auditFindings(findings);
 
-            for (var f : findings) {
-                if (f.status() == TargetReferenceAudit.Status.OWNER_MISSING || f.status() == TargetReferenceAudit.Status.MEMBER_MISSING) {
-                    resultBuilder.addDiagnostic(Diagnostic.builder()
-                            .code(DiagnosticCode.STRICT_TARGET_AUDIT_FAILURE)
-                            .severity(Severity.ERROR)
-                            .targetId(target.targetId())
-                            .stage("AUDIT")
-                            .message("Audit reference failure: [" + f.status() + "] " + f.detail())
-                            .build());
+            Diagnostic firstAuditFailure = null;
+            for (var finding : findings) {
+                Severity severity = fatalAuditStatus(finding.status()) ? Severity.ERROR : Severity.WARNING;
+                Diagnostic diagnostic = Diagnostic.builder()
+                        .code(severity == Severity.ERROR
+                                ? DiagnosticCode.STRICT_TARGET_AUDIT_FAILURE
+                                : DiagnosticCode.TARGET_AUDIT_REVIEW)
+                        .severity(severity)
+                        .targetId(target.targetId())
+                        .stage("AUDIT")
+                        .message("Audit reference result: [" + finding.status() + "] " + finding.detail())
+                        .build();
+                resultBuilder.addDiagnostic(diagnostic);
+                if (severity == Severity.ERROR && firstAuditFailure == null) {
+                    firstAuditFailure = diagnostic;
                 }
+            }
+            if (firstAuditFailure != null) {
+                throw new PipelineExecutionException("Target reference audit failed", firstAuditFailure);
             }
 
             // Stage 20: Finalize Target Artifact & Reports
@@ -346,31 +367,13 @@ public final class TargetGenerationPipeline {
         }
     }
 
-    private int applyBytecodeWork(
-            ResolvedTarget target,
-            Path stagedJar,
-            List<AppliedMigration> appliedMigrations,
-            CanonicalMigrationPlan migrationPlan
-    ) throws IOException {
-        // Collect rules already completely handled in source
-        Set<CanonicalMigrationRule> appliedRules = new HashSet<>();
-        for (var app : appliedMigrations) {
-            for (var rule : migrationPlan.rules()) {
-                if (rule.type() == app.type()
-                        && Objects.equals(rule.sourceOwner(), app.sourceOwner())
-                        && Objects.equals(rule.sourceName(), app.sourceName())) {
-                    appliedRules.add(rule);
-                }
-            }
-        }
-
-        List<CanonicalMigrationRule> bytecodeRules = migrationPlan.unappliedBytecodeRules(appliedRules);
-        if (bytecodeRules.isEmpty() && target.outputNamespace() == null) {
-            return 0;
-        }
-
-        // Apply bytecode transformations if rules require bytecode layer
-        return 0;
+    private static boolean fatalAuditStatus(TargetReferenceAudit.Status status) {
+        return switch (status) {
+            case OWNER_MISSING, MEMBER_MISSING, STATIC_MISMATCH, OWNER_KIND_MISMATCH,
+                    ACCESS_DENIED, FINAL_WRITE_ILLEGAL -> true;
+            case DECLARATION_FOUND, HIERARCHY_INCOMPLETE, INHERITANCE_REQUIRES_REVIEW,
+                    ACCESS_REQUIRES_REVIEW -> false;
+        };
     }
 
     private List<TargetReferenceAudit.Finding> auditTargetArtifact(ResolvedTarget target, Path jarPath) throws IOException {
