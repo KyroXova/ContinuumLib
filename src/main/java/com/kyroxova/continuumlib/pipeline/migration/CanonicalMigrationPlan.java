@@ -151,9 +151,7 @@ public final class CanonicalMigrationPlan {
     }
 
     public List<CanonicalMigrationRule> findMethodRules(String owner, String methodName) {
-        String key = normalize(owner) + "#" + methodName;
-        var list = methodRules.get(key);
-        return list != null ? Collections.unmodifiableList(list) : List.of();
+        return rules(methodRules, owner, methodName);
     }
 
     public List<CanonicalMigrationRule> findFieldRenames(String owner, String fieldName) {
@@ -193,15 +191,11 @@ public final class CanonicalMigrationPlan {
     }
 
     public List<CanonicalMigrationRule> findFactoryToConstructors(String owner, String methodName) {
-        String key = normalize(owner) + "#" + methodName;
-        var list = factoryToConstructors.get(key);
-        return list != null ? Collections.unmodifiableList(list) : List.of();
+        return rules(factoryToConstructors, owner, methodName);
     }
 
     public List<CanonicalMigrationRule> findFieldToAccessors(String owner, String fieldName) {
-        String key = normalize(owner) + "#" + fieldName;
-        var list = fieldToAccessors.get(key);
-        return list != null ? Collections.unmodifiableList(list) : List.of();
+        return rules(fieldToAccessors, owner, fieldName);
     }
 
     private static List<CanonicalMigrationRule> rules(
