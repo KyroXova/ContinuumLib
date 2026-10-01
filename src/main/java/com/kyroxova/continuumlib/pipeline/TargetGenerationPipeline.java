@@ -172,7 +172,14 @@ public final class TargetGenerationPipeline {
             CanonicalMigrationPlan migrationPlan = CanonicalMigrationPlan.fromRulePacks(target.rulePacks());
 
             // Stage 13: Apply Source-Level Transformations
-            SourceTransformer transformer = new SourceTransformer(migrationPlan);
+            List<Path> sourceIndexPaths = srcClasspath.stream()
+                    .map(path -> path.toAbsolutePath().normalize())
+                    .distinct()
+                    .sorted()
+                    .toList();
+            Map<String, ClassInfo> sourceApi = ArtifactIndex.read(sourceIndexPaths).classes();
+
+            SourceTransformer transformer = new SourceTransformer(migrationPlan, sourceApi);
             SourceTransformer.TransformationResult transformResult = transformer.transform(activeUnits, ws.sourceDir());
             resultBuilder.appliedMigrations(transformResult.appliedMigrations());
             resultBuilder.diagnostics(transformResult.diagnostics());

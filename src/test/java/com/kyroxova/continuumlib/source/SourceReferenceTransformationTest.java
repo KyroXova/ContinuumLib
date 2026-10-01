@@ -1,5 +1,6 @@
 package com.kyroxova.continuumlib.source;
 
+import com.kyroxova.continuumlib.bytecode.ClassInfo;
 import com.kyroxova.continuumlib.model.diagnostic.Diagnostic;
 import com.kyroxova.continuumlib.pipeline.migration.*;
 import com.kyroxova.continuumlib.source.ast.SourceParser;
@@ -35,7 +36,7 @@ class SourceReferenceTransformationTest {
         var applied = new ArrayList<AppliedMigration>();
         var diagnostics = new ArrayList<Diagnostic>();
 
-        new SourceTransformer(new CanonicalMigrationPlan(List.of(rule)))
+        new SourceTransformer(new CanonicalMigrationPlan(List.of(rule)), methodApi(true))
                 .transformAstWithAccounting(unit.ast(), unit.relativePath(), applied, diagnostics);
 
         String generated = unit.ast().toString();
@@ -62,7 +63,7 @@ class SourceReferenceTransformationTest {
 
         SourceUnit unit = parse(root, "example/Use.java");
         var diagnostics = new ArrayList<Diagnostic>();
-        new SourceTransformer(new CanonicalMigrationPlan(List.of(methodRename())))
+        new SourceTransformer(new CanonicalMigrationPlan(List.of(methodRename())), methodApi(true))
                 .transformAstWithAccounting(unit.ast(), unit.relativePath(), new ArrayList<>(), diagnostics);
 
         String generated = unit.ast().toString();
@@ -101,7 +102,7 @@ class SourceReferenceTransformationTest {
         SourceUnit unit = parse(root, "example/Use.java");
         var applied = new ArrayList<AppliedMigration>();
         var diagnostics = new ArrayList<Diagnostic>();
-        new SourceTransformer(new CanonicalMigrationPlan(List.of(bridge)))
+        new SourceTransformer(new CanonicalMigrationPlan(List.of(bridge)), methodApi(false))
                 .transformAstWithAccounting(unit.ast(), unit.relativePath(), applied, diagnostics);
 
         String generated = unit.ast().toString();
@@ -139,13 +140,42 @@ class SourceReferenceTransformationTest {
 
         SourceUnit unit = parse(root, "example/Use.java");
         var diagnostics = new ArrayList<Diagnostic>();
-        new SourceTransformer(new CanonicalMigrationPlan(List.of(constructor)))
+        new SourceTransformer(new CanonicalMigrationPlan(List.of(constructor)), constructorApi())
                 .transformAstWithAccounting(unit.ast(), unit.relativePath(), new ArrayList<>(), diagnostics);
 
         assertTrue(unit.ast().toString().contains("Legacy::new"));
         assertEquals(1, diagnostics.size());
         assertEquals(com.kyroxova.continuumlib.model.diagnostic.DiagnosticCode.MIGRATION_UNRESOLVED,
                 diagnostics.get(0).code());
+    }
+
+    private static java.util.Map<String, ClassInfo> methodApi(boolean isStatic) {
+        int access = Opcodes.ACC_PUBLIC | (isStatic ? Opcodes.ACC_STATIC : 0);
+        return java.util.Map.of(
+                "api/Legacy",
+                new ClassInfo(
+                        "api/Legacy",
+                        "java/lang/Object",
+                        List.of(),
+                        Opcodes.ACC_PUBLIC,
+                        List.of(),
+                        List.of(new ClassInfo.Member("oldCall", "(I)I", access, null))
+                )
+        );
+    }
+
+    private static java.util.Map<String, ClassInfo> constructorApi() {
+        return java.util.Map.of(
+                "api/Legacy",
+                new ClassInfo(
+                        "api/Legacy",
+                        "java/lang/Object",
+                        List.of(),
+                        Opcodes.ACC_PUBLIC,
+                        List.of(),
+                        List.of(new ClassInfo.Member("<init>", "()V", Opcodes.ACC_PUBLIC, null))
+                )
+        );
     }
 
     private static CanonicalMigrationRule methodRename() {

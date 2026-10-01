@@ -13,6 +13,7 @@ import com.kyroxova.continuumlib.model.diagnostic.DiagnosticCode;
 import com.kyroxova.continuumlib.model.diagnostic.Severity;
 import com.kyroxova.continuumlib.pipeline.migration.*;
 import com.kyroxova.continuumlib.source.ast.JvmDescriptors;
+import com.kyroxova.continuumlib.source.ast.SourceApiIndex;
 import com.kyroxova.continuumlib.source.ast.SourceUnit;
 import com.kyroxova.continuumlib.source.rule.SourceMigrationPlan;
 import com.kyroxova.continuumlib.source.rule.SourceMigrationRule;
@@ -27,6 +28,7 @@ import java.util.*;
 
 public final class SourceTransformer {
     private final CanonicalMigrationPlan plan;
+    private final SourceApiIndex sourceApi;
 
     public record TransformationResult(
             List<Path> generatedFiles,
@@ -35,7 +37,19 @@ public final class SourceTransformer {
     ) {}
 
     public SourceTransformer(CanonicalMigrationPlan plan) {
+        this(plan, SourceApiIndex.empty());
+    }
+
+    public SourceTransformer(
+            CanonicalMigrationPlan plan,
+            Map<String, com.kyroxova.continuumlib.bytecode.ClassInfo> sourceApi
+    ) {
+        this(plan, new SourceApiIndex(sourceApi));
+    }
+
+    public SourceTransformer(CanonicalMigrationPlan plan, SourceApiIndex sourceApi) {
         this.plan = Objects.requireNonNull(plan, "plan");
+        this.sourceApi = Objects.requireNonNull(sourceApi, "sourceApi");
     }
 
     public SourceTransformer(SourceMigrationPlan legacyPlan) {
@@ -129,12 +143,26 @@ public final class SourceTransformer {
             List<Diagnostic> diagnostics
     ) {
         Map<String, String> simpleToQualified = new HashMap<>();
+        Map<String, List<String>> staticImports = new HashMap<>();
+        List<String> staticWildcardImports = new ArrayList<>();
         for (ImportDeclaration imp : ast.getImports()) {
-            if (imp.isStatic() || imp.isAsterisk()) continue;
             String qName = imp.getNameAsString();
+            if (!imp.isStatic() && !imp.isAsterisk()) {
+                int dot = qName.lastIndexOf('.');
+                String simple = dot >= 0 ? qName.substring(dot + 1) : qName;
+                simpleToQualified.put(simple, qName);
+                continue;
+            }
+            if (!imp.isStatic()) continue;
+            if (imp.isAsterisk()) {
+                staticWildcardImports.add(qName);
+                continue;
+            }
             int dot = qName.lastIndexOf('.');
-            String simple = dot >= 0 ? qName.substring(dot + 1) : qName;
-            simpleToQualified.put(simple, qName);
+            if (dot > 0) {
+                staticImports.computeIfAbsent(qName.substring(dot + 1), key -> new ArrayList<>())
+                        .add(qName.substring(0, dot));
+            }
         }
 
         ast.accept(new ModifierVisitor<Void>() {
@@ -223,6 +251,13 @@ public final class SourceTransformer {
             @Override
             public Visitable visit(MethodCallExpr n, Void arg) {
                 Optional<ResolvedMethodUse> resolvedUse = resolveMethod(n);
+                if (resolvedUse.isEmpty() && n.getScope().isEmpty()) {
+                    resolvedUse = resolveStaticImportedMethod(
+                            n.getNameAsString(),
+                            staticImports,
+                            staticWildcardImports
+                    );
+                }
                 super.visit(n, arg);
 
                 if (resolvedUse.isPresent()) {
@@ -362,16 +397,38 @@ public final class SourceTransformer {
 
             @Override
             public Visitable visit(MethodReferenceExpr n, Void arg) {
+                String sourceOwner = methodReferenceOwner(n, simpleToQualified).orElse(null);
                 Optional<ResolvedMethodUse> resolvedUse = resolveMethodReference(n);
-                String sourceOwner = typeScopeOwner(n.getScope(), simpleToQualified).orElse(null);
+                if (resolvedUse.isEmpty() && sourceOwner != null && !"new".equals(n.getIdentifier())) {
+                    resolvedUse = sourceApi.uniqueMethod(sourceOwner, n.getIdentifier())
+                            .map(SourceTransformer::resolvedMethodUse);
+                }
                 super.visit(n, arg);
 
                 if ("new".equals(n.getIdentifier())) {
-                    if (sourceOwner != null && !plan.findConstructorToFactories(sourceOwner).isEmpty()) {
+                    if (sourceOwner == null) return n;
+
+                    var constructor = sourceApi.uniqueConstructor(sourceOwner);
+                    if (constructor.isPresent()) {
+                        var factory = plan.findExactConstructorFactory(constructor.get());
+                        if (factory.isPresent()) {
+                            setMethodReferenceTarget(ast, n, factory.get().targetOwner(), factory.get().targetName());
+                            appliedMigrations.add(AppliedMigration.from(
+                                    factory.get(),
+                                    MigrationLayer.SOURCE_AST,
+                                    MigrationConfidence.SEMANTICALLY_RESOLVED,
+                                    sourcePath,
+                                    n.getBegin().map(p -> p.line).orElse(-1)
+                            ));
+                            return n;
+                        }
+                    }
+
+                    if (!plan.findConstructorToFactories(sourceOwner).isEmpty()) {
                         diagnostics.add(Diagnostic.builder()
                                 .code(DiagnosticCode.MIGRATION_UNRESOLVED)
                                 .severity(Severity.ERROR)
-                                .message("Constructor method reference requires explicit overload resolution: " + n)
+                                .message("Constructor method reference is overloaded or cannot be resolved exactly: " + n)
                                 .path(Path.of(sourcePath))
                                 .line(n.getBegin().map(p -> p.line).orElse(-1))
                                 .build());
@@ -640,6 +697,30 @@ public final class SourceTransformer {
         rewriteImports(ast, simpleToQualified, sourcePath, appliedMigrations, diagnostics);
     }
 
+    private Optional<ResolvedMethodUse> resolveStaticImportedMethod(
+            String name,
+            Map<String, List<String>> imports,
+            List<String> wildcardImports
+    ) {
+        LinkedHashMap<MemberReference, ResolvedMethodUse> candidates = new LinkedHashMap<>();
+        List<String> owners = new ArrayList<>(imports.getOrDefault(name, List.of()));
+        owners.addAll(wildcardImports);
+
+        for (String owner : owners) {
+            sourceApi.uniqueMethod(owner, name)
+                    .filter(SourceApiIndex.Method::isStatic)
+                    .map(SourceTransformer::resolvedMethodUse)
+                    .ifPresent(candidate -> candidates.putIfAbsent(candidate.member(), candidate));
+        }
+        return candidates.size() == 1
+                ? Optional.of(candidates.values().iterator().next())
+                : Optional.empty();
+    }
+
+    private static ResolvedMethodUse resolvedMethodUse(SourceApiIndex.Method method) {
+        return new ResolvedMethodUse(method.reference(), method.isStatic(), method.isInterface());
+    }
+
     private Optional<CanonicalMigrationRule> exactMethodBridge(ResolvedMethodUse use) {
         if (use.isStatic()) {
             return plan.findExactCallBridge(use.member(), Opcodes.INVOKESTATIC);
@@ -884,6 +965,28 @@ public final class SourceTransformer {
                         && other.getNameAsString().equals(targetName));
         if (duplicate) imported.remove();
         else imported.setName(targetName);
+    }
+
+    private static Optional<String> methodReferenceOwner(
+            MethodReferenceExpr reference,
+            Map<String, String> imports
+    ) {
+        Optional<String> typeOwner = typeScopeOwner(reference.getScope(), imports);
+        if (typeOwner.isPresent()) return typeOwner;
+
+        try {
+            var resolved = reference.getScope().calculateResolvedType();
+            if (resolved.isReferenceType()) {
+                return Optional.of(resolved.asReferenceType().getQualifiedName());
+            }
+        } catch (Throwable ignored) {
+        }
+
+        if (reference.getScope() instanceof NameExpr name) {
+            return findVariableType(reference, name.getNameAsString())
+                    .map(type -> resolveQualified(type, imports));
+        }
+        return Optional.empty();
     }
 
     private static Optional<String> typeScopeOwner(Expression scope, Map<String, String> imports) {
