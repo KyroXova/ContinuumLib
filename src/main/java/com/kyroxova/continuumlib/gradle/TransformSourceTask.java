@@ -78,7 +78,9 @@ public abstract class TransformSourceTask extends ArtifactRequestTask {
                 workspace
         );
 
-        TargetGenerationResult result = new TargetGenerationPipeline().execute(
+        TargetGenerationResult result = new TargetGenerationPipeline(
+                targetCompilationStrategy(target.javaVersion())
+        ).execute(
                 target,
                 projectRoot,
                 List.of(sourceRoot),

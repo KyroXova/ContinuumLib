@@ -6,6 +6,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -65,5 +66,94 @@ public final class SourceCompiler {
             }
             throw new IOException(errorLog.toString());
         }
+    }
+
+    public static void compileWithJavac(
+            Path javacExecutable,
+            List<Path> sourceFiles,
+            List<Path> classpathJars,
+            Path outputClassesDir,
+            int javaVersion
+    ) throws IOException {
+        Objects.requireNonNull(javacExecutable, "javacExecutable");
+        Objects.requireNonNull(sourceFiles, "sourceFiles");
+        Objects.requireNonNull(classpathJars, "classpathJars");
+        Objects.requireNonNull(outputClassesDir, "outputClassesDir");
+        if (sourceFiles.isEmpty()) return;
+
+        Path javac = javacExecutable.toAbsolutePath().normalize();
+        if (!Files.isRegularFile(javac)) {
+            throw new IOException("Resolved javac executable does not exist: " + javac);
+        }
+
+        Path output = outputClassesDir.toAbsolutePath().normalize();
+        Files.createDirectories(output);
+        Path argFile = Files.createTempFile(output, ".continuum-javac-", ".args");
+
+        try {
+            List<String> args = new ArrayList<>();
+            args.add("-d");
+            args.add(argFileToken(output));
+            args.add("-encoding");
+            args.add("UTF-8");
+            if (javaVersion >= 8) {
+                args.add("--release");
+                args.add(Integer.toString(javaVersion));
+            }
+            if (!classpathJars.isEmpty()) {
+                args.add("-classpath");
+                String cp = classpathJars.stream()
+                        .map(path -> portable(path.toAbsolutePath().normalize()))
+                        .collect(Collectors.joining(File.pathSeparator));
+                args.add(argFileToken(cp));
+            }
+            sourceFiles.stream()
+                    .map(path -> path.toAbsolutePath().normalize())
+                    .map(SourceCompiler::portable)
+                    .map(SourceCompiler::argFileToken)
+                    .forEach(args::add);
+
+            Files.writeString(
+                    argFile,
+                    String.join(System.lineSeparator(), args) + System.lineSeparator(),
+                    StandardCharsets.UTF_8,
+                    StandardOpenOption.TRUNCATE_EXISTING
+            );
+
+            Process process = new ProcessBuilder(javac.toString(), "@" + argFile.toAbsolutePath())
+                    .redirectErrorStream(true)
+                    .start();
+            String compilerOutput;
+            try (var input = process.getInputStream()) {
+                compilerOutput = new String(input.readAllBytes(), StandardCharsets.UTF_8);
+            }
+
+            int exit;
+            try {
+                exit = process.waitFor();
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                process.destroyForcibly();
+                throw new IOException("Interrupted while compiling generated source with " + javac, interrupted);
+            }
+
+            if (exit != 0) {
+                throw new IOException("Compilation of generated source failed using " + javac + ":\n" + compilerOutput);
+            }
+        } finally {
+            Files.deleteIfExists(argFile);
+        }
+    }
+
+    private static String portable(Path path) {
+        return path.toString().replace('\\', '/');
+    }
+
+    private static String argFileToken(Path path) {
+        return argFileToken(portable(path));
+    }
+
+    private static String argFileToken(String value) {
+        return "\"" + value.replace("\\", "/").replace("\"", "\\\"") + "\"";
     }
 }

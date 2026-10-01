@@ -11,17 +11,46 @@ import com.kyroxova.continuumlib.knowledge.rule.*;
 import org.gradle.api.DefaultTask;
 import org.gradle.api.file.*;
 import org.gradle.api.tasks.*;
+import org.gradle.jvm.toolchain.JavaLanguageVersion;
+import org.gradle.jvm.toolchain.JavaToolchainService;
+import javax.inject.Inject;
 import java.io.*;
 import java.nio.file.Path;
 import java.nio.file.Files;
 import java.util.*;
 import java.util.stream.Stream;
+import com.kyroxova.continuumlib.source.compile.SourceCompilationStrategy;
+import com.kyroxova.continuumlib.source.compile.SourceCompiler;
 
 /** Shared tracked artifact inputs for inspection and transformation tasks. */
 public abstract class ArtifactRequestTask extends DefaultTask {
     @InputFile @PathSensitive(PathSensitivity.NONE) public abstract RegularFileProperty getConfigFile();
     @Internal public abstract DirectoryProperty getProjectDirectory();
     @InputFiles @PathSensitive(PathSensitivity.RELATIVE) public abstract ConfigurableFileCollection getRuleFiles();
+    @Inject
+    protected abstract JavaToolchainService getJavaToolchainService();
+
+    protected SourceCompilationStrategy targetCompilationStrategy(int targetJavaVersion) {
+        int compilerJavaVersion = Math.max(17, targetJavaVersion);
+        Path javac;
+        try {
+            javac = getJavaToolchainService()
+                    .compilerFor(spec -> spec.getLanguageVersion().set(JavaLanguageVersion.of(compilerJavaVersion)))
+                    .get()
+                    .getExecutablePath()
+                    .getAsFile()
+                    .toPath();
+        } catch (RuntimeException unavailable) {
+            throw new org.gradle.api.GradleException(
+                    "ContinuumLib requires a Java " + compilerJavaVersion
+                            + " compiler toolchain to build target Java " + targetJavaVersion,
+                    unavailable
+            );
+        }
+        return (sources, classpath, output, release) ->
+                SourceCompiler.compileWithJavac(javac, sources, classpath, output, release);
+    }
+
     @InputFiles @PathSensitive(PathSensitivity.NONE)
     public List<File> getArtifactFiles() throws IOException {
         var request = request();

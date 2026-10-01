@@ -36,6 +36,17 @@ import java.util.stream.Stream;
 public final class TargetGenerationPipeline {
     private final FilterEngine filterEngine = new FilterEngine();
     private final GenerationReportWriter reportWriter = new GenerationReportWriter();
+    private final com.kyroxova.continuumlib.source.compile.SourceCompilationStrategy sourceCompiler;
+
+    public TargetGenerationPipeline() {
+        this(SourceCompiler::compile);
+    }
+
+    public TargetGenerationPipeline(
+            com.kyroxova.continuumlib.source.compile.SourceCompilationStrategy sourceCompiler
+    ) {
+        this.sourceCompiler = Objects.requireNonNull(sourceCompiler, "sourceCompiler");
+    }
 
     public TargetGenerationResult execute(
             ResolvedTarget target,
@@ -206,7 +217,7 @@ public final class TargetGenerationPipeline {
             for (var art : target.targetClasspath().values()) targetClasspath.add(art.file());
 
             try {
-                SourceCompiler.compile(transformResult.generatedFiles(), targetClasspath, ws.classesDir(), target.javaVersion());
+                sourceCompiler.compile(transformResult.generatedFiles(), targetClasspath, ws.classesDir(), target.javaVersion());
                 resultBuilder.compilationSuccess(true);
             } catch (Exception e) {
                 Diagnostic diag = Diagnostic.builder()

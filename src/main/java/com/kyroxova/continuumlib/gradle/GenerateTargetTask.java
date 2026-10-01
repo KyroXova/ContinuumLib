@@ -62,7 +62,9 @@ public abstract class GenerateTargetTask extends ArtifactRequestTask {
                 workspace
         );
 
-        TargetGenerationPipeline pipeline = new TargetGenerationPipeline();
+        TargetGenerationPipeline pipeline = new TargetGenerationPipeline(
+                targetCompilationStrategy(target.javaVersion())
+        );
         String outputJarName = finalTaskJar.getFileName().toString();
         TargetGenerationResult result = pipeline.execute(
                 target,
