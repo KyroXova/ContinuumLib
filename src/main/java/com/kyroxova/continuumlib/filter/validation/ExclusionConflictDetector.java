@@ -77,7 +77,9 @@ public final class ExclusionConflictDetector {
             RegistryEntry entry
     ) {
         try {
-            var field = expression.resolve();
+            var resolved = expression.resolve();
+            if (!resolved.isField()) return Optional.of(false);
+            var field = resolved.asField();
             return Optional.of(field.getName().equals(entry.fieldName())
                     && sameOwner(field.declaringType().getQualifiedName(), entry.ownerClass()));
         } catch (Throwable unresolved) {
