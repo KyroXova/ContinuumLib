@@ -4,7 +4,7 @@
 
 **Goal:** Preserve the prototype and deliver the first compiler-first ContinuumLib vertical slice that recognizes Forge 1.18.2 block registration and produces a verified semantic resolution plan.
 
-**Architecture:** Replace the single-project prototype with focused Gradle modules built around a loader-neutral model. The first slice backs up the old source, establishes consumer configuration and diagnostics, imports pinned symbol data, analyzes the supplied Forge registration pattern, and resolves it through a typed block-registry capability. Target source emission and real target compilation are introduced after the semantic plan is proven.
+**Architecture:** Preserve the conventional single-project Gradle layout and separate responsibilities through focused packages built around a loader-neutral model. The first slice backs up the old source, establishes consumer configuration and diagnostics, imports pinned symbol data, analyzes the supplied Forge registration pattern, and resolves it through a typed block-registry capability.
 
 **Tech Stack:** Java 17, Gradle 8, JUnit 5, JavaParser Symbol Solver, Gson, Gradle TestKit.
 
@@ -15,7 +15,7 @@
 - Move the complete old source tree to exactly `E:/Minecraft/ContinuumLib/backup/src/` before creating new active source trees.
 - `backup/` must not participate in compilation, packaging, publication, testing, or runtime classpaths.
 - User-facing names use `ContinuumLib`; internal module names stay short.
-- Loader-neutral model code cannot depend on Minecraft, Forge, NeoForge, Fabric, Gradle, or JavaParser.
+- Code under `com.kyroxova.continuumlib.model` cannot depend on Minecraft, Forge, NeoForge, Fabric, Gradle, JavaParser, or implementation packages.
 - Unsupported or ambiguous operations are explicit errors; there is no silent Forge 1.18.2 fallback.
 - Tests that claim target compatibility must eventually use real pinned artifacts; generated stubs cannot satisfy compatibility acceptance.
 - Update `docs/` and `wiki/` in the same task as user-facing functionality.
@@ -35,37 +35,30 @@
 
 ```text
 backup/src/                         preserved prototype
-api/                               public diagnostics and hook contracts
-model/                             environments, symbols, operations, resolution states
-analyzer-java/                     JavaParser-based project analyzer
-knowledge/                         mapping import and registry/block capability data
-resolver/                          capability selection and resolution planning
-gradle-plugin/                     consumer configuration and orchestration shell
-testkit/                           shared fixtures and backup/build assertions
+src/main/java/com/kyroxova/continuumlib/api/            public contracts
+src/main/java/com/kyroxova/continuumlib/model/          neutral model
+src/main/java/com/kyroxova/continuumlib/analyzer/       Java analysis
+src/main/java/com/kyroxova/continuumlib/knowledge/      symbols and capabilities
+src/main/java/com/kyroxova/continuumlib/resolver/       resolution planning
+src/main/java/com/kyroxova/continuumlib/gradle/         Gradle integration
+src/test/java/com/kyroxova/continuumlib/                tests
 docs/                              maintained developer documentation
 wiki/                              Git wiki-compatible pages
 ```
 
-## Task 1: Preserve Prototype and Establish the Multi-Project Build
+## Task 1: Preserve Prototype and Establish the Single-Project Build
 
 **Files:**
 - Move: `src/**` → `backup/src/**`
 - Create: `settings.gradle`
 - Create: `build.gradle`
-- Create: `api/build.gradle`
-- Create: `model/build.gradle`
-- Create: `analyzer-java/build.gradle`
-- Create: `knowledge/build.gradle`
-- Create: `resolver/build.gradle`
-- Create: `gradle-plugin/build.gradle`
-- Create: `testkit/build.gradle`
 - Create: `wiki/Home.md`
 - Create: `wiki/Development-Status.md`
-- Test: `testkit/src/test/java/com/kyroxova/continuumlib/testkit/RepositoryLayoutTest.java`
+- Test: `src/test/java/com/kyroxova/continuumlib/structure/RepositoryLayoutTest.java`
 
 **Interfaces:**
 - Consumes: current repository and dirty working-tree contents.
-- Produces: isolated `backup/src/`, Gradle modules, shared Java/JUnit conventions, and `RepositoryLayoutTest`.
+- Produces: isolated `backup/src/`, conventional active source roots, Java/JUnit conventions, and `RepositoryLayoutTest`.
 
 - [ ] **Step 1: Record and verify the migration input**
 
@@ -77,17 +70,17 @@ Move `E:/Minecraft/ContinuumLib/src` to `E:/Minecraft/ContinuumLib/backup/src` w
 
 - [ ] **Step 3: Write the failing repository-layout test**
 
-`RepositoryLayoutTest` asserts that `backup/src/main` and `backup/src/test` exist, active module source directories exist, and no Gradle `SourceSet` contains a path under `backup/`.
+`RepositoryLayoutTest` asserts that `backup/src/main` and `backup/src/test` exist, the active conventional source directories exist, and no Gradle `SourceSet` contains a path under `backup/`.
 
 - [ ] **Step 4: Run the layout test and verify failure**
 
-Run: `.\gradlew.bat :testkit:test --tests *RepositoryLayoutTest`
+Run: `.\gradlew.bat test --tests *RepositoryLayoutTest`
 
-Expected: failure because the multi-project build and active module source roots are not configured.
+Expected: failure because the active source roots are not configured.
 
-- [ ] **Step 5: Create the minimal multi-project Gradle build**
+- [ ] **Step 5: Create the minimal single-project Gradle build**
 
-Register the seven modules above, use Java 17 toolchains, JUnit 5, Maven Central, and shared group `com.kyroxova.continuumlib`. Do not configure `backup/` as a project or source directory.
+Use Java 17 toolchains, JUnit 5, Maven Central, and group `com.kyroxova.continuumlib`. Keep conventional source sets and do not add `backup/` to any source directory.
 
 - [ ] **Step 6: Update project documentation**
 
@@ -95,7 +88,7 @@ Document the backup location, active modules, current milestone, and non-compila
 
 - [ ] **Step 7: Verify the layout**
 
-Run: `.\gradlew.bat projects :testkit:test --tests *RepositoryLayoutTest`
+Run: `.\gradlew.bat test --tests *RepositoryLayoutTest`
 
 Expected: all modules listed and the test passes.
 

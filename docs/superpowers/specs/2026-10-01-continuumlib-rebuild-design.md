@@ -42,35 +42,41 @@ The current prototype is valuable research and must remain recoverable. Before r
 
 The exact migration commit boundaries will be defined by the implementation plan.
 
-## 5. Module Structure
+## 5. Package Structure
 
-User-facing names always use the complete name `ContinuumLib`. Internal Gradle module names remain short.
+ContinuumLib remains one conventional Gradle Java project. User-facing names always use the complete name `ContinuumLib`; internal responsibilities are separated through focused packages and interfaces rather than root-level Gradle subprojects.
 
 ```text
 ContinuumLib/
-├─ api/
-├─ model/
-├─ analyzer-java/
-├─ knowledge/
-├─ resolver/
-├─ emitter-java/
-├─ resources/
-├─ compiler/
-├─ packager/
-├─ bootstrap/
-├─ gradle-plugin/
-├─ testkit/
-├─ compatibility/
 ├─ backup/
 │  ├─ src/
 │  └─ docs/
+├─ src/
+│  ├─ main/
+│  │  ├─ java/com/kyroxova/continuumlib/
+│  │  │  ├─ api/
+│  │  │  ├─ model/
+│  │  │  ├─ analyzer/
+│  │  │  ├─ knowledge/
+│  │  │  ├─ resolver/
+│  │  │  ├─ emitter/
+│  │  │  ├─ resources/
+│  │  │  ├─ compiler/
+│  │  │  ├─ packager/
+│  │  │  ├─ bootstrap/
+│  │  │  ├─ gradle/
+│  │  │  └─ compatibility/
+│  │  └─ resources/
+│  └─ test/
+│     ├─ java/com/kyroxova/continuumlib/
+│     └─ resources/
 ├─ docs/
 └─ wiki/
 ```
 
-Java packages use `com.kyroxova.continuumlib` followed by the module domain. Published artifacts use names such as `continuumlib-api` and `continuumlib-gradle-plugin`.
+Java packages use `com.kyroxova.continuumlib` followed by the responsibility domain. The project publishes a single primary ContinuumLib artifact and its Gradle plugin marker.
 
-### 5.1 Module Responsibilities
+### 5.1 Package Responsibilities
 
 - `api`: stable public extension contracts, hook SPIs, annotations if later required, diagnostics API, and configuration model exposed to consumers.
 - `model`: loader-neutral symbols, semantic operations, project graph, resolution plans, statuses, and provenance records. It has no Minecraft or loader dependencies.
@@ -86,7 +92,7 @@ Java packages use `com.kyroxova.continuumlib` followed by the module domain. Pub
 - `testkit`: fixtures, real-artifact compile tests, launch tests, and diagnostics assertions.
 - `compatibility`: built-in and consumer-provided adapters for behavior that cannot be resolved generically.
 
-Dependencies point inward toward `model` and `api`. The model cannot depend on analyzers, emitters, Gradle, Minecraft, or loader classes.
+Package dependencies point inward toward `model` and `api`. The model cannot depend on analyzers, emitters, Gradle, Minecraft, loader classes, or implementation packages.
 
 ## 6. Consumer Integration
 
@@ -370,7 +376,7 @@ Wiki pages remain version-controlled. Publishing them to a hosted Git wiki is a 
 
 The rebuild proceeds in vertical slices rather than creating empty modules for every future capability:
 
-1. Safely move the prototype to `backup/src/`, preserve its relevant documentation in `backup/docs/`, and establish the multi-project skeleton.
+1. Safely move the prototype to `backup/src/`, preserve its relevant documentation in `backup/docs/`, and establish the conventional single-project source skeleton.
 2. Implement configuration, environment identities, diagnostics, and semantic model foundations.
 3. Implement pinned artifact and mapping ingestion for Forge 1.18.2 and the first selected target.
 4. Implement project-wide analysis for the example block registry and properties pattern.
