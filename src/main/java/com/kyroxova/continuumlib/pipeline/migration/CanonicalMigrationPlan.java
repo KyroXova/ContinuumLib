@@ -279,7 +279,6 @@ public final class CanonicalMigrationPlan {
     }
 
     private static String sourceName(String name) {
-        return normalize(name).replace('}
-, '.');
+        return normalize(name).replace((char) 36, '.');
     }
 }
