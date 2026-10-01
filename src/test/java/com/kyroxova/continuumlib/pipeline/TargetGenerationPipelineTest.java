@@ -563,7 +563,7 @@ class TargetGenerationPipelineTest {
                 .sourceArtifacts(Map.of("api", sourceApi))
                 .targetArtifacts(Map.of("api", targetApi))
                 .workspace(sourceWorkspace)
-                .projectConfiguration(ContinuumProjectConfiguration.empty())
+                .projectConfiguration(ContinuumProjectConfiguration.empty(projectRoot.resolve("src/main/resources/continuumlib")))
                 .build();
 
         IOException sourceFailure = assertThrows(IOException.class, () ->
@@ -584,7 +584,7 @@ class TargetGenerationPipelineTest {
                 .sourceArtifacts(Map.of("api", sourceApi))
                 .targetArtifacts(Map.of("api", targetApi))
                 .workspace(resourceWorkspace)
-                .projectConfiguration(ContinuumProjectConfiguration.empty())
+                .projectConfiguration(ContinuumProjectConfiguration.empty(projectRoot.resolve("src/main/resources/continuumlib")))
                 .build();
 
         IOException resourceFailure = assertThrows(IOException.class, () ->
