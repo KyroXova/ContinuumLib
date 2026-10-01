@@ -32,4 +32,12 @@ class GeneratedWorkspaceTest {
         assertFalse(Files.exists(workspace.stagingDir().resolve("partial.jar")));
         assertEquals("last-good", Files.readString(workspace.finalJar("mod.jar")));
     }
+    @Test
+    void rejectsUnsafeArtifactNames(@TempDir Path root) {
+        GeneratedWorkspace workspace = new GeneratedWorkspace(root.resolve("build"), "target");
+
+        assertThrows(IllegalArgumentException.class, () -> workspace.stagingJar("../escape.jar"));
+        assertThrows(IllegalArgumentException.class, () -> workspace.finalJar("nested/mod.jar"));
+        assertThrows(IllegalArgumentException.class, () -> workspace.finalJar("CON.jar"));
+    }
 }

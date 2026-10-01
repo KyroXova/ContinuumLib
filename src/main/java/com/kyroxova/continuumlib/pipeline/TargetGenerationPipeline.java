@@ -87,6 +87,7 @@ public final class TargetGenerationPipeline {
 
             // Stage 5: Discover Source Files and Resources
             List<Path> discoveredSources = discoverJavaSources(sourceRoots);
+            validateUniqueSourcePaths(discoveredSources, sourceRoots);
             Map<String, Path> discoveredResources = discoverProjectResources(resourceRoots);
             resultBuilder.discoveredSourceFiles(discoveredSources);
             resultBuilder.discoveredResources(discoveredResources);
@@ -339,16 +340,37 @@ public final class TargetGenerationPipeline {
     private static Map<String, Path> discoverProjectResources(List<Path> resourceRoots) throws IOException {
         Map<String, Path> map = new TreeMap<>();
         for (Path root : resourceRoots) {
-            if (!Files.isDirectory(root)) continue;
-            Map<String, Path> raw = FilterEngine.discoverResources(root);
+            Path normalizedRoot = root.toAbsolutePath().normalize();
+            if (!Files.isDirectory(normalizedRoot)) continue;
+            Map<String, Path> raw = FilterEngine.discoverResources(normalizedRoot);
             for (var entry : raw.entrySet()) {
                 String path = entry.getKey();
-                if (!path.startsWith("continuumlib/") && !path.startsWith("data/continuumlib/")) {
-                    map.put(path, entry.getValue());
+                if (path.startsWith("continuumlib/") || path.startsWith("data/continuumlib/")) {
+                    continue;
+                }
+                Path value = entry.getValue().toAbsolutePath().normalize();
+                Path previous = map.putIfAbsent(path, value);
+                if (previous != null && !previous.equals(value)) {
+                    throw new IOException("Duplicate resource path across roots: " + path
+                            + " -> " + previous + " and " + value);
                 }
             }
         }
         return Collections.unmodifiableMap(map);
+    }
+
+    private static void validateUniqueSourcePaths(List<Path> sourceFiles, List<Path> sourceRoots) throws IOException {
+        Map<String, Path> logicalPaths = new TreeMap<>();
+        for (Path file : sourceFiles) {
+            Path root = findMatchingRoot(file, sourceRoots);
+            String relative = root.relativize(file).toString().replace('\\', '/');
+            Path normalized = file.toAbsolutePath().normalize();
+            Path previous = logicalPaths.putIfAbsent(relative, normalized);
+            if (previous != null && !previous.equals(normalized)) {
+                throw new IOException("Duplicate source path across roots: " + relative
+                        + " -> " + previous + " and " + normalized);
+            }
+        }
     }
 
     private static Path findMatchingRoot(Path file, List<Path> roots) {

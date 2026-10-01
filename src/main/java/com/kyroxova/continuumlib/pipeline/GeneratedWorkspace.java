@@ -85,11 +85,28 @@ public final class GeneratedWorkspace {
     public Path outputDir() { return outputDir; }
 
     public Path stagingJar(String jarName) {
-        return stagingDir.resolve(jarName);
+        return stagingDir.resolve(validateArtifactName(jarName));
     }
 
     public Path finalJar(String jarName) {
-        return outputDir.resolve(jarName);
+        return outputDir.resolve(validateArtifactName(jarName));
+    }
+
+    private static String validateArtifactName(String jarName) {
+        Objects.requireNonNull(jarName, "jarName");
+        Path candidate = Path.of(jarName).normalize();
+        if (candidate.isAbsolute()
+                || candidate.getNameCount() != 1
+                || candidate.toString().isBlank()
+                || candidate.toString().equals(".")
+                || candidate.toString().equals("..")) {
+            throw new IllegalArgumentException("Output artifact name must be a single filename: " + jarName);
+        }
+        String base = candidate.toString().split("\\.", 2)[0].toUpperCase(Locale.ROOT);
+        if (base.matches("CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9]")) {
+            throw new IllegalArgumentException("Unsafe output artifact name: " + jarName);
+        }
+        return candidate.toString();
     }
 
     public Path finalizeJar(Path stagedJar, String jarName) throws IOException {

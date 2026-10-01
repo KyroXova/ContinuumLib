@@ -533,4 +533,69 @@ class TargetGenerationPipelineTest {
     private static String digest(Path file) throws Exception {
         return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(Files.readAllBytes(file)));
     }
+    @Test
+    void rejectsDuplicateLogicalPathsAcrossInputRoots(@TempDir Path tempDir) throws Exception {
+        Path sourceApi = tempDir.resolve("source-api.jar");
+        Path targetApi = tempDir.resolve("target-api.jar");
+        try (var ignored = new JarOutputStream(Files.newOutputStream(sourceApi))) {}
+        try (var ignored = new JarOutputStream(Files.newOutputStream(targetApi))) {}
+
+        Path projectRoot = tempDir.resolve("duplicate-project");
+        Path sourceA = projectRoot.resolve("src-a");
+        Path sourceB = projectRoot.resolve("src-b");
+        Path resourceA = projectRoot.resolve("res-a");
+        Path resourceB = projectRoot.resolve("res-b");
+        Files.createDirectories(sourceA.resolve("example"));
+        Files.createDirectories(sourceB.resolve("example"));
+        Files.createDirectories(resourceA.resolve("assets/example"));
+        Files.createDirectories(resourceB.resolve("assets/example"));
+        Files.writeString(sourceA.resolve("example/Duplicate.java"), "package example; class Duplicate {}");
+        Files.writeString(sourceB.resolve("example/Duplicate.java"), "package example; class Duplicate {}");
+        Files.writeString(resourceA.resolve("assets/example/data.json"), "{}");
+        Files.writeString(resourceB.resolve("assets/example/data.json"), "{}");
+
+        EnvironmentId env = new EnvironmentId("1.20.1", Loader.FABRIC, MappingNamespace.OFFICIAL, 17);
+        GeneratedWorkspace sourceWorkspace = new GeneratedWorkspace(projectRoot.resolve("build"), "source-duplicate");
+        ResolvedTarget sourceTarget = ResolvedTarget.builder()
+                .targetId("source-duplicate")
+                .sourceEnvironment(env)
+                .targetEnvironment(env)
+                .sourceArtifacts(Map.of("api", sourceApi))
+                .targetArtifacts(Map.of("api", targetApi))
+                .workspace(sourceWorkspace)
+                .projectConfiguration(ContinuumProjectConfiguration.empty())
+                .build();
+
+        IOException sourceFailure = assertThrows(IOException.class, () ->
+                new TargetGenerationPipeline().execute(
+                        sourceTarget,
+                        projectRoot,
+                        List.of(sourceA, sourceB),
+                        List.of(),
+                        "source.jar"
+                ));
+        assertTrue(sourceFailure.getMessage().contains("Duplicate source path across roots"));
+
+        GeneratedWorkspace resourceWorkspace = new GeneratedWorkspace(projectRoot.resolve("build"), "resource-duplicate");
+        ResolvedTarget resourceTarget = ResolvedTarget.builder()
+                .targetId("resource-duplicate")
+                .sourceEnvironment(env)
+                .targetEnvironment(env)
+                .sourceArtifacts(Map.of("api", sourceApi))
+                .targetArtifacts(Map.of("api", targetApi))
+                .workspace(resourceWorkspace)
+                .projectConfiguration(ContinuumProjectConfiguration.empty())
+                .build();
+
+        IOException resourceFailure = assertThrows(IOException.class, () ->
+                new TargetGenerationPipeline().execute(
+                        resourceTarget,
+                        projectRoot,
+                        List.of(),
+                        List.of(resourceA, resourceB),
+                        "resource.jar"
+                ));
+        assertTrue(resourceFailure.getMessage().contains("Duplicate resource path across roots"));
+    }
+
 }
