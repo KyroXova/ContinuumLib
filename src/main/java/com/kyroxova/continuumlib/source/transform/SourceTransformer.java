@@ -7,9 +7,13 @@ import com.github.javaparser.ast.expr.*;
 import com.github.javaparser.ast.type.ClassOrInterfaceType;
 import com.github.javaparser.ast.visitor.ModifierVisitor;
 import com.github.javaparser.ast.visitor.Visitable;
+import com.kyroxova.continuumlib.bytecode.CallBridge;
+import com.kyroxova.continuumlib.bytecode.MemberReference;
+import com.kyroxova.continuumlib.source.ast.JvmDescriptors;
 import com.kyroxova.continuumlib.source.ast.SourceUnit;
 import com.kyroxova.continuumlib.source.rule.SourceMigrationPlan;
 import com.kyroxova.continuumlib.source.rule.SourceMigrationRule;
+import org.objectweb.asm.Opcodes;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -33,6 +37,9 @@ public final class SourceTransformer {
             transformAst(astCopy);
 
             Path targetFile = outputDir.resolve(unit.relativePath()).toAbsolutePath().normalize();
+            if (!targetFile.startsWith(outputDir.toAbsolutePath().normalize())) {
+                throw new IOException("Generated source escapes output directory: " + unit.relativePath());
+            }
             Files.createDirectories(targetFile.getParent());
             Files.writeString(targetFile, astCopy.toString(), StandardCharsets.UTF_8);
             generatedFiles.add(targetFile);
@@ -42,7 +49,6 @@ public final class SourceTransformer {
     }
 
     public CompilationUnit transformAst(CompilationUnit ast) {
-        // Collect imports and simple name mappings before modifying imports
         Map<String, String> simpleToQualified = new HashMap<>();
         for (ImportDeclaration imp : ast.getImports()) {
             String qName = imp.getNameAsString();
@@ -51,13 +57,10 @@ public final class SourceTransformer {
             simpleToQualified.put(simple, qName);
         }
 
-        // Update imports for class renames
         for (ImportDeclaration imp : new ArrayList<>(ast.getImports())) {
             String qName = imp.getNameAsString();
             var rename = plan.findClassRename(qName);
-            if (rename.isPresent()) {
-                imp.setName(rename.get());
-            }
+            rename.ifPresent(imp::setName);
         }
 
         ast.accept(new ModifierVisitor<Void>() {
@@ -68,8 +71,7 @@ public final class SourceTransformer {
                 var rename = plan.findClassRename(qualified);
                 if (rename.isPresent()) {
                     String targetQ = rename.get();
-                    String simpleTarget = simpleName(targetQ);
-                    n.setName(simpleTarget);
+                    n.setName(simpleName(targetQ));
                     ensureImport(ast, targetQ);
                 }
                 return super.visit(n, arg);
@@ -77,27 +79,29 @@ public final class SourceTransformer {
 
             @Override
             public Visitable visit(ObjectCreationExpr n, Void arg) {
+                Optional<MemberReference> resolvedConstructor = resolveConstructor(n);
                 super.visit(n, arg);
+
+                if (resolvedConstructor.isPresent()) {
+                    var exact = plan.findExactConstructorFactory(resolvedConstructor.get());
+                    if (exact.isPresent()) {
+                        return staticCall(ast, exact.get().factory(), List.copyOf(n.getArguments()));
+                    }
+                }
 
                 String typeName = n.getType().getNameAsString();
                 String qualified = resolveQualified(typeName, simpleToQualified);
-
-                // Check constructor-to-factory rule
-                var c2f = plan.findConstructorToFactory(qualified);
-                if (c2f.isPresent()) {
-                    SourceMigrationRule.ConstructorToFactory rule = c2f.get();
-                    String factoryClassSimple = simpleName(rule.factoryOwner());
+                var legacy = plan.findConstructorToFactory(qualified);
+                if (legacy.isPresent()) {
+                    SourceMigrationRule.ConstructorToFactory rule = legacy.get();
                     ensureImport(ast, rule.factoryOwner().replace('/', '.'));
-
-                    MethodCallExpr factoryCall = new MethodCallExpr(
-                            new NameExpr(factoryClassSimple),
+                    return new MethodCallExpr(
+                            new NameExpr(simpleName(rule.factoryOwner())),
                             rule.factoryMethod(),
-                            n.getArguments()
+                            cloneArguments(n.getArguments())
                     );
-                    return factoryCall;
                 }
 
-                // Check class rename
                 var classRename = plan.findClassRename(qualified);
                 if (classRename.isPresent()) {
                     String newClassSimple = simpleName(classRename.get());
@@ -110,7 +114,30 @@ public final class SourceTransformer {
 
             @Override
             public Visitable visit(MethodCallExpr n, Void arg) {
+                Optional<ResolvedMethodUse> resolved = resolveMethod(n);
                 super.visit(n, arg);
+
+                if (resolved.isPresent()) {
+                    ResolvedMethodUse use = resolved.get();
+                    Optional<CallBridge.Rule> bridge = exactMethodBridge(use);
+                    if (bridge.isPresent() && !(n.getScope().orElse(null) instanceof SuperExpr)) {
+                        List<Expression> arguments = new ArrayList<>();
+                        if (!use.isStatic()) {
+                            arguments.add(n.getScope().<Expression>map(Expression::clone).orElseGet(ThisExpr::new));
+                        }
+                        n.getArguments().forEach(argument -> arguments.add(argument.clone()));
+                        return staticCall(ast, bridge.get().hook(), arguments);
+                    }
+
+                    var exactRename = plan.findExactMemberMigration(use.member());
+                    if (exactRename.isPresent() && exactRename.get().descriptor().startsWith("(")) {
+                        n.setName(exactRename.get().name());
+                        if (use.isStatic() && n.getScope().isPresent() && exactRename.get().owner() != null) {
+                            replaceStaticOwnerIfTypeName(ast, n, exactRename.get().owner(), simpleToQualified);
+                        }
+                        return n;
+                    }
+                }
 
                 String methodName = n.getNameAsString();
                 Optional<Expression> scope = n.getScope();
@@ -118,20 +145,17 @@ public final class SourceTransformer {
                 if (scope.isPresent() && scope.get() instanceof NameExpr scopeName) {
                     String scopeText = scopeName.getNameAsString();
 
-                    // 1. Static call: class scope
                     if (simpleToQualified.containsKey(scopeText) || (!scopeText.isEmpty() && Character.isUpperCase(scopeText.charAt(0)))) {
                         String qualified = resolveQualified(scopeText, simpleToQualified);
                         var f2c = plan.findFactoryToConstructor(qualified, methodName);
                         if (f2c.isPresent()) {
                             String constrSimple = simpleName(f2c.get().constructorOwner());
                             ensureImport(ast, f2c.get().constructorOwner().replace('/', '.'));
-                            return new ObjectCreationExpr(null, new ClassOrInterfaceType(null, constrSimple), n.getArguments());
+                            return new ObjectCreationExpr(null, new ClassOrInterfaceType(null, constrSimple), cloneArguments(n.getArguments()));
                         }
 
                         var rename = plan.findMethodRename(qualified, methodName);
-                        if (rename.isPresent()) {
-                            n.setName(rename.get());
-                        }
+                        rename.ifPresent(n::setName);
 
                         var classRename = plan.findClassRename(qualified);
                         if (classRename.isPresent()) {
@@ -141,7 +165,6 @@ public final class SourceTransformer {
                         return n;
                     }
 
-                    // 2. Instance call on variable: look up variable type in AST
                     Optional<String> varType = findVariableType(n, scopeText);
                     if (varType.isPresent()) {
                         String qualified = resolveQualified(varType.get(), simpleToQualified);
@@ -153,34 +176,34 @@ public final class SourceTransformer {
                     }
                 }
 
-                // 3. Symbol resolution fallback
-                if (scope.isPresent()) {
-                    try {
-                        var resolved = n.resolve();
-                        String declaringType = resolved.declaringType().getQualifiedName();
-                        var rename = plan.findMethodRename(declaringType, methodName);
-                        if (rename.isPresent()) {
-                            n.setName(rename.get());
-                            return n;
-                        }
-                    } catch (Throwable ignored) {
-                    }
-                }
-
-                // 4. Global plan fallback by method name
-                for (var rule : plan.rules()) {
-                    if (rule instanceof SourceMigrationRule.MethodRename mr && mr.sourceMethod().equals(methodName)) {
-                        n.setName(mr.targetMethod());
-                        break;
-                    }
-                }
-
+                // No global name-only fallback. Ambiguous/unresolved calls remain unchanged.
                 return n;
             }
 
             @Override
             public Visitable visit(FieldAccessExpr n, Void arg) {
+                Optional<MemberReference> resolvedField = resolveField(n);
                 super.visit(n, arg);
+
+                if (resolvedField.isPresent()) {
+                    var getField = plan.findExactCallBridge(resolvedField.get(), Opcodes.GETFIELD);
+                    var getStatic = plan.findExactCallBridge(resolvedField.get(), Opcodes.GETSTATIC);
+                    if (getField.isPresent() && getStatic.isPresent()) {
+                        throw new IllegalStateException("Ambiguous field bridge opcode for " + resolvedField.get());
+                    }
+                    if (getField.isPresent()) {
+                        return staticCall(ast, getField.get().hook(), List.of(n.getScope().clone()));
+                    }
+                    if (getStatic.isPresent()) {
+                        return staticCall(ast, getStatic.get().hook(), List.of());
+                    }
+
+                    var exactRename = plan.findExactMemberMigration(resolvedField.get());
+                    if (exactRename.isPresent() && !exactRename.get().descriptor().startsWith("(")) {
+                        n.setName(exactRename.get().name());
+                        return n;
+                    }
+                }
 
                 String fieldName = n.getNameAsString();
                 Expression scope = n.getScope();
@@ -191,7 +214,7 @@ public final class SourceTransformer {
                         String qualified = resolveQualified(scopeText, simpleToQualified);
                         var f2a = plan.findFieldToAccessor(qualified, fieldName);
                         if (f2a.isPresent()) {
-                            return new MethodCallExpr(scope, f2a.get().getterMethod());
+                            return new MethodCallExpr(scope.clone(), f2a.get().getterMethod());
                         }
                     } else {
                         Optional<String> varType = findVariableType(n, scopeText);
@@ -199,32 +222,79 @@ public final class SourceTransformer {
                             String qualified = resolveQualified(varType.get(), simpleToQualified);
                             var f2a = plan.findFieldToAccessor(qualified, fieldName);
                             if (f2a.isPresent()) {
-                                return new MethodCallExpr(scope, f2a.get().getterMethod());
+                                return new MethodCallExpr(scope.clone(), f2a.get().getterMethod());
                             }
                         }
                     }
                 }
 
-                try {
-                    var resolved = n.resolve();
-                    String declaringType = resolved.asField().declaringType().getQualifiedName();
-                    var f2a = plan.findFieldToAccessor(declaringType, fieldName);
-                    if (f2a.isPresent()) {
-                        return new MethodCallExpr(scope, f2a.get().getterMethod());
-                    }
-                } catch (Throwable ignored) {
-                }
-
-                for (var rule : plan.rules()) {
-                    if (rule instanceof SourceMigrationRule.FieldToAccessor fa && fa.fieldName().equals(fieldName)) {
-                        return new MethodCallExpr(scope, fa.getterMethod());
-                    }
-                }
+                // No global field-name fallback. Ambiguous/unresolved fields remain unchanged.
                 return n;
             }
         }, null);
 
         return ast;
+    }
+
+    private Optional<CallBridge.Rule> exactMethodBridge(ResolvedMethodUse use) {
+        if (use.isStatic()) {
+            return plan.findExactCallBridge(use.member(), Opcodes.INVOKESTATIC);
+        }
+        Optional<CallBridge.Rule> virtual = plan.findExactCallBridge(use.member(), Opcodes.INVOKEVIRTUAL);
+        Optional<CallBridge.Rule> iface = plan.findExactCallBridge(use.member(), Opcodes.INVOKEINTERFACE);
+        if (virtual.isPresent() && iface.isPresent()) {
+            throw new IllegalStateException("Ambiguous method bridge opcode for " + use.member());
+        }
+        return virtual.isPresent() ? virtual : iface;
+    }
+
+    private static Optional<MemberReference> resolveConstructor(ObjectCreationExpr expression) {
+        try {
+            return JvmDescriptors.constructor(expression.resolve());
+        } catch (Throwable ignored) {
+            return Optional.empty();
+        }
+    }
+
+    private static Optional<ResolvedMethodUse> resolveMethod(MethodCallExpr expression) {
+        try {
+            var resolved = expression.resolve();
+            return JvmDescriptors.method(resolved).map(member -> new ResolvedMethodUse(member, resolved.isStatic()));
+        } catch (Throwable ignored) {
+            return Optional.empty();
+        }
+    }
+
+    private static Optional<MemberReference> resolveField(FieldAccessExpr expression) {
+        try {
+            return JvmDescriptors.field(expression.resolve().asField());
+        } catch (Throwable ignored) {
+            return Optional.empty();
+        }
+    }
+
+    private static MethodCallExpr staticCall(CompilationUnit ast, MemberReference target, List<Expression> arguments) {
+        String owner = target.owner().replace('/', '.');
+        ensureImport(ast, owner);
+        NodeList<Expression> cloned = new NodeList<>();
+        arguments.forEach(argument -> cloned.add(argument.clone()));
+        return new MethodCallExpr(new NameExpr(simpleName(owner)), target.name(), cloned);
+    }
+
+    private static void replaceStaticOwnerIfTypeName(CompilationUnit ast, MethodCallExpr call, String targetOwner,
+                                                     Map<String, String> imports) {
+        if (call.getScope().isEmpty() || !(call.getScope().get() instanceof NameExpr scope)) return;
+        String current = scope.getNameAsString();
+        if (!imports.containsKey(current) && (current.isEmpty() || !Character.isUpperCase(current.charAt(0)))) return;
+        String owner = targetOwner.replace('/', '.');
+        scope.setName(simpleName(owner));
+        ensureImport(ast, owner);
+    }
+
+    private static NodeList<Expression> cloneArguments(NodeList<Expression> arguments) {
+        NodeList<Expression> copy = new NodeList<>();
+        arguments.forEach(argument -> copy.add(argument.clone()));
+        return copy;
     }
 
     private static Optional<String> findVariableType(com.github.javaparser.ast.Node node, String varName) {
@@ -285,4 +355,6 @@ public final class SourceTransformer {
         }
         ast.addImport(norm);
     }
+
+    private record ResolvedMethodUse(MemberReference member, boolean isStatic) {}
 }

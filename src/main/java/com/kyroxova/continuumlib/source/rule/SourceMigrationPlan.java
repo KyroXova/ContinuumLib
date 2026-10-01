@@ -1,5 +1,6 @@
 package com.kyroxova.continuumlib.source.rule;
 
+import com.kyroxova.continuumlib.bytecode.CallBridge;
 import com.kyroxova.continuumlib.bytecode.ConstructorFactory;
 import com.kyroxova.continuumlib.bytecode.MemberReference;
 import com.kyroxova.continuumlib.knowledge.rule.RulePack;
@@ -7,6 +8,8 @@ import com.kyroxova.continuumlib.knowledge.rule.RulePack;
 import java.util.*;
 
 public final class SourceMigrationPlan {
+    private record BridgeKey(MemberReference source, int opcode) {}
+
     private final List<SourceMigrationRule> rules;
     private final Map<String, String> classRenames = new HashMap<>();
     private final Map<String, Map<String, String>> methodRenames = new HashMap<>();
@@ -14,24 +17,55 @@ public final class SourceMigrationPlan {
     private final Map<String, Map<String, SourceMigrationRule.FactoryToConstructor>> factoryToConstructors = new HashMap<>();
     private final Map<String, Map<String, SourceMigrationRule.FieldToAccessor>> fieldToAccessors = new HashMap<>();
 
+    // Canonical executable knowledge keeps the full JVM member identity from RulePack.
+    private final Map<MemberReference, MemberReference> exactMemberRenames;
+    private final Map<MemberReference, ConstructorFactory.Rule> exactConstructorFactories;
+    private final Map<BridgeKey, CallBridge.Rule> exactCallBridges;
+
     public SourceMigrationPlan(Collection<SourceMigrationRule> rules) {
+        this(rules, Map.of(), List.of(), List.of());
+    }
+
+    private SourceMigrationPlan(Collection<SourceMigrationRule> rules,
+                                Map<MemberReference, MemberReference> exactMemberRenames,
+                                Collection<ConstructorFactory.Rule> exactConstructorFactories,
+                                Collection<CallBridge.Rule> exactCallBridges) {
         this.rules = List.copyOf(rules);
         for (var rule : this.rules) {
             if (rule instanceof SourceMigrationRule.ClassRename cr) {
-                classRenames.put(normalize(cr.sourceClass()), normalize(cr.targetClass()));
+                putUnique(classRenames, normalize(cr.sourceClass()), normalize(cr.targetClass()), "class rename");
             } else if (rule instanceof SourceMigrationRule.MethodRename mr) {
-                methodRenames.computeIfAbsent(normalize(mr.ownerClass()), k -> new HashMap<>())
-                        .put(mr.sourceMethod(), mr.targetMethod());
+                putUnique(methodRenames.computeIfAbsent(normalize(mr.ownerClass()), k -> new HashMap<>()),
+                        mr.sourceMethod(), mr.targetMethod(), "method rename");
             } else if (rule instanceof SourceMigrationRule.ConstructorToFactory cf) {
-                constructorToFactories.put(normalize(cf.constructorOwner()), cf);
+                putUnique(constructorToFactories, normalize(cf.constructorOwner()), cf, "constructor factory");
             } else if (rule instanceof SourceMigrationRule.FactoryToConstructor fc) {
-                factoryToConstructors.computeIfAbsent(normalize(fc.factoryOwner()), k -> new HashMap<>())
-                        .put(fc.factoryMethod(), fc);
+                putUnique(factoryToConstructors.computeIfAbsent(normalize(fc.factoryOwner()), k -> new HashMap<>()),
+                        fc.factoryMethod(), fc, "factory constructor");
             } else if (rule instanceof SourceMigrationRule.FieldToAccessor fa) {
-                fieldToAccessors.computeIfAbsent(normalize(fa.ownerClass()), k -> new HashMap<>())
-                        .put(fa.fieldName(), fa);
+                putUnique(fieldToAccessors.computeIfAbsent(normalize(fa.ownerClass()), k -> new HashMap<>()),
+                        fa.fieldName(), fa, "field accessor");
             }
         }
+
+        Map<MemberReference, MemberReference> members = new HashMap<>();
+        exactMemberRenames.forEach((source, target) ->
+                putUnique(members, canonical(source), canonical(target), "exact member migration"));
+        this.exactMemberRenames = Map.copyOf(members);
+
+        Map<MemberReference, ConstructorFactory.Rule> constructors = new HashMap<>();
+        for (ConstructorFactory.Rule rule : exactConstructorFactories) {
+            ConstructorFactory.Rule normalized = new ConstructorFactory.Rule(canonical(rule.source()), canonical(rule.factory()));
+            putUnique(constructors, normalized.source(), normalized, "exact constructor factory");
+        }
+        this.exactConstructorFactories = Map.copyOf(constructors);
+
+        Map<BridgeKey, CallBridge.Rule> bridges = new HashMap<>();
+        for (CallBridge.Rule rule : exactCallBridges) {
+            CallBridge.Rule normalized = new CallBridge.Rule(canonical(rule.source()), rule.opcode(), canonical(rule.hook()));
+            putUnique(bridges, new BridgeKey(normalized.source(), normalized.opcode()), normalized, "exact call bridge");
+        }
+        this.exactCallBridges = Map.copyOf(bridges);
     }
 
     public static SourceMigrationPlan fromRulePack(RulePack pack) {
@@ -39,17 +73,7 @@ public final class SourceMigrationPlan {
         for (var entry : pack.classes().entrySet()) {
             rules.add(new SourceMigrationRule.ClassRename(entry.getKey(), entry.getValue()));
         }
-        for (var entry : pack.members().entrySet()) {
-            MemberReference src = entry.getKey();
-            MemberReference tgt = entry.getValue();
-            if (!src.name().equals(tgt.name())) {
-                rules.add(new SourceMigrationRule.MethodRename(src.owner(), src.name(), tgt.name()));
-            }
-        }
-        for (ConstructorFactory.Rule c : pack.constructors()) {
-            rules.add(new SourceMigrationRule.ConstructorToFactory(c.source().owner(), c.factory().owner(), c.factory().name()));
-        }
-        return new SourceMigrationPlan(rules);
+        return new SourceMigrationPlan(rules, pack.members(), pack.constructors(), pack.bridges());
     }
 
     public List<SourceMigrationRule> rules() { return rules; }
@@ -58,9 +82,26 @@ public final class SourceMigrationPlan {
         return Optional.ofNullable(classRenames.get(normalize(className)));
     }
 
+    /** Descriptor-less rules are retained for explicit/manual source rules and tests. */
     public Optional<String> findMethodRename(String owner, String methodName) {
         var map = methodRenames.get(normalize(owner));
         return map != null ? Optional.ofNullable(map.get(methodName)) : Optional.empty();
+    }
+
+    public Optional<MemberReference> findExactMemberMigration(MemberReference source) {
+        return Optional.ofNullable(exactMemberRenames.get(canonical(source)));
+    }
+
+    public Optional<MemberReference> findExactMemberMigration(String owner, String name, String descriptor) {
+        return findExactMemberMigration(new MemberReference(internal(owner), name, descriptor));
+    }
+
+    public Optional<ConstructorFactory.Rule> findExactConstructorFactory(MemberReference constructor) {
+        return Optional.ofNullable(exactConstructorFactories.get(canonical(constructor)));
+    }
+
+    public Optional<CallBridge.Rule> findExactCallBridge(MemberReference source, int opcode) {
+        return Optional.ofNullable(exactCallBridges.get(new BridgeKey(canonical(source), opcode)));
     }
 
     public Optional<SourceMigrationRule.ConstructorToFactory> findConstructorToFactory(String owner) {
@@ -112,8 +153,23 @@ public final class SourceMigrationPlan {
         }
     }
 
+    private static MemberReference canonical(MemberReference reference) {
+        return new MemberReference(internal(reference.owner()), reference.name(), reference.descriptor());
+    }
+
+    private static String internal(String name) {
+        return name.replace('.', '/');
+    }
+
     private static String normalize(String name) {
         if (name == null) return "";
         return name.replace('/', '.');
+    }
+
+    private static <K, V> void putUnique(Map<K, V> map, K key, V value, String label) {
+        V previous = map.putIfAbsent(key, value);
+        if (previous != null && !previous.equals(value)) {
+            throw new IllegalArgumentException("Conflicting " + label + ": " + key);
+        }
     }
 }
