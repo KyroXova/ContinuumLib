@@ -41,30 +41,30 @@ public final class SourceTypes {
         return type.remove();
     }
 
+    public static boolean nested(TypeDeclaration<?> type) {
+        return type.isNestedType();
+    }
+
     public static int depth(TypeDeclaration<?> type) {
         int depth = 0;
-        Node current = type.getParentNode().orElse(null);
-        while (current != null) {
-            if (current instanceof TypeDeclaration<?>) depth++;
-            current = current.getParentNode().orElse(null);
+        Node current = type;
+        while (current instanceof TypeDeclaration<?> declaration && declaration.isNestedType()) {
+            depth++;
+            current = declaration.getParentNode().orElse(null);
+            while (current != null && !(current instanceof TypeDeclaration<?>)) {
+                current = current.getParentNode().orElse(null);
+            }
         }
         return depth;
     }
 
     public static String qualifiedName(TypeDeclaration<?> type) {
-        String pkg = type.findCompilationUnit()
-                .flatMap(unit -> unit.getPackageDeclaration())
-                .map(declaration -> declaration.getNameAsString() + ".")
-                .orElse("");
-
-        Deque<String> names = new ArrayDeque<>();
-        Node current = type;
-        while (current != null) {
-            if (current instanceof TypeDeclaration<?> declaration) {
-                names.addFirst(declaration.getNameAsString());
-            }
-            current = current.getParentNode().orElse(null);
-        }
-        return pkg + String.join(".", names);
+        return type.getFullyQualifiedName().orElseGet(() -> {
+            String pkg = type.findCompilationUnit()
+                    .flatMap(unit -> unit.getPackageDeclaration())
+                    .map(declaration -> declaration.getNameAsString() + ".")
+                    .orElse("");
+            return pkg + type.getNameAsString();
+        });
     }
 }

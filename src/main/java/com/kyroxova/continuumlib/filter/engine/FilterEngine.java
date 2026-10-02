@@ -182,7 +182,7 @@ public final class FilterEngine {
 
         if (inclusions.hasClassRules() || exclusions.hasClassRules()) {
             var nested = SourceTypes.all(ast).stream()
-                    .filter(type -> SourceTypes.depth(type) > 0)
+                    .filter(SourceTypes::nested)
                     .sorted(Comparator.comparingInt(SourceTypes::depth).reversed())
                     .toList();
 
