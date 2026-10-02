@@ -52,6 +52,66 @@ class FilterConfigurationReaderTest {
         assertTrue(failure.getMessage().contains("Unknown key 'minecrafft'"));
     }
 
+
+    @Test
+    void explicitDomainCannotBeOverriddenByOtherFields(@TempDir Path root) throws Exception {
+        Path file = root.resolve("rule.json");
+        Files.writeString(file, """
+                {
+                  "domain": "class",
+                  "class": "example.Test",
+                  "type": "block",
+                  "id": "example:test"
+                }
+                """);
+
+        FilterConfigurationException failure = assertThrows(
+                FilterConfigurationException.class,
+                () -> new FilterConfigurationReader().parseRuleFile(file)
+        );
+
+        assertTrue(failure.getMessage().contains("incompatible with domain"));
+    }
+
+    @Test
+    void rejectsConflictingAliases(@TempDir Path root) throws Exception {
+        Path file = root.resolve("rule.json");
+        Files.writeString(file, """
+                {
+                  "domain": "class",
+                  "class": "example.Test",
+                  "className": "example.Other"
+                }
+                """);
+
+        FilterConfigurationException failure = assertThrows(
+                FilterConfigurationException.class,
+                () -> new FilterConfigurationReader().parseRuleFile(file)
+        );
+
+        assertTrue(failure.getMessage().contains("Use only one of 'class' or 'className'"));
+    }
+
+    @Test
+    void rejectsConflictingConditionAliases(@TempDir Path root) throws Exception {
+        Path file = root.resolve("rule.json");
+        Files.writeString(file, """
+                {
+                  "domain": "source",
+                  "path": "example/Test.java",
+                  "when": {
+                    "loader_version": ">=1",
+                    "loaderVersion": ">=2"
+                  }
+                }
+                """);
+
+        assertThrows(
+                FilterConfigurationException.class,
+                () -> new FilterConfigurationReader().parseRuleFile(file)
+        );
+    }
+
     @Test
     void rejectsNonScalarStringFields(@TempDir Path root) throws Exception {
         Path file = root.resolve("rule.json");
