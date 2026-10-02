@@ -19,11 +19,22 @@ import java.util.stream.Stream;
  * Discovers and parses inclusion and exclusion rule configurations recursively.
  */
 public final class FilterConfigurationReader {
-    private static final Gson GSON = new Gson();
+    private static final Set<String> RULE_KEYS = Set.of(
+            "domain", "type", "id", "class", "className", "path", "when"
+    );
+    private static final Set<String> CONDITION_KEYS = Set.of(
+            "minecraft", "loader", "loader_version", "loaderVersion",
+            "java", "java_version", "namespace", "output_mode", "outputMode"
+    );
 
     public ContinuumProjectConfiguration load(Path configurationRoot) throws IOException {
-        if (configurationRoot == null || !Files.exists(configurationRoot) || !Files.isDirectory(configurationRoot)) {
+        if (configurationRoot == null || !Files.exists(configurationRoot)) {
             return ContinuumProjectConfiguration.empty(configurationRoot);
+        }
+        if (!Files.isDirectory(configurationRoot)) {
+            throw new FilterConfigurationException(
+                    "ContinuumLib filter configuration root is not a directory: " + configurationRoot
+            );
         }
 
         Path inclusionsDir = configurationRoot.resolve("inclusions");
@@ -38,8 +49,13 @@ public final class FilterConfigurationReader {
     }
 
     public InclusionRuleSet loadInclusions(Path inclusionsDir) throws IOException {
-        if (inclusionsDir == null || !Files.exists(inclusionsDir) || !Files.isDirectory(inclusionsDir)) {
+        if (inclusionsDir == null || !Files.exists(inclusionsDir)) {
             return InclusionRuleSet.EMPTY;
+        }
+        if (!Files.isDirectory(inclusionsDir)) {
+            throw new FilterConfigurationException(
+                    "ContinuumLib inclusions path is not a directory: " + inclusionsDir
+            );
         }
         RuleSet.Builder builder = RuleSet.builder();
         List<Path> jsonFiles = findJsonFiles(inclusionsDir);
@@ -51,8 +67,13 @@ public final class FilterConfigurationReader {
     }
 
     public ExclusionRuleSet loadExclusions(Path exclusionsDir) throws IOException {
-        if (exclusionsDir == null || !Files.exists(exclusionsDir) || !Files.isDirectory(exclusionsDir)) {
+        if (exclusionsDir == null || !Files.exists(exclusionsDir)) {
             return ExclusionRuleSet.EMPTY;
+        }
+        if (!Files.isDirectory(exclusionsDir)) {
+            throw new FilterConfigurationException(
+                    "ContinuumLib exclusions path is not a directory: " + exclusionsDir
+            );
         }
         RuleSet.Builder builder = RuleSet.builder();
         List<Path> jsonFiles = findJsonFiles(exclusionsDir);
@@ -79,7 +100,11 @@ public final class FilterConfigurationReader {
             RuleSet.Builder builder = RuleSet.builder();
             if (root.isJsonObject()) {
                 JsonObject obj = root.getAsJsonObject();
-                if (obj.has("rules") && obj.get("rules").isJsonArray()) {
+                if (obj.has("rules")) {
+                    validateKeys(obj, Set.of("rules"), file, "root");
+                    if (!obj.get("rules").isJsonArray()) {
+                        throw new FilterConfigurationException("'rules' must be an array in " + file);
+                    }
                     JsonArray rules = obj.getAsJsonArray("rules");
                     for (int i = 0; i < rules.size(); i++) {
                         parseRuleElement(rules.get(i), file, i, builder);
@@ -106,68 +131,123 @@ public final class FilterConfigurationReader {
             throw new FilterConfigurationException("Invalid rule in " + file + " (rule #" + index + "): expected JSON object");
         }
         JsonObject obj = elem.getAsJsonObject();
+        validateKeys(obj, RULE_KEYS, file, "rule #" + index);
 
         EnvironmentCondition condition = parseCondition(obj.get("when"), file, index);
-
-        // Explicit domain or inferred
         String explicitDomain = getString(obj, "domain");
+        FilterDomain domain = explicitDomain == null
+                ? inferRuleDomain(obj, file, index)
+                : parseExplicitDomain(explicitDomain, file, index);
 
-        if ("registry".equalsIgnoreCase(explicitDomain) || obj.has("type") && obj.has("id")) {
-            String typeStr = getString(obj, "type");
-            String id = getString(obj, "id");
-            if (typeStr == null || typeStr.isBlank()) {
-                throw new FilterConfigurationException("Missing registry 'type' in " + file + " (rule #" + index + ")");
+        switch (domain) {
+            case REGISTRY -> {
+                rejectPresent(obj, file, index, "path", "class", "className");
+                String typeStr = requireString(obj, "type", file, index);
+                String id = requireString(obj, "id", file, index);
+                builder.addRegistry(new RegistryFilterRule(RegistryType.from(typeStr), id, condition, file));
             }
-            if (id == null || id.isBlank()) {
-                throw new FilterConfigurationException("Missing registry 'id' in " + file + " (rule #" + index + ")");
+            case CLASS -> {
+                rejectPresent(obj, file, index, "type", "id", "path");
+                String className = aliasedString(obj, "class", "className", file, index);
+                if (className == null || className.isBlank()) {
+                    throw new FilterConfigurationException("Missing 'class' in " + file + " (rule #" + index + ")");
+                }
+                builder.addClass(new ClassFilterRule(className, condition, file));
             }
-            RegistryType regType = RegistryType.from(typeStr);
-            builder.addRegistry(new RegistryFilterRule(regType, id, condition, file));
-        } else if ("class".equalsIgnoreCase(explicitDomain) || obj.has("class") || obj.has("className")) {
-            String className = getString(obj, "class");
-            if (className == null) className = getString(obj, "className");
-            if (className == null || className.isBlank()) {
-                throw new FilterConfigurationException("Missing 'class' in " + file + " (rule #" + index + ")");
+            case SOURCE, RESOURCE -> {
+                rejectPresent(obj, file, index, "type", "id", "class", "className");
+                String path = requireString(obj, "path", file, index);
+                if (domain == FilterDomain.SOURCE) {
+                    builder.addSource(new SourceFilterRule(path, condition, file));
+                } else {
+                    builder.addResource(new ResourceFilterRule(path, condition, file));
+                }
             }
-            builder.addClass(new ClassFilterRule(className, condition, file));
-        } else if ("source".equalsIgnoreCase(explicitDomain) || ("resource".equalsIgnoreCase(explicitDomain)) || obj.has("path")) {
-            String path = getString(obj, "path");
-            if (path == null || path.isBlank()) {
-                throw new FilterConfigurationException("Missing 'path' in " + file + " (rule #" + index + ")");
-            }
-            FilterDomain domain = resolvePathDomain(path, explicitDomain, file);
-            if (domain == FilterDomain.SOURCE) {
-                builder.addSource(new SourceFilterRule(path, condition, file));
-            } else {
-                builder.addResource(new ResourceFilterRule(path, condition, file));
-            }
-        } else {
-            throw new FilterConfigurationException("Cannot determine filter rule domain in " + file + " (rule #" + index + "): " + obj);
         }
     }
 
-    private FilterDomain resolvePathDomain(String path, String explicitDomain, Path file) {
-        if ("source".equalsIgnoreCase(explicitDomain)) return FilterDomain.SOURCE;
-        if ("resource".equalsIgnoreCase(explicitDomain)) return FilterDomain.RESOURCE;
+    private static FilterDomain inferRuleDomain(JsonObject obj, Path file, int index) {
+        boolean registry = obj.has("type") || obj.has("id");
+        boolean clazz = obj.has("class") || obj.has("className");
+        boolean path = obj.has("path");
+        int candidates = (registry ? 1 : 0) + (clazz ? 1 : 0) + (path ? 1 : 0);
+        if (candidates != 1) {
+            throw new FilterConfigurationException(
+                    "Cannot determine one filter rule domain in " + file + " (rule #" + index + ")"
+            );
+        }
+        if (registry) return FilterDomain.REGISTRY;
+        if (clazz) return FilterDomain.CLASS;
+        return resolveInferredPathDomain(getString(obj, "path"), file);
+    }
 
+    private static FilterDomain parseExplicitDomain(String value, Path file, int index) {
+        return switch (value.toLowerCase(Locale.ROOT)) {
+            case "registry" -> FilterDomain.REGISTRY;
+            case "class" -> FilterDomain.CLASS;
+            case "source" -> FilterDomain.SOURCE;
+            case "resource" -> FilterDomain.RESOURCE;
+            default -> throw new FilterConfigurationException(
+                    "Unknown filter domain '" + value + "' in " + file + " (rule #" + index + ")"
+            );
+        };
+    }
+
+    private static String requireString(JsonObject obj, String member, Path file, int index) {
+        String value = getString(obj, member);
+        if (value == null || value.isBlank()) {
+            throw new FilterConfigurationException(
+                    "Missing '" + member + "' in " + file + " (rule #" + index + ")"
+            );
+        }
+        return value;
+    }
+
+    private static void rejectPresent(
+            JsonObject obj,
+            Path file,
+            int index,
+            String... members
+    ) {
+        for (String member : members) {
+            if (obj.has(member)) {
+                throw new FilterConfigurationException(
+                        "Field '" + member + "' is incompatible with domain '"
+                                + getString(obj, "domain") + "' in " + file + " (rule #" + index + ")"
+                );
+            }
+        }
+    }
+
+    private static String aliasedString(
+            JsonObject obj,
+            String first,
+            String second,
+            Path file,
+            int index
+    ) {
+        boolean hasFirst = obj.has(first) && !obj.get(first).isJsonNull();
+        boolean hasSecond = obj.has(second) && !obj.get(second).isJsonNull();
+        if (hasFirst && hasSecond) {
+            throw new FilterConfigurationException(
+                    "Use only one of '" + first + "' or '" + second + "' in "
+                            + file + " (rule #" + index + ")"
+            );
+        }
+        return hasFirst ? getString(obj, first) : getString(obj, second);
+    }
+
+    private static FilterDomain resolveInferredPathDomain(String path, Path file) {
+        if (path == null || path.isBlank()) {
+            throw new FilterConfigurationException("Missing 'path' in " + file);
+        }
         String lowerPath = path.toLowerCase(Locale.ROOT);
-        if (lowerPath.endsWith(".java")) {
-            return FilterDomain.SOURCE;
-        }
-        if (lowerPath.startsWith("assets/") || lowerPath.startsWith("data/")) {
-            return FilterDomain.RESOURCE;
-        }
+        if (lowerPath.endsWith(".java")) return FilterDomain.SOURCE;
+        if (lowerPath.startsWith("assets/") || lowerPath.startsWith("data/")) return FilterDomain.RESOURCE;
 
-        // Check parent directory of the config file
         String filePath = file.toString().replace('\\', '/').toLowerCase(Locale.ROOT);
-        if (filePath.contains("/source/")) {
-            return FilterDomain.SOURCE;
-        }
-        if (filePath.contains("/resource") || filePath.contains("/resources/")) {
-            return FilterDomain.RESOURCE;
-        }
-
-        // Default to resource if not .java
+        if (filePath.contains("/source/")) return FilterDomain.SOURCE;
+        if (filePath.contains("/resource") || filePath.contains("/resources/")) return FilterDomain.RESOURCE;
         return FilterDomain.RESOURCE;
     }
 
@@ -179,15 +259,13 @@ public final class FilterConfigurationReader {
             throw new FilterConfigurationException("Invalid 'when' condition in " + file + " (rule #" + index + "): expected JSON object");
         }
         JsonObject when = whenElem.getAsJsonObject();
+        validateKeys(when, CONDITION_KEYS, file, "rule #" + index + " when");
         String mc = getString(when, "minecraft");
         String loader = getString(when, "loader");
-        String loaderVer = getString(when, "loader_version");
-        if (loaderVer == null) loaderVer = getString(when, "loaderVersion");
-        String java = getString(when, "java");
-        if (java == null) java = getString(when, "java_version");
+        String loaderVer = aliasedString(when, "loader_version", "loaderVersion", file, index);
+        String java = aliasedString(when, "java", "java_version", file, index);
         String namespace = getString(when, "namespace");
-        String outputMode = getString(when, "output_mode");
-        if (outputMode == null) outputMode = getString(when, "outputMode");
+        String outputMode = aliasedString(when, "output_mode", "outputMode", file, index);
 
         // Validate version constraint syntax upfront
         if (mc != null && !mc.isBlank()) {
@@ -209,10 +287,31 @@ public final class FilterConfigurationReader {
     }
 
     private static String getString(JsonObject obj, String member) {
-        if (obj.has(member) && !obj.get(member).isJsonNull()) {
-            return obj.get(member).getAsString().trim();
+        if (!obj.has(member) || obj.get(member).isJsonNull()) return null;
+        JsonElement value = obj.get(member);
+        if (!value.isJsonPrimitive()) {
+            throw new FilterConfigurationException("Expected scalar value for '" + member + "'");
         }
-        return null;
+        JsonPrimitive primitive = value.getAsJsonPrimitive();
+        if (!primitive.isString() && !primitive.isNumber()) {
+            throw new FilterConfigurationException("Expected string/number value for '" + member + "'");
+        }
+        return primitive.getAsString().trim();
+    }
+
+    private static void validateKeys(
+            JsonObject object,
+            Set<String> allowed,
+            Path file,
+            String context
+    ) {
+        for (String key : object.keySet()) {
+            if (!allowed.contains(key)) {
+                throw new FilterConfigurationException(
+                        "Unknown key '" + key + "' in " + file + " (" + context + ")"
+                );
+            }
+        }
     }
 
     private static List<Path> findJsonFiles(Path dir) throws IOException {

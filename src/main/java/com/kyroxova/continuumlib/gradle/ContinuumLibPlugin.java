@@ -4,6 +4,8 @@ import org.gradle.api.Plugin;
 import org.gradle.api.Project;
 import org.gradle.api.GradleException;
 import org.gradle.api.tasks.TaskProvider;
+import org.gradle.api.plugins.JavaPluginExtension;
+import org.gradle.api.tasks.SourceSet;
 import org.gradle.jvm.tasks.Jar;
 import com.kyroxova.continuumlib.api.config.OutputTargets;
 import com.kyroxova.continuumlib.pipeline.config.ProjectConfigurationLocator;
@@ -12,9 +14,6 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
-/**
- * Consumer integration orchestrating target generation, inspection, transformation, and auditing.
- */
 public final class ContinuumLibPlugin implements Plugin<Project> {
     @Override public void apply(Project project) {
         project.getPluginManager().apply("java");
@@ -28,6 +27,10 @@ public final class ContinuumLibPlugin implements Plugin<Project> {
         });
 
         var jar = project.getTasks().named("jar", Jar.class);
+        var mainSourceSet = project.getExtensions()
+                .getByType(JavaPluginExtension.class)
+                .getSourceSets()
+                .getByName(SourceSet.MAIN_SOURCE_SET_NAME);
         Path transformCfg = config.transformFile().toFile().isFile()
                 ? config.transformFile()
                 : project.getProjectDir().toPath().resolve("src/main/resources/data/continuumlib/transform.properties");
@@ -55,7 +58,18 @@ public final class ContinuumLibPlugin implements Plugin<Project> {
             task.setGroup("ContinuumLib");
             task.setDescription("Transform developer Java source AST into target-compatible generated source and compile target JAR");
             task.getProjectDirectory().convention(project.getLayout().getProjectDirectory());
-            task.getSourceDirectory().convention(project.getLayout().getProjectDirectory().dir("src/main/java"));
+            task.getSourceRoots().from(project.provider(() -> mainSourceSet.getJava().getSrcDirs()));
+            task.getSourceFiles().from(mainSourceSet.getJava());
+            task.getResourceFiles().from(mainSourceSet.getResources());
+            task.getResourceRoots().from(project.provider(() -> mainSourceSet.getResources().getSrcDirs()));
+            task.getManifestAttributes().set(project.provider(() -> {
+                java.util.Map<String, String> attributes = new java.util.TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+                jar.get().getManifest().getAttributes().forEach(
+                        (key, value) -> attributes.put(key, String.valueOf(value))
+                );
+                return attributes;
+            }));
+            task.getTargetWorkspaceDirectory().convention(project.getLayout().getBuildDirectory().dir("continuum/targets/source"));
             task.getConfigFile().convention(project.getLayout().file(project.provider(transformCfg::toFile)));
             task.getRuleFiles().from(project.fileTree("src/main/resources/continuumlib/knowledge", tree -> tree.include("**/*.xml")));
             task.getRuleFiles().from(project.fileTree("src/main/resources/data/continuumlib/knowledge", tree -> tree.include("**/*.xml")));
@@ -90,10 +104,15 @@ public final class ContinuumLibPlugin implements Plugin<Project> {
                     .file("reports/continuumlib/api-inventory.tsv"));
         });
 
-        configureTargets(project, jar, config);
+        configureTargets(project, jar, config, mainSourceSet);
     }
 
-    private static void configureTargets(Project project, TaskProvider<Jar> jar, ProjectConfigurationLocator.DiscoveredConfiguration config) {
+    private static void configureTargets(
+            Project project,
+            TaskProvider<Jar> jar,
+            ProjectConfigurationLocator.DiscoveredConfiguration config,
+            SourceSet mainSourceSet
+    ) {
         Path targetsPath = config.targetsFile().toFile().isFile()
                 ? config.targetsFile()
                 : project.getProjectDir().toPath().resolve("src/main/resources/data/continuumlib/targets.properties");
@@ -141,7 +160,17 @@ public final class ContinuumLibPlugin implements Plugin<Project> {
                 task.dependsOn(validation);
                 task.getTargetId().convention(id);
                 task.getProjectDirectory().convention(project.getLayout().getProjectDirectory());
-                task.getSourceDirectory().convention(project.getLayout().getProjectDirectory().dir("src/main/java"));
+                task.getSourceRoots().from(project.provider(() -> mainSourceSet.getJava().getSrcDirs()));
+                task.getSourceFiles().from(mainSourceSet.getJava());
+                task.getResourceFiles().from(mainSourceSet.getResources());
+                task.getResourceRoots().from(project.provider(() -> mainSourceSet.getResources().getSrcDirs()));
+                task.getManifestAttributes().set(project.provider(() -> {
+                    java.util.Map<String, String> attributes = new java.util.TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+                    jar.get().getManifest().getAttributes().forEach(
+                            (key, value) -> attributes.put(key, String.valueOf(value))
+                    );
+                    return attributes;
+                }));
                 task.getConfigFile().convention(project.getLayout().file(project.provider(finalTargetConfigFile::toFile)));
                 task.getRuleFiles().from(project.fileTree("src/main/resources/continuumlib/knowledge", tree -> tree.include("**/*.xml")));
                 task.getRuleFiles().from(project.fileTree("src/main/resources/data/continuumlib/knowledge", tree -> tree.include("**/*.xml")));
@@ -149,6 +178,7 @@ public final class ContinuumLibPlugin implements Plugin<Project> {
                 task.getOutputJar().convention(project.getLayout().getBuildDirectory().file("continuumlib/" + id + ".jar"));
             });
             generateTargets.configure(task -> task.dependsOn(generate));
+            aggregate.configure(task -> task.dependsOn(generate));
 
             var target = project.getTasks().register("continuumLibTransform_" + id, TransformJarTask.class, task -> {
                 task.setGroup("ContinuumLib");
@@ -159,15 +189,14 @@ public final class ContinuumLibPlugin implements Plugin<Project> {
                 task.getConfigFile().convention(project.getLayout().file(project.provider(finalTargetConfigFile::toFile)));
                 task.getRuleFiles().from(project.fileTree("src/main/resources/continuumlib/knowledge", tree -> tree.include("**/*.xml")));
                 task.getRuleFiles().from(project.fileTree("src/main/resources/data/continuumlib/knowledge", tree -> tree.include("**/*.xml")));
-                task.getOutputJar().convention(project.getLayout().getBuildDirectory().file("continuumlib/" + id + ".jar"));
+                task.getOutputJar().convention(project.getLayout().getBuildDirectory().file("continuum/legacy-bytecode/" + id + ".jar"));
             });
-            aggregate.configure(task -> task.dependsOn(target));
 
             var audit = project.getTasks().register("continuumLibAudit_" + id, AuditTargetTask.class, task -> {
                 task.setGroup("ContinuumLib");
                 task.getProjectDirectory().convention(project.getLayout().getProjectDirectory());
-                task.getConfigFile().convention(target.flatMap(TransformJarTask::getConfigFile));
-                task.getInputJar().convention(target.flatMap(TransformJarTask::getOutputJar));
+                task.getConfigFile().convention(generate.flatMap(GenerateTargetTask::getConfigFile));
+                task.getInputJar().convention(generate.flatMap(GenerateTargetTask::getOutputJar));
                 task.getReportFile().convention(project.getLayout().getBuildDirectory().file("reports/continuumlib/" + id + "-audit.tsv"));
                 task.getTypeReportFile().convention(project.getLayout().getBuildDirectory().file("reports/continuumlib/" + id + "-types.tsv"));
             });

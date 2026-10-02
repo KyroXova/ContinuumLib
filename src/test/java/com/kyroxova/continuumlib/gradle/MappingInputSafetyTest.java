@@ -42,4 +42,96 @@ class MappingInputSafetyTest {
     private String sha(Path file) throws Exception {
         return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(Files.readAllBytes(file)));
     }
+    @Test
+    void generationWorkspaceCannotOverlapConsumerSourceTree() throws Exception {
+        Files.writeString(project.resolve("settings.gradle"), "rootProject.name='workspace-safety'");
+        Path emptyJar = project.resolve("empty.jar");
+        try (var ignored = new JarOutputStream(Files.newOutputStream(emptyJar))) {}
+        String hash = sha(emptyJar);
+
+        Path config = project.resolve("src/main/resources/continuumlib");
+        Files.createDirectories(config.resolve("knowledge"));
+        Files.createDirectories(config.resolve("targets"));
+        Files.writeString(config.resolve("targets.properties"),
+                "targets=demo\nperVersion=true\nuniversal=false\n");
+        Files.writeString(config.resolve("targets/demo.properties"),
+                "pack=safety\nsource.api=empty.jar\ntarget.api=empty.jar\n");
+        Files.writeString(config.resolve("knowledge/safety.xml"),
+                "<rules schema='1' id='safety' evidence='Workspace safety fixture'>"
+                        + "<source minecraft='1.20.1' loader='FORGE' namespace='MOJMAP' java='17'>"
+                        + "<artifact name='api' sha256='" + hash + "'/></source>"
+                        + "<target minecraft='1.20.1' loader='FORGE' namespace='MOJMAP' java='17'>"
+                        + "<artifact name='api' sha256='" + hash + "'/></target></rules>");
+
+        Path source = project.resolve("src/main/java/example/KeepMe.java");
+        Files.createDirectories(source.getParent());
+        Files.writeString(source, "package example; public class KeepMe {}");
+
+        Files.writeString(project.resolve("build.gradle"), """
+                plugins { id 'com.kyroxova.continuumlib' }
+                tasks.named('continuumLibGenerate_demo') {
+                    targetWorkspaceDirectory.set(layout.projectDirectory.dir('src/main/java'))
+                }
+                """);
+
+        var failure = GradleRunner.create().withProjectDir(project.toFile()).withPluginClasspath()
+                .withArguments("continuumLibGenerate_demo", "--stacktrace")
+                .buildAndFail();
+
+        assertTrue(failure.getOutput().contains("Generated output directory must be disjoint"));
+        assertTrue(Files.isRegularFile(source));
+        assertEquals("package example; public class KeepMe {}", Files.readString(source));
+    }
+
+
+    @Test
+    void generatedOutputCannotReachSourceTreeThroughSymlinkedParent() throws Exception {
+        org.junit.jupiter.api.Assumptions.assumeFalse(
+                System.getProperty("os.name", "").toLowerCase(java.util.Locale.ROOT).contains("win")
+        );
+
+        Files.writeString(project.resolve("settings.gradle"), "rootProject.name='symlink-output-safety'");
+        Path emptyJar = project.resolve("empty.jar");
+        try (var ignored = new JarOutputStream(Files.newOutputStream(emptyJar))) {}
+        String hash = sha(emptyJar);
+
+        Path config = project.resolve("src/main/resources/continuumlib");
+        Files.createDirectories(config.resolve("knowledge"));
+        Files.createDirectories(config.resolve("targets"));
+        Files.writeString(config.resolve("targets.properties"),
+                "targets=demo\nperVersion=true\nuniversal=false\n");
+        Files.writeString(config.resolve("targets/demo.properties"),
+                "pack=safety\nsource.api=empty.jar\ntarget.api=empty.jar\n");
+        Files.writeString(config.resolve("knowledge/safety.xml"),
+                "<rules schema='1' id='safety' evidence='Symlink output safety fixture'>"
+                        + "<source minecraft='1.20.1' loader='FORGE' namespace='MOJMAP' java='17'>"
+                        + "<artifact name='api' sha256='" + hash + "'/></source>"
+                        + "<target minecraft='1.20.1' loader='FORGE' namespace='MOJMAP' java='17'>"
+                        + "<artifact name='api' sha256='" + hash + "'/></target></rules>");
+
+        Path sourceRoot = project.resolve("src/main/java");
+        Files.createDirectories(sourceRoot.resolve("example"));
+        Path source = sourceRoot.resolve("example/KeepMe.java");
+        Files.writeString(source, "package example; public class KeepMe {}");
+
+        Path linkedParent = project.resolve("linked-output");
+        Files.createSymbolicLink(linkedParent, sourceRoot);
+
+        Files.writeString(project.resolve("build.gradle"), """
+                plugins { id 'com.kyroxova.continuumlib' }
+                tasks.named('continuumLibGenerate_demo') {
+                    outputJar.set(layout.projectDirectory.file('linked-output/generated.jar'))
+                }
+                """);
+
+        var failure = GradleRunner.create().withProjectDir(project.toFile()).withPluginClasspath()
+                .withArguments("continuumLibGenerate_demo", "--stacktrace")
+                .buildAndFail();
+
+        assertTrue(failure.getOutput().contains("must not overwrite or overlap"));
+        assertTrue(Files.isRegularFile(source));
+        assertEquals("package example; public class KeepMe {}", Files.readString(source));
+        assertFalse(Files.exists(sourceRoot.resolve("generated.jar")));
+    }
+
 }

@@ -17,6 +17,7 @@ import com.kyroxova.continuumlib.filter.validation.ExclusionConflictException;
 import com.kyroxova.continuumlib.model.diagnostic.Diagnostic;
 import com.kyroxova.continuumlib.model.diagnostic.DiagnosticCode;
 import com.kyroxova.continuumlib.model.diagnostic.Severity;
+import com.kyroxova.continuumlib.pipeline.config.ProjectConfigurationLocator;
 import com.kyroxova.continuumlib.pipeline.migration.*;
 import com.kyroxova.continuumlib.pipeline.report.GenerationReportWriter;
 import com.kyroxova.continuumlib.source.ast.SourceParser;
@@ -24,6 +25,7 @@ import com.kyroxova.continuumlib.source.ast.SourceUnit;
 import com.kyroxova.continuumlib.source.compile.SourceCompiler;
 import com.kyroxova.continuumlib.source.compile.TargetJarPackager;
 import com.kyroxova.continuumlib.source.transform.SourceTransformer;
+import com.kyroxova.continuumlib.resolver.ClassAdaptationPlan;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -31,14 +33,20 @@ import java.nio.file.Path;
 import java.util.*;
 import java.util.stream.Stream;
 
-/**
- * Coherent, reusable target-generation pipeline orchestrating source filtering,
- * AST transformation, compilation, bytecode adaptation, and target reference auditing.
- */
 public final class TargetGenerationPipeline {
-    private final RegistryDeclarationScanner registryScanner = new RegistryDeclarationScanner();
-    private final ExclusionConflictDetector conflictDetector = new ExclusionConflictDetector();
+    private final FilterEngine filterEngine = new FilterEngine();
     private final GenerationReportWriter reportWriter = new GenerationReportWriter();
+    private final com.kyroxova.continuumlib.source.compile.SourceCompilationStrategy sourceCompiler;
+
+    public TargetGenerationPipeline() {
+        this(SourceCompiler::compile);
+    }
+
+    public TargetGenerationPipeline(
+            com.kyroxova.continuumlib.source.compile.SourceCompilationStrategy sourceCompiler
+    ) {
+        this.sourceCompiler = Objects.requireNonNull(sourceCompiler, "sourceCompiler");
+    }
 
     public TargetGenerationResult execute(
             ResolvedTarget target,
@@ -46,6 +54,49 @@ public final class TargetGenerationPipeline {
             List<Path> sourceRoots,
             List<Path> resourceRoots,
             String artifactName
+    ) throws Exception {
+        return execute(
+                target,
+                projectRoot,
+                sourceRoots,
+                resourceRoots,
+                artifactName,
+                null,
+                null,
+                null
+        );
+    }
+
+    public TargetGenerationResult execute(
+            ResolvedTarget target,
+            Path projectRoot,
+            List<Path> sourceRoots,
+            List<Path> resourceRoots,
+            String artifactName,
+            Collection<Path> selectedSourceFiles,
+            Collection<Path> selectedResourceFiles
+    ) throws Exception {
+        return execute(
+                target,
+                projectRoot,
+                sourceRoots,
+                resourceRoots,
+                artifactName,
+                selectedSourceFiles,
+                selectedResourceFiles,
+                null
+        );
+    }
+
+    public TargetGenerationResult execute(
+            ResolvedTarget target,
+            Path projectRoot,
+            List<Path> sourceRoots,
+            List<Path> resourceRoots,
+            String artifactName,
+            Collection<Path> selectedSourceFiles,
+            Collection<Path> selectedResourceFiles,
+            Map<String, String> manifestAttributes
     ) throws Exception {
         Objects.requireNonNull(target, "target");
         Objects.requireNonNull(projectRoot, "projectRoot");
@@ -55,8 +106,10 @@ public final class TargetGenerationPipeline {
                 .workspace(target.workspace());
 
         GeneratedWorkspace ws = target.workspace();
-        ws.init();
+        validateWorkspaceIsolation(target, sourceRoots, resourceRoots);
+        ws.prepare();
         TargetContext targetContext = target.toTargetContext();
+        String stage = "TARGET_RESOLUTION";
 
         try {
             // Stage 1 & 2: Validate Target & Environments
@@ -72,16 +125,15 @@ public final class TargetGenerationPipeline {
             }
 
             // Stage 3: Verify Artifacts and Classpaths
+            stage = "ARTIFACT_VERIFICATION";
             verifyArtifacts(target);
 
             // Stage 4: Load Configuration
+            stage = "CONFIGURATION";
             ContinuumProjectConfiguration projConfig = target.projectConfiguration();
             if (projConfig == null) {
-                Path cfgRoot = projectRoot.resolve("src/main/resources/continuumlib");
-                if (!Files.exists(cfgRoot)) {
-                    cfgRoot = projectRoot.resolve("src/main/resources/data/continuumlib");
-                }
-                projConfig = new FilterConfigurationReader().load(cfgRoot);
+                var discoveredConfig = new ProjectConfigurationLocator().locate(projectRoot);
+                projConfig = new FilterConfigurationReader().load(discoveredConfig.root());
             }
 
             InclusionRuleSet activeInclusions = projConfig.inclusions() != null
@@ -92,12 +144,19 @@ public final class TargetGenerationPipeline {
                     : ExclusionRuleSet.EMPTY;
 
             // Stage 5: Discover Source Files and Resources
-            List<Path> discoveredSources = discoverJavaSources(sourceRoots);
-            Map<String, Path> discoveredResources = discoverProjectResources(resourceRoots);
+            stage = "DISCOVERY";
+            List<Path> discoveredSources = selectedSourceFiles == null
+                    ? discoverJavaSources(sourceRoots)
+                    : selectedJavaSources(sourceRoots, selectedSourceFiles);
+            validateUniqueSourcePaths(discoveredSources, sourceRoots);
+            Map<String, Path> discoveredResources = selectedResourceFiles == null
+                    ? discoverProjectResources(resourceRoots)
+                    : selectedProjectResources(resourceRoots, selectedResourceFiles);
             resultBuilder.discoveredSourceFiles(discoveredSources);
             resultBuilder.discoveredResources(discoveredResources);
 
             // Stage 6: File-Level Selection (BEFORE AST PARSING)
+            stage = "FILE_FILTERING";
             List<Path> includedSources = new ArrayList<>();
             List<Path> excludedSources = new ArrayList<>();
 
@@ -105,10 +164,13 @@ public final class TargetGenerationPipeline {
                 Path root = findMatchingRoot(srcFile, sourceRoots);
                 String relPath = root.relativize(srcFile).toString().replace('\\', '/');
 
-                if (activeExclusions.rules().matchesSource(relPath)) {
-                    excludedSources.add(srcFile);
-                } else {
+                boolean included = !activeInclusions.rules().hasSourceRules()
+                        || activeInclusions.rules().matchesSource(relPath);
+                boolean excluded = activeExclusions.rules().matchesSource(relPath);
+                if (included && !excluded) {
                     includedSources.add(srcFile);
+                } else {
+                    excludedSources.add(srcFile);
                 }
             }
 
@@ -117,81 +179,107 @@ public final class TargetGenerationPipeline {
 
             for (var entry : discoveredResources.entrySet()) {
                 String relPath = entry.getKey();
-                if (activeExclusions.rules().matchesResource(relPath)) {
-                    excludedResources.put(relPath, entry.getValue());
-                } else {
+                boolean included = !activeInclusions.rules().hasResourceRules()
+                        || activeInclusions.rules().matchesResource(relPath);
+                boolean excluded = activeExclusions.rules().matchesResource(relPath);
+                if (included && !excluded) {
                     includedResources.put(relPath, entry.getValue());
+                } else {
+                    excludedResources.put(relPath, entry.getValue());
                 }
             }
 
-            resultBuilder.includedSourceFiles(includedSources);
-            resultBuilder.excludedSourceFiles(excludedSources);
             resultBuilder.includedResources(includedResources);
             resultBuilder.excludedResources(excludedResources);
 
-            // Stage 7: Parse Selected Java Source (Only non-excluded files!)
+            // Stage 7-11: Parse selected source, then apply semantic class/registry filtering.
+            stage = "SOURCE_ANALYSIS";
             List<Path> srcClasspath = new ArrayList<>(target.sourceArtifacts().values());
-            for (var art : target.sourceClasspath().values()) srcClasspath.add(art.file());
+            for (var artifact : target.sourceClasspath().values()) srcClasspath.add(artifact.file());
 
-            SourceParser parser = new SourceParser(sourceRoots, srcClasspath);
-            List<SourceUnit> activeUnits = parser.parseFiles(includedSources, sourceRoots);
+            SourceParser parser = new SourceParser(
+                    sourceRoots,
+                    srcClasspath,
+                    target.sourceEnvironment().javaVersion()
+            );
+            List<SourceUnit> parsedUnits = parser.parseFiles(includedSources, sourceRoots);
 
-            // Stage 8 & 9: Build Source Semantic and Registry Indexes
-            RegistryIndex registryIndex = registryScanner.scan(activeUnits);
-
-            // Stage 10: Apply Registry Declarations Exclusions
-            List<RegistryEntry> excludedRegistry = new ArrayList<>();
-            for (RegistryFilterRule rule : activeExclusions.rules().registryRules()) {
-                List<RegistryEntry> matched = registryIndex.findByTypeAndId(rule.registryType(), rule.id());
-                for (RegistryEntry entry : matched) {
-                    RegistryEntry effective = (entry.namespace() == null && rule.id().contains(":"))
-                            ? new RegistryEntry(entry.registryType(), rule.id().substring(0, rule.id().indexOf(':')), entry.id(), entry.ownerClass(), entry.fieldName(), entry.sourcePath(), entry.lineNumber())
-                            : entry;
-                    excludedRegistry.add(effective);
-                    removeDeclarationFromUnits(entry, activeUnits);
-                }
-            }
-            resultBuilder.excludedRegistryEntries(excludedRegistry);
-
-            // Stage 11: Validate Excluded Declaration References
+            FilterEngine.FilterResult filterResult;
             try {
-                conflictDetector.validate(targetContext, excludedRegistry, activeUnits);
+                filterResult = filterEngine.process(
+                        targetContext,
+                        activeInclusions,
+                        activeExclusions,
+                        parsedUnits,
+                        includedResources
+                );
             } catch (ExclusionConflictException e) {
-                Diagnostic diag = Diagnostic.builder()
+                Diagnostic diagnostic = Diagnostic.builder()
                         .code(DiagnosticCode.EXCLUDED_DECLARATION_REFERENCED)
                         .severity(Severity.ERROR)
                         .targetId(target.targetId())
                         .stage("EXCLUSION_VALIDATION")
                         .message(e.getMessage())
                         .build();
-                resultBuilder.addDiagnostic(diag);
+                resultBuilder.addDiagnostic(diagnostic);
                 throw e;
             }
 
+            List<SourceUnit> activeUnits = filterResult.activeSources();
+            excludedSources.addAll(filterResult.excludedSources().stream()
+                    .map(SourceUnit::sourceFile)
+                    .filter(path -> !excludedSources.contains(path))
+                    .toList());
+            includedSources = activeUnits.stream().map(SourceUnit::sourceFile).toList();
+
+            resultBuilder.includedSourceFiles(includedSources);
+            resultBuilder.excludedSourceFiles(excludedSources);
+            resultBuilder.excludedRegistryEntries(filterResult.excludedRegistryEntries());
+
             // Stage 12: Resolve Canonical Verified Migration Plan
+            stage = "MIGRATION_PLAN";
             CanonicalMigrationPlan migrationPlan = CanonicalMigrationPlan.fromRulePacks(target.rulePacks());
 
             // Stage 13: Apply Source-Level Transformations
-            SourceTransformer transformer = new SourceTransformer(migrationPlan);
+            stage = "SOURCE_TRANSFORM";
+            List<Path> sourceIndexPaths = srcClasspath.stream()
+                    .map(path -> path.toAbsolutePath().normalize())
+                    .distinct()
+                    .sorted()
+                    .toList();
+            Map<String, ClassInfo> sourceApi = ArtifactIndex.read(sourceIndexPaths).classes();
+
+            SourceTransformer transformer = new SourceTransformer(migrationPlan, sourceApi);
             SourceTransformer.TransformationResult transformResult = transformer.transform(activeUnits, ws.sourceDir());
             resultBuilder.appliedMigrations(transformResult.appliedMigrations());
             resultBuilder.diagnostics(transformResult.diagnostics());
 
-            // Stage 14 & 15: Target Workspace Generated Sources & Resources Written
-            // Generated sources were written to ws.sourceDir() by transform()
-            // Copy active resources into workspace resources
+            Optional<Diagnostic> transformFailure = transformResult.diagnostics().stream()
+                    .filter(diagnostic -> diagnostic.severity() == Severity.ERROR)
+                    .findFirst();
+            if (transformFailure.isPresent()) {
+                throw new PipelineExecutionException("Source transformation produced fatal diagnostics", transformFailure.get());
+            }
+
+            stage = "RESOURCE_STAGING";
+            Map<String, Path> workspaceResources = new TreeMap<>();
             for (var entry : includedResources.entrySet()) {
                 Path dest = ws.resourcesDir().resolve(entry.getKey()).toAbsolutePath().normalize();
+                if (!dest.startsWith(ws.resourcesDir().toAbsolutePath().normalize())) {
+                    throw new IOException("Resource path escapes workspace: " + entry.getKey());
+                }
                 Files.createDirectories(dest.getParent());
                 Files.copy(entry.getValue(), dest, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+                workspaceResources.put(entry.getKey(), dest);
             }
 
             // Stage 16: Compile Generated Target Source
+            stage = "COMPILATION";
             List<Path> targetClasspath = new ArrayList<>(target.targetArtifacts().values());
             for (var art : target.targetClasspath().values()) targetClasspath.add(art.file());
 
             try {
-                SourceCompiler.compile(transformResult.generatedFiles(), targetClasspath, ws.classesDir(), target.javaVersion());
+                sourceCompiler.compile(transformResult.generatedFiles(), targetClasspath, ws.classesDir(), target.javaVersion());
                 resultBuilder.compilationSuccess(true);
             } catch (Exception e) {
                 Diagnostic diag = Diagnostic.builder()
@@ -210,31 +298,70 @@ public final class TargetGenerationPipeline {
             resultBuilder.compiledClassesCount(classCount);
 
             // Stage 17: Package Target Artifact into Staging
+            stage = "PACKAGING";
             String jarName = (artifactName != null && !artifactName.isBlank()) ? artifactName : (target.targetId() + ".jar");
             Path stagedJar = ws.stagingJar(jarName);
-            TargetJarPackager.packageJarWithResources(ws.classesDir(), includedResources, stagedJar);
+            TargetJarPackager.packageJarWithResources(
+                    ws.classesDir(),
+                    workspaceResources,
+                    manifestAttributes,
+                    stagedJar
+            );
 
-            // Stage 18: Apply Bytecode-Level Work Where Explicitly Required
-            int bytecodeAdapted = applyBytecodeWork(target, stagedJar, transformResult.appliedMigrations(), migrationPlan);
-            resultBuilder.bytecodeAdaptedCount(bytecodeAdapted);
+            // Stage 18: Apply bytecode-only migrations that source transformation did not consume.
+            stage = "BYTECODE_MIGRATION";
+            var bytecodeResult = new BytecodeMigrationExecutor().apply(
+                    stagedJar,
+                    migrationPlan,
+                    transformResult.appliedMigrations()
+            );
+            resultBuilder.appliedMigrations(bytecodeResult.appliedMigrations());
+
+            stage = "NAMESPACE_EXPORT";
+            int namespaceAdapted;
+            try {
+                namespaceAdapted = new NamespaceExporter().export(stagedJar, target).adaptedClasses();
+            } catch (IOException | IllegalArgumentException e) {
+                Diagnostic diagnostic = Diagnostic.builder()
+                        .code(DiagnosticCode.INVALID_MAPPING_SETUP)
+                        .severity(Severity.ERROR)
+                        .targetId(target.targetId())
+                        .stage("NAMESPACE_EXPORT")
+                        .message("Namespace export failed: " + e.getMessage())
+                        .build();
+                resultBuilder.addDiagnostic(diagnostic);
+                throw new PipelineExecutionException("Namespace export failed", diagnostic);
+            }
+            resultBuilder.bytecodeAdaptedCount(bytecodeResult.adaptedClasses() + namespaceAdapted);
 
             // Stage 19: Run Final Bytecode/Target Reference Audit
+            stage = "AUDIT";
             List<TargetReferenceAudit.Finding> findings = auditTargetArtifact(target, stagedJar);
             resultBuilder.auditFindings(findings);
 
-            for (var f : findings) {
-                if (f.status() == TargetReferenceAudit.Status.OWNER_MISSING || f.status() == TargetReferenceAudit.Status.MEMBER_MISSING) {
-                    resultBuilder.addDiagnostic(Diagnostic.builder()
-                            .code(DiagnosticCode.STRICT_TARGET_AUDIT_FAILURE)
-                            .severity(Severity.ERROR)
-                            .targetId(target.targetId())
-                            .stage("AUDIT")
-                            .message("Audit reference failure: [" + f.status() + "] " + f.detail())
-                            .build());
+            Diagnostic firstAuditFailure = null;
+            for (var finding : findings) {
+                Severity severity = fatalAuditStatus(finding.status()) ? Severity.ERROR : Severity.WARNING;
+                Diagnostic diagnostic = Diagnostic.builder()
+                        .code(severity == Severity.ERROR
+                                ? DiagnosticCode.STRICT_TARGET_AUDIT_FAILURE
+                                : DiagnosticCode.TARGET_AUDIT_REVIEW)
+                        .severity(severity)
+                        .targetId(target.targetId())
+                        .stage("AUDIT")
+                        .message("Audit reference result: [" + finding.status() + "] " + finding.detail())
+                        .build();
+                resultBuilder.addDiagnostic(diagnostic);
+                if (severity == Severity.ERROR && firstAuditFailure == null) {
+                    firstAuditFailure = diagnostic;
                 }
+            }
+            if (firstAuditFailure != null) {
+                throw new PipelineExecutionException("Target reference audit failed", firstAuditFailure);
             }
 
             // Stage 20: Finalize Target Artifact & Reports
+            stage = "FINALIZATION";
             Path finalJar = ws.finalizeJar(stagedJar, jarName);
             resultBuilder.outputJar(finalJar);
 
@@ -243,81 +370,248 @@ public final class TargetGenerationPipeline {
             return result;
 
         } catch (Exception e) {
-            ws.cleanStaging();
+            if (e instanceof PipelineExecutionException pipelineFailure) {
+                resultBuilder.addDiagnostic(pipelineFailure.diagnostic());
+            } else if (!resultBuilder.hasErrorDiagnostic()) {
+                String message = e.getMessage();
+                if (message == null || message.isBlank()) {
+                    message = e.getClass().getSimpleName();
+                }
+                resultBuilder.addDiagnostic(Diagnostic.builder()
+                        .code(DiagnosticCode.PIPELINE_EXECUTION_FAILED)
+                        .severity(Severity.ERROR)
+                        .targetId(target.targetId())
+                        .stage(stage)
+                        .message(message)
+                        .build());
+            }
+
+            try {
+                ws.cleanStaging();
+            } catch (IOException cleanupFailure) {
+                e.addSuppressed(cleanupFailure);
+            }
             TargetGenerationResult partialResult = resultBuilder.build();
             try {
                 reportWriter.write(partialResult);
-            } catch (IOException ignored) {}
+            } catch (IOException ignored) {
+            }
             throw e;
         }
     }
 
+    private static void validateWorkspaceIsolation(
+            ResolvedTarget target,
+            List<Path> sourceRoots,
+            List<Path> resourceRoots
+    ) throws IOException {
+        Path workspace = target.workspace().rootDir().toAbsolutePath().normalize();
+        Path effectiveWorkspace = resolveThroughExistingAncestor(workspace);
+        List<Path> inputs = new ArrayList<>();
+        if (sourceRoots != null) inputs.addAll(sourceRoots);
+        if (resourceRoots != null) inputs.addAll(resourceRoots);
+        inputs.addAll(target.sourceArtifacts().values());
+        inputs.addAll(target.targetArtifacts().values());
+        target.sourceClasspath().values().forEach(artifact -> inputs.add(artifact.file()));
+        target.targetClasspath().values().forEach(artifact -> inputs.add(artifact.file()));
+        if (target.sourceMapping() != null) inputs.add(target.sourceMapping().file());
+        if (target.targetMapping() != null) inputs.add(target.targetMapping().file());
+        if (target.projectConfiguration() != null && target.projectConfiguration().configurationRoot() != null) {
+            inputs.add(target.projectConfiguration().configurationRoot());
+        }
+
+        for (Path input : inputs) {
+            if (input == null) continue;
+            Path normalizedInput = input.toAbsolutePath().normalize();
+            if (pathsOverlap(workspace, normalizedInput)) {
+                throw new IOException("Generated workspace must not overlap consumer input path: "
+                        + workspace + " vs " + normalizedInput);
+            }
+
+            Path effectiveInput = resolveThroughExistingAncestor(normalizedInput);
+            if (pathsOverlap(effectiveWorkspace, effectiveInput)) {
+                throw new IOException("Generated workspace must not overlap consumer input path through symbolic links: "
+                        + workspace + " vs " + normalizedInput);
+            }
+        }
+    }
+
+    private static boolean pathsOverlap(Path left, Path right) {
+        return left.equals(right) || left.startsWith(right) || right.startsWith(left);
+    }
+
+    private static Path resolveThroughExistingAncestor(Path path) throws IOException {
+        Path normalized = path.toAbsolutePath().normalize();
+        Path existing = normalized;
+        while (existing != null && !Files.exists(existing, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+            existing = existing.getParent();
+        }
+        if (existing == null) return normalized;
+
+        Path resolved = existing.toRealPath();
+        if (existing.equals(normalized)) return resolved;
+
+        return resolved.resolve(existing.relativize(normalized)).normalize();
+    }
+
     private static void verifyArtifacts(ResolvedTarget target) throws IOException {
         for (var entry : target.sourceArtifacts().entrySet()) {
-            if (!Files.exists(entry.getValue())) {
+            if (!Files.isRegularFile(entry.getValue())) {
                 throw new IOException("Missing source artifact '" + entry.getKey() + "': " + entry.getValue());
             }
         }
         for (var entry : target.targetArtifacts().entrySet()) {
-            if (!Files.exists(entry.getValue())) {
+            if (!Files.isRegularFile(entry.getValue())) {
                 throw new IOException("Missing target artifact '" + entry.getKey() + "': " + entry.getValue());
             }
         }
-        for (var dep : target.sourceClasspath().values()) {
-            dep.verify();
+        for (var dependency : target.sourceClasspath().values()) {
+            dependency.verify();
         }
-        for (var dep : target.targetClasspath().values()) {
-            dep.verify();
+        for (var dependency : target.targetClasspath().values()) {
+            dependency.verify();
+        }
+
+        if (!target.rulePacks().isEmpty()) {
+            new ClassAdaptationPlan(
+                    target.sourceEnvironment(),
+                    target.targetEnvironment(),
+                    target.rulePacks()
+            ).bind(target.sourceArtifacts(), target.targetArtifacts());
         }
     }
 
     private static List<Path> discoverJavaSources(List<Path> sourceRoots) throws IOException {
-        List<Path> list = new ArrayList<>();
+        Set<Path> files = new TreeSet<>(Comparator.comparing(Path::toString));
         for (Path root : sourceRoots) {
-            if (!Files.isDirectory(root)) continue;
-            try (Stream<Path> stream = Files.walk(root)) {
-                stream.filter(p -> Files.isRegularFile(p) && p.getFileName().toString().endsWith(".java"))
-                        .forEach(list::add);
+            Path normalizedRoot = root.toAbsolutePath().normalize();
+            if (!Files.isDirectory(normalizedRoot)) continue;
+            try (Stream<Path> stream = Files.walk(normalizedRoot)) {
+                for (Path path : stream
+                        .filter(p -> Files.isRegularFile(p) && p.getFileName().toString().endsWith(".java"))
+                        .map(candidate -> candidate.toAbsolutePath().normalize())
+                        .toList()) {
+                    ensureRealPathWithinRoot(normalizedRoot, path, "Source");
+                    files.add(path);
+                }
             }
         }
-        return Collections.unmodifiableList(list);
+        return List.copyOf(files);
+    }
+
+    private static List<Path> selectedJavaSources(
+            List<Path> sourceRoots,
+            Collection<Path> selectedSourceFiles
+    ) throws IOException {
+        List<Path> selected = new ArrayList<>();
+        for (Path file : selectedSourceFiles) {
+            if (file == null) continue;
+            Path normalized = file.toAbsolutePath().normalize();
+            if (!Files.isRegularFile(normalized) || !normalized.getFileName().toString().endsWith(".java")) {
+                continue;
+            }
+            Path root = sourceRoots.stream()
+                    .map(path -> path.toAbsolutePath().normalize())
+                    .filter(normalized::startsWith)
+                    .max(Comparator.comparingInt(Path::getNameCount))
+                    .orElseThrow(() -> new IOException(
+                            "Selected source is outside configured source roots: " + normalized));
+            ensureRealPathWithinRoot(root, normalized, "Source");
+            selected.add(normalized);
+        }
+        return selected.stream().distinct().sorted().toList();
+    }
+
+    private static Map<String, Path> selectedProjectResources(
+            List<Path> resourceRoots,
+            Collection<Path> selectedResourceFiles
+    ) throws IOException {
+        Map<String, Path> map = new TreeMap<>();
+        for (Path file : selectedResourceFiles) {
+            if (file == null) continue;
+            Path normalized = file.toAbsolutePath().normalize();
+            if (!Files.isRegularFile(normalized)) continue;
+
+            Path root = resourceRoots.stream()
+                    .map(path -> path.toAbsolutePath().normalize())
+                    .filter(normalized::startsWith)
+                    .max(Comparator.comparingInt(Path::getNameCount))
+                    .orElseThrow(() -> new IOException(
+                            "Selected resource is outside configured resource roots: " + normalized));
+
+            ensureRealPathWithinRoot(root, normalized, "Resource");
+            String path = root.relativize(normalized).toString().replace('\\', '/');
+            if (path.startsWith("continuumlib/") || path.startsWith("data/continuumlib/")) {
+                continue;
+            }
+
+            Path previous = map.putIfAbsent(path, normalized);
+            if (previous != null && !previous.equals(normalized)) {
+                throw new IOException("Duplicate resource path across roots: " + path
+                        + " -> " + previous + " and " + normalized);
+            }
+        }
+        return Collections.unmodifiableMap(map);
     }
 
     private static Map<String, Path> discoverProjectResources(List<Path> resourceRoots) throws IOException {
         Map<String, Path> map = new TreeMap<>();
         for (Path root : resourceRoots) {
-            if (!Files.isDirectory(root)) continue;
-            Map<String, Path> raw = FilterEngine.discoverResources(root);
+            Path normalizedRoot = root.toAbsolutePath().normalize();
+            if (!Files.isDirectory(normalizedRoot)) continue;
+            Map<String, Path> raw = FilterEngine.discoverResources(normalizedRoot);
             for (var entry : raw.entrySet()) {
                 String path = entry.getKey();
-                if (!path.startsWith("continuumlib/") && !path.startsWith("data/continuumlib/")) {
-                    map.put(path, entry.getValue());
+                if (path.startsWith("continuumlib/") || path.startsWith("data/continuumlib/")) {
+                    continue;
+                }
+                Path value = entry.getValue().toAbsolutePath().normalize();
+                ensureRealPathWithinRoot(normalizedRoot, value, "Resource");
+                Path previous = map.putIfAbsent(path, value);
+                if (previous != null && !previous.equals(value)) {
+                    throw new IOException("Duplicate resource path across roots: " + path
+                            + " -> " + previous + " and " + value);
                 }
             }
         }
         return Collections.unmodifiableMap(map);
     }
 
-    private static Path findMatchingRoot(Path file, List<Path> roots) {
-        for (Path root : roots) {
-            if (file.startsWith(root)) return root;
+    private static void ensureRealPathWithinRoot(
+            Path root,
+            Path file,
+            String label
+    ) throws IOException {
+        Path realRoot = root.toRealPath();
+        Path realFile = file.toRealPath();
+        if (!realFile.startsWith(realRoot)) {
+            throw new IOException(label + " file escapes configured root through symbolic links: "
+                    + file + " -> " + realFile + " (root " + root + ")");
         }
-        return roots.get(0);
     }
 
-    private static void removeDeclarationFromUnits(RegistryEntry entry, List<SourceUnit> units) {
-        for (SourceUnit unit : units) {
-            if (unit.relativePath().replace('\\', '/').equals(entry.sourcePath().replace('\\', '/'))) {
-                for (var cid : unit.ast().findAll(com.github.javaparser.ast.body.ClassOrInterfaceDeclaration.class)) {
-                    for (var fd : new ArrayList<>(cid.getFields())) {
-                        fd.getVariables().removeIf(v -> v.getNameAsString().equals(entry.fieldName()));
-                        if (fd.getVariables().isEmpty()) {
-                            fd.remove();
-                        }
-                    }
-                }
+    private static void validateUniqueSourcePaths(List<Path> sourceFiles, List<Path> sourceRoots) throws IOException {
+        Map<String, Path> logicalPaths = new TreeMap<>();
+        for (Path file : sourceFiles) {
+            Path root = findMatchingRoot(file, sourceRoots);
+            String relative = root.relativize(file).toString().replace('\\', '/');
+            Path normalized = file.toAbsolutePath().normalize();
+            Path previous = logicalPaths.putIfAbsent(relative, normalized);
+            if (previous != null && !previous.equals(normalized)) {
+                throw new IOException("Duplicate source path across roots: " + relative
+                        + " -> " + previous + " and " + normalized);
             }
         }
+    }
+
+    private static Path findMatchingRoot(Path file, List<Path> roots) {
+        Path normalizedFile = file.toAbsolutePath().normalize();
+        return roots.stream()
+                .map(root -> root.toAbsolutePath().normalize())
+                .filter(normalizedFile::startsWith)
+                .max(Comparator.comparingInt(Path::getNameCount))
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "Source file is outside configured source roots: " + normalizedFile));
     }
 
     private static int countCompiledClasses(Path classesDir) throws IOException {
@@ -327,43 +621,31 @@ public final class TargetGenerationPipeline {
         }
     }
 
-    private int applyBytecodeWork(
-            ResolvedTarget target,
-            Path stagedJar,
-            List<AppliedMigration> appliedMigrations,
-            CanonicalMigrationPlan migrationPlan
-    ) throws IOException {
-        // Collect rules already completely handled in source
-        Set<CanonicalMigrationRule> appliedRules = new HashSet<>();
-        for (var app : appliedMigrations) {
-            for (var rule : migrationPlan.rules()) {
-                if (rule.type() == app.type()
-                        && Objects.equals(rule.sourceOwner(), app.sourceOwner())
-                        && Objects.equals(rule.sourceName(), app.sourceName())) {
-                    appliedRules.add(rule);
-                }
+    private static boolean fatalAuditStatus(TargetReferenceAudit.Status status) {
+        return switch (status) {
+            case OWNER_MISSING, MEMBER_MISSING, STATIC_MISMATCH, OWNER_KIND_MISMATCH,
+                    ACCESS_DENIED, FINAL_WRITE_ILLEGAL -> true;
+            case DECLARATION_FOUND, HIERARCHY_INCOMPLETE, INHERITANCE_REQUIRES_REVIEW,
+                    ACCESS_REQUIRES_REVIEW -> false;
+        };
+    }
+
+    static List<TargetReferenceAudit.Finding> auditTargetArtifact(ResolvedTarget target, Path jarPath) throws IOException {
+        Map<String, ClassInfo> targetApi = new HashMap<>(new TargetApiResolver().forNamespace(
+                target,
+                target.mappingNamespace()
+        ));
+        for (var entry : ArtifactIndex.read(List.of(jarPath)).classes().entrySet()) {
+            if (targetApi.putIfAbsent(entry.getKey(), entry.getValue()) != null) {
+                throw new IOException("Generated mod duplicates target API class: " + entry.getKey());
             }
         }
 
-        List<CanonicalMigrationRule> bytecodeRules = migrationPlan.unappliedBytecodeRules(appliedRules);
-        if (bytecodeRules.isEmpty() && target.outputNamespace() == null) {
-            return 0;
-        }
-
-        // Apply bytecode transformations if rules require bytecode layer
-        return 0;
-    }
-
-    private List<TargetReferenceAudit.Finding> auditTargetArtifact(ResolvedTarget target, Path jarPath) throws IOException {
-        List<Path> targetApiPaths = new ArrayList<>(target.targetArtifacts().values());
-        for (var dep : target.targetClasspath().values()) {
-            targetApiPaths.add(dep.file());
-        }
-        Map<String, ClassInfo> targetApi = ArtifactIndex.read(targetApiPaths).classes();
         TargetReferenceAudit audit = new TargetReferenceAudit(targetApi);
         ReferenceScanner scanner = new ReferenceScanner();
 
         List<TargetReferenceAudit.Finding> findings = new ArrayList<>();
+        Set<String> missingTypes = new LinkedHashSet<>();
         try (var jar = new java.util.jar.JarFile(jarPath.toFile())) {
             for (var entry : Collections.list(jar.entries())) {
                 if (!entry.getName().endsWith(".class") || entry.getName().equals("module-info.class")) continue;
@@ -371,7 +653,22 @@ public final class TargetGenerationPipeline {
                 try (var stream = jar.getInputStream(entry)) {
                     bytes = stream.readAllBytes();
                 }
+                for (String type : scanner.types(bytes)) {
+                    if (isPlatformOwner(type) || targetApi.containsKey(type)) {
+                        continue;
+                    }
+                    if (missingTypes.add(type)) {
+                        findings.add(new TargetReferenceAudit.Finding(
+                                TargetReferenceAudit.Status.OWNER_MISSING,
+                                "Referenced type missing from target/linkage index: " + type
+                        ));
+                    }
+                }
+
                 for (var use : scanner.scan(bytes)) {
+                    if (isPlatformOwner(use.target().owner())) {
+                        continue;
+                    }
                     var finding = audit.check(use);
                     if (finding.status() != TargetReferenceAudit.Status.DECLARATION_FOUND) {
                         findings.add(finding);
@@ -380,6 +677,16 @@ public final class TargetGenerationPipeline {
             }
         }
         return findings;
+    }
+
+    private static boolean isPlatformOwner(String owner) {
+        return owner.startsWith("java/")
+                || owner.startsWith("javax/")
+                || owner.startsWith("jdk/")
+                || owner.startsWith("sun/")
+                || owner.startsWith("com/sun/")
+                || owner.startsWith("org/w3c/dom/")
+                || owner.startsWith("org/xml/sax/");
     }
 
     public static final class PipelineExecutionException extends RuntimeException {

@@ -437,6 +437,47 @@ class TargetGenerationPipelineTest {
         assertFalse(Files.exists(workspace.stagingJar("conflict-target.jar")));
     }
 
+    @Test
+    void pipelineFallbackRejectsDualProjectConfiguration(@TempDir Path tempDir) throws Exception {
+        Path srcApiJar = tempDir.resolve("src-api.jar");
+        createApiJar(srcApiJar, "example/SourceApi", false);
+        Path tgtApiJar = tempDir.resolve("tgt-api.jar");
+        createApiJar(tgtApiJar, "example/TargetApi", true);
+
+        Path projectRoot = tempDir.resolve("dual-config-project");
+        Path srcDir = projectRoot.resolve("src/main/java");
+        Path resDir = projectRoot.resolve("src/main/resources");
+        Path canonical = resDir.resolve("continuumlib");
+        Path legacy = resDir.resolve("data/continuumlib");
+        Files.createDirectories(srcDir);
+        Files.createDirectories(canonical);
+        Files.createDirectories(legacy);
+        Files.writeString(canonical.resolve("targets.properties"), "targets=test-target\n");
+        Files.writeString(legacy.resolve("transform.properties"), "pack=test\n");
+
+        EnvironmentId source = new EnvironmentId("1.20.1", Loader.FABRIC, MappingNamespace.OFFICIAL, 17);
+        EnvironmentId targetEnv = new EnvironmentId("1.21.1", Loader.FABRIC, MappingNamespace.OFFICIAL, 17);
+        GeneratedWorkspace workspace = new GeneratedWorkspace(projectRoot.resolve("build"), "test-target");
+
+        ResolvedTarget target = ResolvedTarget.builder()
+                .targetId("test-target")
+                .sourceEnvironment(source)
+                .targetEnvironment(targetEnv)
+                .sourceArtifacts(Map.of("game", srcApiJar))
+                .targetArtifacts(Map.of("game", tgtApiJar))
+                .workspace(workspace)
+                .build();
+
+        assertThrows(ProjectConfigurationLocator.DualConfigurationException.class, () ->
+                new TargetGenerationPipeline().execute(
+                        target,
+                        projectRoot,
+                        List.of(srcDir),
+                        List.of(resDir),
+                        "test-target.jar"
+                ));
+    }
+
     private static void createApiJar(Path jarPath, String className, boolean isTarget) throws IOException {
         Files.createDirectories(jarPath.getParent());
         ClassWriter cw = new ClassWriter(0);
@@ -492,4 +533,357 @@ class TargetGenerationPipelineTest {
     private static String digest(Path file) throws Exception {
         return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(Files.readAllBytes(file)));
     }
+    @Test
+    void rejectsDuplicateLogicalPathsAcrossInputRoots(@TempDir Path tempDir) throws Exception {
+        Path sourceApi = tempDir.resolve("source-api.jar");
+        Path targetApi = tempDir.resolve("target-api.jar");
+        try (var ignored = new JarOutputStream(Files.newOutputStream(sourceApi))) {}
+        try (var ignored = new JarOutputStream(Files.newOutputStream(targetApi))) {}
+
+        Path projectRoot = tempDir.resolve("duplicate-project");
+        Path sourceA = projectRoot.resolve("src-a");
+        Path sourceB = projectRoot.resolve("src-b");
+        Path resourceA = projectRoot.resolve("res-a");
+        Path resourceB = projectRoot.resolve("res-b");
+        Files.createDirectories(sourceA.resolve("example"));
+        Files.createDirectories(sourceB.resolve("example"));
+        Files.createDirectories(resourceA.resolve("assets/example"));
+        Files.createDirectories(resourceB.resolve("assets/example"));
+        Files.writeString(sourceA.resolve("example/Duplicate.java"), "package example; class Duplicate {}");
+        Files.writeString(sourceB.resolve("example/Duplicate.java"), "package example; class Duplicate {}");
+        Files.writeString(resourceA.resolve("assets/example/data.json"), "{}");
+        Files.writeString(resourceB.resolve("assets/example/data.json"), "{}");
+
+        EnvironmentId env = new EnvironmentId("1.20.1", Loader.FABRIC, MappingNamespace.OFFICIAL, 17);
+        GeneratedWorkspace sourceWorkspace = new GeneratedWorkspace(projectRoot.resolve("build"), "source-duplicate");
+        ResolvedTarget sourceTarget = ResolvedTarget.builder()
+                .targetId("source-duplicate")
+                .sourceEnvironment(env)
+                .targetEnvironment(env)
+                .sourceArtifacts(Map.of("api", sourceApi))
+                .targetArtifacts(Map.of("api", targetApi))
+                .workspace(sourceWorkspace)
+                .projectConfiguration(ContinuumProjectConfiguration.empty(projectRoot.resolve("src/main/resources/continuumlib")))
+                .build();
+
+        IOException sourceFailure = assertThrows(IOException.class, () ->
+                new TargetGenerationPipeline().execute(
+                        sourceTarget,
+                        projectRoot,
+                        List.of(sourceA, sourceB),
+                        List.of(),
+                        "source.jar"
+                ));
+        assertTrue(sourceFailure.getMessage().contains("Duplicate source path across roots"));
+
+        GeneratedWorkspace resourceWorkspace = new GeneratedWorkspace(projectRoot.resolve("build"), "resource-duplicate");
+        ResolvedTarget resourceTarget = ResolvedTarget.builder()
+                .targetId("resource-duplicate")
+                .sourceEnvironment(env)
+                .targetEnvironment(env)
+                .sourceArtifacts(Map.of("api", sourceApi))
+                .targetArtifacts(Map.of("api", targetApi))
+                .workspace(resourceWorkspace)
+                .projectConfiguration(ContinuumProjectConfiguration.empty(projectRoot.resolve("src/main/resources/continuumlib")))
+                .build();
+
+        IOException resourceFailure = assertThrows(IOException.class, () ->
+                new TargetGenerationPipeline().execute(
+                        resourceTarget,
+                        projectRoot,
+                        List.of(),
+                        List.of(resourceA, resourceB),
+                        "resource.jar"
+                ));
+        assertTrue(resourceFailure.getMessage().contains("Duplicate resource path across roots"));
+    }
+
+    @Test
+    void directPipelineRejectsWorkspaceOverlappingSourceBeforeCleanup(@TempDir Path project) throws Exception {
+        Path sourceRoot = project.resolve("src/main/java");
+        Path source = sourceRoot.resolve("example/Keep.java");
+        Files.createDirectories(source.getParent());
+        String original = "package example; public class Keep {}";
+        Files.writeString(source, original);
+
+        EnvironmentId env = new EnvironmentId("1.20.1", Loader.FABRIC, MappingNamespace.OFFICIAL, 17);
+        GeneratedWorkspace workspace = GeneratedWorkspace.atTargetRoot(sourceRoot, "overlap");
+        ResolvedTarget target = ResolvedTarget.builder()
+                .targetId("overlap")
+                .sourceEnvironment(env)
+                .targetEnvironment(env)
+                .workspace(workspace)
+                .projectConfiguration(ContinuumProjectConfiguration.empty(
+                        project.resolve("src/main/resources/continuumlib")))
+                .build();
+
+        IOException failure = assertThrows(IOException.class, () ->
+                new TargetGenerationPipeline().execute(
+                        target,
+                        project,
+                        List.of(sourceRoot),
+                        List.of(project.resolve("src/main/resources")),
+                        "target.jar"
+                ));
+
+        assertTrue(failure.getMessage().contains("must not overlap consumer input path"));
+        assertTrue(Files.isRegularFile(source));
+        assertEquals(original, Files.readString(source));
+    }
+
+    @Test
+    void rejectsWorkspaceHiddenBehindSymlinkedParent(@TempDir Path project) throws Exception {
+        Path sourceRoot = project.resolve("src/main/java");
+        Path source = sourceRoot.resolve("example/Keep.java");
+        Files.createDirectories(source.getParent());
+        String original = "package example; public class Keep {}";
+        Files.writeString(source, original);
+
+        Path linkedBuild = project.resolve("linked-build");
+        try {
+            Files.createSymbolicLink(linkedBuild, sourceRoot);
+        } catch (UnsupportedOperationException | IOException unavailable) {
+            org.junit.jupiter.api.Assumptions.assumeTrue(false,
+                    "Symbolic links are unavailable in this test environment");
+        }
+
+        EnvironmentId env = new EnvironmentId(
+                "1.20.1",
+                Loader.FABRIC,
+                MappingNamespace.OFFICIAL,
+                17
+        );
+        GeneratedWorkspace workspace = GeneratedWorkspace.atTargetRoot(
+                linkedBuild.resolve("continuum-target"),
+                "symlink-overlap"
+        );
+        ResolvedTarget target = ResolvedTarget.builder()
+                .targetId("symlink-overlap")
+                .sourceEnvironment(env)
+                .targetEnvironment(env)
+                .workspace(workspace)
+                .projectConfiguration(ContinuumProjectConfiguration.empty(
+                        project.resolve("src/main/resources/continuumlib")))
+                .build();
+
+        IOException failure = assertThrows(IOException.class, () ->
+                new TargetGenerationPipeline().execute(
+                        target,
+                        project,
+                        List.of(sourceRoot),
+                        List.of(project.resolve("src/main/resources")),
+                        "target.jar"
+                ));
+
+        assertTrue(failure.getMessage().contains("through symbolic links"), failure.getMessage());
+        assertEquals(original, Files.readString(source));
+        assertFalse(Files.exists(sourceRoot.resolve("continuum-target")));
+    }
+
+    @Test
+    void finalAuditIncludesGeneratedModDeclarations(@TempDir Path project) throws Exception {
+        Path sourceApi = project.resolve("source-api.jar");
+        Path targetApi = project.resolve("target-api.jar");
+        try (var ignored = new JarOutputStream(Files.newOutputStream(sourceApi))) {}
+        try (var ignored = new JarOutputStream(Files.newOutputStream(targetApi))) {}
+
+        Path sourceRoot = project.resolve("src/main/java");
+        Path resources = project.resolve("src/main/resources");
+        Files.createDirectories(sourceRoot.resolve("example"));
+        Files.createDirectories(resources);
+
+        Files.writeString(sourceRoot.resolve("example/Helper.java"), """
+                package example;
+                public class Helper {
+                    public static int value() { return 7; }
+                }
+                """);
+        Files.writeString(sourceRoot.resolve("example/Entry.java"), """
+                package example;
+                public class Entry {
+                    public int value() { return Helper.value(); }
+                }
+                """);
+
+        EnvironmentId env = new EnvironmentId(
+                "1.20.1",
+                Loader.FABRIC,
+                MappingNamespace.OFFICIAL,
+                17
+        );
+        GeneratedWorkspace workspace = new GeneratedWorkspace(project.resolve("build"), "self-audit");
+        ResolvedTarget target = ResolvedTarget.builder()
+                .targetId("self-audit")
+                .sourceEnvironment(env)
+                .targetEnvironment(env)
+                .sourceArtifacts(Map.of("api", sourceApi))
+                .targetArtifacts(Map.of("api", targetApi))
+                .workspace(workspace)
+                .projectConfiguration(ContinuumProjectConfiguration.empty(
+                        resources.resolve("continuumlib")))
+                .build();
+
+        TargetGenerationResult result = new TargetGenerationPipeline().execute(
+                target,
+                project,
+                List.of(sourceRoot),
+                List.of(resources),
+                "self-audit.jar"
+        );
+
+        assertTrue(result.isSuccess(), result.diagnostics().toString());
+        assertTrue(Files.isRegularFile(result.outputJar()));
+        assertTrue(result.auditFindings().stream()
+                .noneMatch(finding -> finding.status() == com.kyroxova.continuumlib.bytecode.TargetReferenceAudit.Status.OWNER_MISSING
+                        && finding.detail().contains("example/Helper")));
+    }
+
+    @Test
+    void finalAuditRejectsDescriptorOnlyMissingTypes(@TempDir Path root) throws Exception {
+        Path jar = root.resolve("missing-type.jar");
+
+        byte[] first = classWithMissingDescriptorType("example/UsesMissingA");
+        byte[] second = classWithMissingDescriptorType("example/UsesMissingB");
+        try (JarOutputStream output = new JarOutputStream(Files.newOutputStream(jar))) {
+            output.putNextEntry(new JarEntry("example/UsesMissingA.class"));
+            output.write(first);
+            output.closeEntry();
+            output.putNextEntry(new JarEntry("example/UsesMissingB.class"));
+            output.write(second);
+            output.closeEntry();
+        }
+
+        EnvironmentId env = new EnvironmentId(
+                "1.20.1",
+                Loader.FABRIC,
+                MappingNamespace.OFFICIAL,
+                17
+        );
+        ResolvedTarget target = ResolvedTarget.builder()
+                .targetId("missing-type")
+                .sourceEnvironment(env)
+                .targetEnvironment(env)
+                .workspace(new GeneratedWorkspace(root.resolve("build"), "missing-type"))
+                .build();
+
+        var findings = TargetGenerationPipeline.auditTargetArtifact(target, jar);
+        long missingTypeFindings = findings.stream()
+                .filter(finding ->
+                        finding.status() == com.kyroxova.continuumlib.bytecode.TargetReferenceAudit.Status.OWNER_MISSING
+                                && finding.detail().contains("missing/OnlyInDescriptor"))
+                .count();
+
+        assertEquals(1, missingTypeFindings, findings.toString());
+    }
+
+    private static byte[] classWithMissingDescriptorType(String name) {
+        ClassWriter writer = new ClassWriter(0);
+        writer.visit(
+                Opcodes.V17,
+                Opcodes.ACC_PUBLIC,
+                name,
+                null,
+                "java/lang/Object",
+                null
+        );
+        writer.visitField(
+                Opcodes.ACC_PUBLIC,
+                "value",
+                "Lmissing/OnlyInDescriptor;",
+                null,
+                null
+        ).visitEnd();
+        writer.visitEnd();
+        return writer.toByteArray();
+    }
+
+    @Test
+    void rejectsSourceFileSymlinkEscapingConfiguredRoot(@TempDir Path project) throws Exception {
+        Path sourceRoot = project.resolve("src/main/java");
+        Path outside = project.resolve("outside/External.java");
+        Files.createDirectories(sourceRoot);
+        Files.createDirectories(outside.getParent());
+        Files.writeString(outside, "package external; class External {}");
+
+        Path linked = sourceRoot.resolve("External.java");
+        try {
+            Files.createSymbolicLink(linked, outside);
+        } catch (UnsupportedOperationException | IOException unavailable) {
+            org.junit.jupiter.api.Assumptions.assumeTrue(false,
+                    "Symbolic links are unavailable in this test environment");
+        }
+
+        EnvironmentId env = new EnvironmentId(
+                "1.20.1",
+                Loader.FABRIC,
+                MappingNamespace.OFFICIAL,
+                17
+        );
+        ResolvedTarget target = ResolvedTarget.builder()
+                .targetId("source-symlink")
+                .sourceEnvironment(env)
+                .targetEnvironment(env)
+                .workspace(new GeneratedWorkspace(project.resolve("build"), "source-symlink"))
+                .projectConfiguration(ContinuumProjectConfiguration.empty(
+                        project.resolve("src/main/resources/continuumlib")))
+                .build();
+
+        IOException failure = assertThrows(IOException.class, () ->
+                new TargetGenerationPipeline().execute(
+                        target,
+                        project,
+                        List.of(sourceRoot),
+                        List.of(),
+                        "target.jar"
+                ));
+
+        assertTrue(failure.getMessage().contains("Source file escapes configured root"), failure.getMessage());
+        assertTrue(Files.isRegularFile(outside));
+    }
+
+    @Test
+    void rejectsResourceFileSymlinkEscapingConfiguredRoot(@TempDir Path project) throws Exception {
+        Path resourceRoot = project.resolve("src/main/resources");
+        Path outside = project.resolve("outside/secret.json");
+        Files.createDirectories(resourceRoot);
+        Files.createDirectories(outside.getParent());
+        Files.writeString(outside, "{\"secret\":true}");
+
+        Path linked = resourceRoot.resolve("assets/example/secret.json");
+        Files.createDirectories(linked.getParent());
+        try {
+            Files.createSymbolicLink(linked, outside);
+        } catch (UnsupportedOperationException | IOException unavailable) {
+            org.junit.jupiter.api.Assumptions.assumeTrue(false,
+                    "Symbolic links are unavailable in this test environment");
+        }
+
+        EnvironmentId env = new EnvironmentId(
+                "1.20.1",
+                Loader.FABRIC,
+                MappingNamespace.OFFICIAL,
+                17
+        );
+        ResolvedTarget target = ResolvedTarget.builder()
+                .targetId("resource-symlink")
+                .sourceEnvironment(env)
+                .targetEnvironment(env)
+                .workspace(new GeneratedWorkspace(project.resolve("build"), "resource-symlink"))
+                .projectConfiguration(ContinuumProjectConfiguration.empty(
+                        resourceRoot.resolve("continuumlib")))
+                .build();
+
+        IOException failure = assertThrows(IOException.class, () ->
+                new TargetGenerationPipeline().execute(
+                        target,
+                        project,
+                        List.of(),
+                        List.of(resourceRoot),
+                        "target.jar"
+                ));
+
+        assertTrue(failure.getMessage().contains("Resource file escapes configured root"), failure.getMessage());
+        assertEquals("{\"secret\":true}", Files.readString(outside));
+    }
+
 }

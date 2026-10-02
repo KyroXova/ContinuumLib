@@ -2,9 +2,6 @@ package com.kyroxova.continuumlib.pipeline.migration;
 
 import java.util.Objects;
 
-/**
- * Record of a migration applied by either the source or bytecode transformation layer.
- */
 public record AppliedMigration(
         String rulePackId,
         MigrationType type,
@@ -26,6 +23,16 @@ public record AppliedMigration(
     }
 
     public static AppliedMigration from(CanonicalMigrationRule rule, MigrationConfidence confidence, String file, int line) {
+        return from(rule, rule.layer(), confidence, file, line);
+    }
+
+    public static AppliedMigration from(
+            CanonicalMigrationRule rule,
+            MigrationLayer appliedLayer,
+            MigrationConfidence confidence,
+            String file,
+            int line
+    ) {
         return new AppliedMigration(
                 rule.rulePackId(),
                 rule.type(),
@@ -35,10 +42,21 @@ public record AppliedMigration(
                 rule.targetOwner(),
                 rule.targetName(),
                 rule.targetDescriptor(),
-                rule.layer(),
+                appliedLayer,
                 confidence,
                 file,
                 line
         );
+    }
+
+    public boolean matches(CanonicalMigrationRule rule) {
+        return Objects.equals(rulePackId, rule.rulePackId())
+                && type == rule.type()
+                && Objects.equals(sourceOwner, rule.sourceOwner())
+                && Objects.equals(sourceName, rule.sourceName())
+                && Objects.equals(sourceDescriptor, rule.sourceDescriptor())
+                && Objects.equals(targetOwner, rule.targetOwner())
+                && Objects.equals(targetName, rule.targetName())
+                && Objects.equals(targetDescriptor, rule.targetDescriptor());
     }
 }

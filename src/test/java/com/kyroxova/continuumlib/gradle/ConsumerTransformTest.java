@@ -155,4 +155,66 @@ class ConsumerTransformTest {
         assertTrue(failure.getOutput().contains("SHA-256 mismatch"));
         assertArrayEquals(goodOutput, Files.readAllBytes(output));
     }
+    @ParameterizedTest
+    @ValueSource(booleans = {false, true})
+    void sourceTransformTaskUsesUnifiedDescriptorAwareBridgePipeline(boolean published) throws Exception {
+        Path oldApi = api("old-source.jar", "oldCall", 2);
+        Path newApi = api("new-source.jar", "newCall", 3);
+
+        String repository = Path.of(System.getProperty("continuumlib.testRepository", "build/test-repository"))
+                .toAbsolutePath().toUri().toString();
+        Files.writeString(project.resolve("settings.gradle"), (published
+                ? "pluginManagement { repositories { maven { url = uri('" + repository + "') }; mavenCentral() } }\n"
+                : "") + "rootProject.name = 'consumer'");
+        String version = System.getProperty("continuumlib.testVersion", "1.0.0");
+        Files.writeString(project.resolve("build.gradle"),
+                "plugins { id 'com.kyroxova.continuumlib'"
+                        + (published ? " version '" + version + "'" : "") + " }\n"
+                        + "dependencies { implementation files('old-source.jar') }\n");
+
+        Path java = project.resolve("src/main/java/example/SourceAdapted.java");
+        Files.createDirectories(java.getParent());
+        String source = "package example; public class SourceAdapted { "
+                + "record Holder(int value) {} "
+                + "public int value() { return new fixture.Api(4).value + new Holder(7).value(); } }";
+        Files.writeString(java, source);
+
+        Path config = project.resolve("src/main/resources/continuumlib");
+        Files.createDirectories(config.resolve("knowledge"));
+        Files.writeString(config.resolve("transform.properties"),
+                "pack=source-fixture\nsource.api=old-source.jar\ntarget.api=new-source.jar\n");
+        Files.writeString(config.resolve("knowledge/source-fixture.xml"),
+                "<rules schema='1' id='source-fixture' evidence='Unified source fixture'>"
+                        + "<source minecraft='1.18.2' loader='FORGE' namespace='MOJMAP' java='17'>"
+                        + "<artifact name='api' sha256='" + digest(oldApi) + "'/></source>"
+                        + "<target minecraft='1.20.1' loader='FORGE' namespace='MOJMAP' java='17'>"
+                        + "<artifact name='api' sha256='" + digest(newApi) + "'/></target>"
+                        + "<bridge opcode='GETFIELD' from-owner='fixture/Api' from-name='value' from-descriptor='I' "
+                        + "to-owner='fixture/Api' to-name='readValue' to-descriptor='(Lfixture/Api;)I'/>"
+                        + "<constructor-factory from-owner='fixture/Api' from-name='&lt;init&gt;' from-descriptor='(I)V' "
+                        + "to-owner='fixture/Api' to-name='create' to-descriptor='(I)Lfixture/Api;'/></rules>");
+
+        var result = runner(published)
+                .withArguments("continuumLibTransformSource", "--stacktrace")
+                .build();
+
+        assertTrue(result.getOutput().contains("unified target pipeline"));
+        assertEquals(source, Files.readString(java));
+
+        Path generated = project.resolve("build/continuum/generated-src/example/SourceAdapted.java");
+        String generatedText = Files.readString(generated);
+        assertTrue(generatedText.contains("Api.create(4)"), generatedText);
+        assertTrue(generatedText.contains("Api.readValue("), generatedText);
+        assertTrue(generatedText.contains("record Holder"), generatedText);
+
+        Path output = project.resolve("build/continuumlib/consumer-source-adapted.jar");
+        assertTrue(Files.isRegularFile(output));
+        try (var loader = new java.net.URLClassLoader(
+                new java.net.URL[]{output.toUri().toURL(), newApi.toUri().toURL()},
+                ClassLoader.getPlatformClassLoader())) {
+            var type = loader.loadClass("example.SourceAdapted");
+            assertEquals(19, type.getMethod("value").invoke(type.getConstructor().newInstance()));
+        }
+    }
+
 }

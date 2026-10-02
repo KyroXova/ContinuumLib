@@ -5,11 +5,6 @@ import java.nio.file.*;
 import java.util.*;
 import java.util.stream.Stream;
 
-/**
- * Encapsulates a deterministic, target-isolated workspace under build/continuum/targets/<target-id>/.
- * Prevents targets from leaking state into each other, validates target ID safety,
- * and ensures partial final JARs are not exposed on failure by staging them first.
- */
 public final class GeneratedWorkspace {
     private final String targetId;
     private final Path rootDir;
@@ -22,16 +17,31 @@ public final class GeneratedWorkspace {
     private final Path outputDir;
 
     public GeneratedWorkspace(Path buildRoot, String targetId) {
+        this(validateTargetId(targetId), workspaceRoot(buildRoot, validateTargetId(targetId)));
+    }
+
+    private static Path workspaceRoot(Path buildRoot, String targetId) {
+        return Objects.requireNonNull(buildRoot, "buildRoot")
+                .resolve("continuum/targets")
+                .resolve(targetId)
+                .toAbsolutePath()
+                .normalize();
+    }
+
+    private GeneratedWorkspace(String targetId, Path rootDir) {
         this.targetId = validateTargetId(targetId);
-        Objects.requireNonNull(buildRoot, "buildRoot");
-        this.rootDir = buildRoot.resolve("continuum/targets/" + this.targetId).toAbsolutePath().normalize();
-        this.sourceDir = rootDir.resolve("source");
-        this.resourcesDir = rootDir.resolve("resources");
-        this.classesDir = rootDir.resolve("classes");
-        this.reportsDir = rootDir.resolve("reports");
-        this.metadataDir = rootDir.resolve("metadata");
-        this.stagingDir = rootDir.resolve("staging");
-        this.outputDir = rootDir.resolve("output");
+        this.rootDir = Objects.requireNonNull(rootDir, "rootDir").toAbsolutePath().normalize();
+        this.sourceDir = this.rootDir.resolve("source");
+        this.resourcesDir = this.rootDir.resolve("resources");
+        this.classesDir = this.rootDir.resolve("classes");
+        this.reportsDir = this.rootDir.resolve("reports");
+        this.metadataDir = this.rootDir.resolve("metadata");
+        this.stagingDir = this.rootDir.resolve("staging");
+        this.outputDir = this.rootDir.resolve("output");
+    }
+
+    public static GeneratedWorkspace atTargetRoot(Path targetRoot, String targetId) {
+        return new GeneratedWorkspace(validateTargetId(targetId), targetRoot);
     }
 
     public static String validateTargetId(String targetId) {
@@ -59,6 +69,16 @@ public final class GeneratedWorkspace {
         Files.createDirectories(outputDir);
     }
 
+    public void prepare() throws IOException {
+        clean(sourceDir);
+        clean(resourcesDir);
+        clean(classesDir);
+        clean(reportsDir);
+        clean(metadataDir);
+        clean(stagingDir);
+        init();
+    }
+
     public String targetId() { return targetId; }
     public Path rootDir() { return rootDir; }
     public Path sourceDir() { return sourceDir; }
@@ -70,42 +90,72 @@ public final class GeneratedWorkspace {
     public Path outputDir() { return outputDir; }
 
     public Path stagingJar(String jarName) {
-        return stagingDir.resolve(jarName);
+        return stagingDir.resolve(validateArtifactName(jarName));
     }
 
     public Path finalJar(String jarName) {
-        return outputDir.resolve(jarName);
+        return outputDir.resolve(validateArtifactName(jarName));
     }
 
-    /**
-     * Atomically publishes the successfully built JAR from staging to final output.
-     */
+    private static String validateArtifactName(String jarName) {
+        Objects.requireNonNull(jarName, "jarName");
+        Path candidate = Path.of(jarName).normalize();
+        if (candidate.isAbsolute()
+                || candidate.getNameCount() != 1
+                || candidate.toString().isBlank()
+                || candidate.toString().equals(".")
+                || candidate.toString().equals("..")) {
+            throw new IllegalArgumentException("Output artifact name must be a single filename: " + jarName);
+        }
+        String base = candidate.toString().split("\\.", 2)[0].toUpperCase(Locale.ROOT);
+        if (base.matches("CON|PRN|AUX|NUL|COM[1-9]|LPT[1-9]")) {
+            throw new IllegalArgumentException("Unsafe output artifact name: " + jarName);
+        }
+        return candidate.toString();
+    }
+
     public Path finalizeJar(Path stagedJar, String jarName) throws IOException {
         Objects.requireNonNull(stagedJar, "stagedJar");
-        if (!Files.exists(stagedJar) || !Files.isRegularFile(stagedJar)) {
+        Path normalizedStaged = stagedJar.toAbsolutePath().normalize();
+        Path normalizedStagingDir = stagingDir.toAbsolutePath().normalize();
+        if (!normalizedStaged.startsWith(normalizedStagingDir)) {
+            throw new IOException("Staged JAR must be inside this target workspace: " + stagedJar);
+        }
+        if (Files.isSymbolicLink(normalizedStaged)) {
+            throw new IOException("Staged JAR must not be a symbolic link: " + stagedJar);
+        }
+        if (!Files.exists(normalizedStaged) || !Files.isRegularFile(normalizedStaged)) {
             throw new IOException("Staged JAR does not exist: " + stagedJar);
         }
+
+        Path realStagingDir = normalizedStagingDir.toRealPath();
+        Path realStaged = normalizedStaged.toRealPath();
+        if (!realStaged.startsWith(realStagingDir)) {
+            throw new IOException("Staged JAR resolves outside this target workspace: "
+                    + stagedJar + " -> " + realStaged);
+        }
+
         Path finalDest = finalJar(jarName);
         Files.createDirectories(finalDest.getParent());
         try {
-            Files.move(stagedJar, finalDest, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            Files.move(normalizedStaged, finalDest, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
         } catch (AtomicMoveNotSupportedException e) {
-            Files.move(stagedJar, finalDest, StandardCopyOption.REPLACE_EXISTING);
+            Files.move(normalizedStaged, finalDest, StandardCopyOption.REPLACE_EXISTING);
         }
         return finalDest;
     }
 
-    /**
-     * Cleans up staging artifacts on failure or completion.
-     */
-    public void cleanStaging() {
-        if (!Files.isDirectory(stagingDir)) return;
-        try (Stream<Path> stream = Files.walk(stagingDir)) {
-            stream.sorted(Comparator.reverseOrder())
-                    .filter(p -> !p.equals(stagingDir))
-                    .forEach(p -> {
-                        try { Files.deleteIfExists(p); } catch (IOException ignored) {}
-                    });
-        } catch (IOException ignored) {}
+    public void cleanStaging() throws IOException {
+        clean(stagingDir);
+        Files.createDirectories(stagingDir);
+    }
+
+    private static void clean(Path directory) throws IOException {
+        if (!Files.exists(directory)) return;
+        try (Stream<Path> stream = Files.walk(directory)) {
+            for (Path path : stream.sorted(Comparator.reverseOrder()).toList()) {
+                if (!path.equals(directory)) Files.deleteIfExists(path);
+            }
+        }
     }
 }

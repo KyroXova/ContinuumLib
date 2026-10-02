@@ -32,7 +32,7 @@ The previous registry-name recognizer and unverified registry capability were re
 
 ## Verification
 
-The latest local full build passed **101 tests**, with zero failures, errors or skips. The verification matrix includes the optional Forge, external reference mod, 26.3 indexing, official mappings, legacy/newer Minecraft artifact and Java 21 execution checks. Plugin validation passed. Gradle still reports deprecation warnings; this is not a Gradle 9 compatibility claim.
+The branch CI runs the full Gradle `build` lifecycle, including the standard automated test suite and Gradle plugin validation. Environment-dependent Forge, external reference mod, 26.3 indexing, official mapping, legacy/newer Minecraft artifact and Java 21 execution checks remain opt-in when their explicit artifact inputs are available. Gradle still reports deprecation warnings; this is not a Gradle 9 compatibility claim.
 
 The 1.7.10 server artifact declaration index preserved 6,632 classes, 64,165 methods/constructors and 16,649 fields while applying SRG names. These totals cover the entire server artifact, including bundled libraries; they are not counts of newly supported Minecraft operations. The Gradle identifier fixture produced both 1.21.1 and 26.3 target JARs; the obfuscated 1.21.1 result executed against actual target classes on Java 21, while the 26.3 result was checked structurally against actual target declarations.
 

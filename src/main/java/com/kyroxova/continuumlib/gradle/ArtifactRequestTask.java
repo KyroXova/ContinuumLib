@@ -11,17 +11,52 @@ import com.kyroxova.continuumlib.knowledge.rule.*;
 import org.gradle.api.DefaultTask;
 import org.gradle.api.file.*;
 import org.gradle.api.tasks.*;
+import org.gradle.jvm.toolchain.JavaLanguageVersion;
+import org.gradle.jvm.toolchain.JavaToolchainService;
+import javax.inject.Inject;
 import java.io.*;
 import java.nio.file.Path;
 import java.nio.file.Files;
 import java.util.*;
 import java.util.stream.Stream;
+import com.kyroxova.continuumlib.source.compile.SourceCompilationStrategy;
+import com.kyroxova.continuumlib.source.compile.SourceCompiler;
 
-/** Shared tracked artifact inputs for inspection and transformation tasks. */
 public abstract class ArtifactRequestTask extends DefaultTask {
     @InputFile @PathSensitive(PathSensitivity.NONE) public abstract RegularFileProperty getConfigFile();
     @Internal public abstract DirectoryProperty getProjectDirectory();
     @InputFiles @PathSensitive(PathSensitivity.RELATIVE) public abstract ConfigurableFileCollection getRuleFiles();
+    @Inject
+    protected abstract JavaToolchainService getJavaToolchainService();
+
+    protected SourceCompilationStrategy targetCompilationStrategy(int targetJavaVersion) {
+        int compilerJavaVersion = Math.max(17, targetJavaVersion);
+        Path javac;
+        try {
+            javac = getJavaToolchainService()
+                    .compilerFor(spec -> spec.getLanguageVersion().set(JavaLanguageVersion.of(compilerJavaVersion)))
+                    .get()
+                    .getExecutablePath()
+                    .getAsFile()
+                    .toPath();
+        } catch (RuntimeException unavailable) {
+            throw new org.gradle.api.GradleException(
+                    "ContinuumLib requires a Java " + compilerJavaVersion
+                            + " compiler toolchain to build target Java " + targetJavaVersion,
+                    unavailable
+            );
+        }
+        return (sources, classpath, output, release) ->
+                SourceCompiler.compileWithJavac(
+                        javac,
+                        sources,
+                        classpath,
+                        output,
+                        release,
+                        compilerJavaVersion
+                );
+    }
+
     @InputFiles @PathSensitive(PathSensitivity.NONE)
     public List<File> getArtifactFiles() throws IOException {
         var request = request();
@@ -37,16 +72,76 @@ public abstract class ArtifactRequestTask extends DefaultTask {
         return TransformRequest.read(getConfigFile().get().getAsFile().toPath(), getProjectDirectory().get().getAsFile().toPath());
     }
     protected void protectOutput(Path output, Collection<Path> additionalInputs) throws IOException {
-        var inputs = new ArrayList<>(additionalInputs);
+        Path normalizedOutput = output.toAbsolutePath().normalize();
+        for (Path input : trackedInputs(additionalInputs)) {
+            if (overlaps(normalizedOutput, input)) {
+                throw new org.gradle.api.GradleException(
+                        "Output must not overwrite or overlap an input artifact, mapping, rule, configuration, source, or resource path: "
+                                + normalizedOutput + " vs " + input);
+            }
+        }
+        rejectSymbolicLink(normalizedOutput, "Output");
+    }
+
+    protected void protectGeneratedDirectory(Path outputDirectory, Collection<Path> additionalInputs) throws IOException {
+        Path normalizedOutput = outputDirectory.toAbsolutePath().normalize();
+        for (Path input : trackedInputs(additionalInputs)) {
+            if (overlaps(normalizedOutput, input)) {
+                throw new org.gradle.api.GradleException(
+                        "Generated output directory must be disjoint from all inputs and other declared outputs: "
+                                + normalizedOutput + " vs " + input);
+            }
+        }
+        rejectSymbolicLink(normalizedOutput, "Generated output directory");
+    }
+
+    private List<Path> trackedInputs(Collection<Path> additionalInputs) throws IOException {
+        var inputs = new ArrayList<Path>();
+        if (additionalInputs != null) inputs.addAll(additionalInputs);
         getArtifactFiles().forEach(file -> inputs.add(file.toPath()));
         getRuleFiles().forEach(file -> inputs.add(file.toPath()));
         inputs.add(getConfigFile().get().getAsFile().toPath());
-        for (Path input : inputs) {
-            if (output.toAbsolutePath().normalize().equals(input.toAbsolutePath().normalize())
-                    || (Files.exists(output) && Files.exists(input) && Files.isSameFile(output, input)))
-                throw new org.gradle.api.GradleException("Output must not overwrite an input artifact, mapping, rule or configuration");
+        return inputs.stream()
+                .filter(Objects::nonNull)
+                .map(path -> path.toAbsolutePath().normalize())
+                .distinct()
+                .toList();
+    }
+
+    private static boolean overlaps(Path first, Path second) throws IOException {
+        if (first.startsWith(second) || second.startsWith(first)) return true;
+        if (Files.exists(first) && Files.exists(second) && Files.isSameFile(first, second)) return true;
+
+        Path effectiveFirst = resolveThroughExistingAncestor(first);
+        Path effectiveSecond = resolveThroughExistingAncestor(second);
+        return effectiveFirst.equals(effectiveSecond)
+                || effectiveFirst.startsWith(effectiveSecond)
+                || effectiveSecond.startsWith(effectiveFirst);
+    }
+
+    private static Path resolveThroughExistingAncestor(Path path) throws IOException {
+        Path normalized = path.toAbsolutePath().normalize();
+        Path existing = normalized;
+        Deque<Path> suffix = new ArrayDeque<>();
+
+        while (existing != null && !Files.exists(existing, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+            Path name = existing.getFileName();
+            if (name != null) suffix.addFirst(name);
+            existing = existing.getParent();
         }
-        if (Files.isSymbolicLink(output)) throw new org.gradle.api.GradleException("Output must not be a symbolic link");
+        if (existing == null) return normalized;
+
+        Path resolved = existing.toRealPath();
+        for (Path segment : suffix) {
+            resolved = resolved.resolve(segment);
+        }
+        return resolved.normalize();
+    }
+
+    private static void rejectSymbolicLink(Path path, String label) {
+        if (Files.isSymbolicLink(path)) {
+            throw new org.gradle.api.GradleException(label + " must not be a symbolic link: " + path);
+        }
     }
     protected List<RulePack> rulePacks() throws IOException {
         var packs = new ArrayList<>(BuiltinRulePacks.load());

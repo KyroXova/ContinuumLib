@@ -1,31 +1,48 @@
 package com.kyroxova.continuumlib.gradle;
 
+import com.kyroxova.continuumlib.artifact.ArtifactPublisher;
 import com.kyroxova.continuumlib.knowledge.rule.RulePack;
 import com.kyroxova.continuumlib.pipeline.*;
 import org.gradle.api.GradleException;
+import org.gradle.api.file.ConfigurableFileCollection;
 import org.gradle.api.file.DirectoryProperty;
 import org.gradle.api.file.RegularFileProperty;
+import org.gradle.api.provider.MapProperty;
 import org.gradle.api.provider.Property;
 import org.gradle.api.tasks.*;
 
-import java.io.File;
 import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.util.List;
 
-/**
- * Gradle task executing the unified target-generation pipeline for a single target.
- */
 @CacheableTask
 public abstract class GenerateTargetTask extends ArtifactRequestTask {
     @Input
     public abstract Property<String> getTargetId();
 
+    @Optional
     @InputDirectory
     @PathSensitive(PathSensitivity.RELATIVE)
     public abstract DirectoryProperty getSourceDirectory();
+
+    @InputFiles
+    @PathSensitive(PathSensitivity.RELATIVE)
+    public abstract ConfigurableFileCollection getSourceRoots();
+
+    @InputFiles
+    @PathSensitive(PathSensitivity.RELATIVE)
+    public abstract ConfigurableFileCollection getSourceFiles();
+
+    @InputFiles
+    @PathSensitive(PathSensitivity.RELATIVE)
+    public abstract ConfigurableFileCollection getResourceFiles();
+
+    @InputFiles
+    @PathSensitive(PathSensitivity.RELATIVE)
+    public abstract ConfigurableFileCollection getResourceRoots();
+
+    @Input
+    public abstract MapProperty<String, String> getManifestAttributes();
 
     @OutputDirectory
     public abstract DirectoryProperty getTargetWorkspaceDirectory();
@@ -38,20 +55,86 @@ public abstract class GenerateTargetTask extends ArtifactRequestTask {
         String targetId = getTargetId().get();
         Path projectRoot = getProjectDirectory().get().getAsFile().toPath();
         Path buildRoot = getProjectDirectory().get().dir("build").getAsFile().toPath();
-        Path srcDir = getSourceDirectory().get().getAsFile().toPath();
-        Path resDir = projectRoot.resolve("src/main/resources");
+        List<Path> sourceRoots = new java.util.ArrayList<>(getSourceRoots().getFiles().stream()
+                .map(file -> file.toPath().toAbsolutePath().normalize())
+                .sorted()
+                .toList());
+        if (getSourceDirectory().isPresent()) {
+            Path compatibilityRoot = getSourceDirectory().get().getAsFile().toPath().toAbsolutePath().normalize();
+            if (!sourceRoots.contains(compatibilityRoot)) {
+                sourceRoots.add(compatibilityRoot);
+            }
+        }
+        if (sourceRoots.isEmpty()) {
+            sourceRoots.add(projectRoot.resolve("src/main/java").toAbsolutePath().normalize());
+        }
+        sourceRoots = sourceRoots.stream().distinct().sorted().toList();
+
+        List<Path> sourceFiles = getSourceFiles().getFiles().stream()
+                .map(file -> file.toPath().toAbsolutePath().normalize())
+                .filter(path -> path.getFileName().toString().endsWith(".java"))
+                .distinct()
+                .sorted()
+                .toList();
+
+        List<Path> resourceRoots = getResourceRoots().getFiles().stream()
+                .map(file -> file.toPath().toAbsolutePath().normalize())
+                .sorted()
+                .toList();
+        if (resourceRoots.isEmpty()) {
+            resourceRoots = List.of(projectRoot.resolve("src/main/resources").toAbsolutePath().normalize());
+        }
+        List<Path> resourceFiles = getResourceFiles().getFiles().stream()
+                .map(file -> file.toPath().toAbsolutePath().normalize())
+                .filter(java.nio.file.Files::isRegularFile)
+                .distinct()
+                .sorted()
+                .toList();
+        java.util.Map<String, String> manifestAttributes =
+                new java.util.TreeMap<>(getManifestAttributes().getOrElse(java.util.Map.of()));
+        Path configFile = getConfigFile().get().getAsFile().toPath();
+        Path finalTaskJar = getOutputJar().get().getAsFile().toPath();
+
+        Path workspaceRoot = getTargetWorkspaceDirectory().get().getAsFile().toPath();
+        List<Path> consumerInputs = new java.util.ArrayList<>();
+        consumerInputs.addAll(sourceRoots);
+        consumerInputs.addAll(resourceRoots);
+        consumerInputs.add(finalTaskJar);
+        protectGeneratedDirectory(workspaceRoot, consumerInputs);
+
+        List<Path> outputInputs = new java.util.ArrayList<>();
+        outputInputs.addAll(sourceRoots);
+        outputInputs.addAll(resourceRoots);
+        outputInputs.add(workspaceRoot);
+        protectOutput(finalTaskJar, outputInputs);
 
         List<RulePack> packs = rulePacks();
-        ResolvedTarget target = new TargetResolver().resolve(projectRoot, targetId, buildRoot, packs);
+        GeneratedWorkspace workspace = GeneratedWorkspace.atTargetRoot(
+                workspaceRoot,
+                targetId
+        );
+        ResolvedTarget target = new TargetResolver().resolve(
+                projectRoot,
+                targetId,
+                buildRoot,
+                packs,
+                configFile,
+                workspace
+        );
 
-        TargetGenerationPipeline pipeline = new TargetGenerationPipeline();
-        String outputJarName = getOutputJar().get().getAsFile().getName();
+        TargetGenerationPipeline pipeline = new TargetGenerationPipeline(
+                targetCompilationStrategy(target.javaVersion())
+        );
+        String outputJarName = finalTaskJar.getFileName().toString();
         TargetGenerationResult result = pipeline.execute(
                 target,
                 projectRoot,
-                List.of(srcDir),
-                List.of(resDir),
-                outputJarName
+                sourceRoots,
+                resourceRoots,
+                outputJarName,
+                sourceFiles,
+                resourceFiles,
+                manifestAttributes
         );
 
         if (!result.isSuccess()) {
@@ -60,10 +143,8 @@ public abstract class GenerateTargetTask extends ArtifactRequestTask {
         }
 
         Path generatedJar = result.outputJar();
-        Path finalTaskJar = getOutputJar().get().getAsFile().toPath();
-        if (generatedJar != null && !generatedJar.equals(finalTaskJar) && Files.exists(generatedJar)) {
-            Files.createDirectories(finalTaskJar.getParent());
-            Files.copy(generatedJar, finalTaskJar, StandardCopyOption.REPLACE_EXISTING);
+        if (generatedJar != null && !generatedJar.equals(finalTaskJar)) {
+            ArtifactPublisher.publish(generatedJar, finalTaskJar);
         }
 
         getLogger().lifecycle("ContinuumLib successfully generated target '{}' at {}", targetId, finalTaskJar);

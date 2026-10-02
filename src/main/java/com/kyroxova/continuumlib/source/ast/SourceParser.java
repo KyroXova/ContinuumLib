@@ -20,28 +20,41 @@ public final class SourceParser {
     private final JavaParser parser;
 
     public SourceParser(List<Path> sourceRoots, List<Path> classpathJars) {
+        this(sourceRoots, classpathJars, 21);
+    }
+
+    public SourceParser(List<Path> sourceRoots, List<Path> classpathJars, int javaVersion) {
+        ParserConfiguration.LanguageLevel level = languageLevel(javaVersion);
+
         var typeSolver = new CombinedTypeSolver();
         typeSolver.add(new ReflectionTypeSolver());
 
+        JavaSymbolSolver symbolSolver = new JavaSymbolSolver(typeSolver);
+        ParserConfiguration solverConfig = new ParserConfiguration()
+                .setLanguageLevel(level)
+                .setSymbolResolver(symbolSolver);
+
         for (Path jar : classpathJars) {
+            if (!Files.exists(jar) || Files.isDirectory(jar)) continue;
             try {
-                if (Files.exists(jar) && !Files.isDirectory(jar)) {
-                    typeSolver.add(new JarTypeSolver(jar));
-                }
-            } catch (IOException ignored) {
-                // Ignore unreadable or corrupt supplemental jars in type solver
+                typeSolver.add(new JarTypeSolver(jar));
+            } catch (IOException invalidClasspath) {
+                throw new IllegalArgumentException(
+                        "Cannot read source classpath JAR: " + jar.toAbsolutePath().normalize(),
+                        invalidClasspath
+                );
             }
         }
 
         for (Path root : sourceRoots) {
             if (Files.exists(root) && Files.isDirectory(root)) {
-                typeSolver.add(new JavaParserTypeSolver(root));
+                typeSolver.add(new JavaParserTypeSolver(root, solverConfig));
             }
         }
 
         var config = new ParserConfiguration()
-                .setLanguageLevel(ParserConfiguration.LanguageLevel.CURRENT)
-                .setSymbolResolver(new JavaSymbolSolver(typeSolver));
+                .setLanguageLevel(level)
+                .setSymbolResolver(symbolSolver);
         this.parser = new JavaParser(config);
     }
 
@@ -69,15 +82,32 @@ public final class SourceParser {
     }
 
     public List<SourceUnit> parseFiles(List<Path> files, List<Path> sourceRoots) throws IOException {
+        if (sourceRoots == null || sourceRoots.isEmpty()) {
+            throw new IOException("At least one source root is required");
+        }
+
+        List<Path> roots = sourceRoots.stream()
+                .map(path -> path.toAbsolutePath().normalize())
+                .distinct()
+                .sorted(Comparator.comparingInt(Path::getNameCount)
+                        .reversed()
+                        .thenComparing(Path::toString))
+                .toList();
+        List<Path> ordered = files.stream()
+                .map(path -> path.toAbsolutePath().normalize())
+                .sorted()
+                .toList();
+
         List<SourceUnit> units = new ArrayList<>();
-        for (Path file : files) {
-            Path matchingRoot = sourceRoots.get(0);
-            for (Path root : sourceRoots) {
-                if (file.startsWith(root)) {
-                    matchingRoot = root;
-                    break;
-                }
+        for (Path file : ordered) {
+            Path matchingRoot = roots.stream()
+                    .filter(file::startsWith)
+                    .findFirst()
+                    .orElseThrow(() -> new IOException("Selected source is outside configured source roots: " + file));
+            if (!Files.isRegularFile(file) || !file.toString().endsWith(".java")) {
+                throw new IOException("Selected source is not a Java file: " + file);
             }
+
             String relative = matchingRoot.relativize(file).toString().replace('\\', '/');
             ParseResult<CompilationUnit> result = parser.parse(file);
             if (result.isSuccessful() && result.getResult().isPresent()) {
@@ -86,7 +116,23 @@ public final class SourceParser {
                 throw new IOException("Failed to parse Java file: " + file + " -> " + result.getProblems());
             }
         }
-        return units;
+        return List.copyOf(units);
+    }
+
+    private static ParserConfiguration.LanguageLevel languageLevel(int javaVersion) {
+        if (javaVersion < 8) {
+            throw new IllegalArgumentException("Unsupported Java source level: " + javaVersion);
+        }
+        String levelName = "JAVA_" + javaVersion;
+        try {
+            return ParserConfiguration.LanguageLevel.valueOf(levelName);
+        } catch (IllegalArgumentException unsupported) {
+            throw new IllegalArgumentException(
+                    "Resolved JavaParser does not support Java source level " + javaVersion
+                            + " (requested " + levelName + ")",
+                    unsupported
+            );
+        }
     }
 
     public SourceUnit parseString(String relativePath, String code) {

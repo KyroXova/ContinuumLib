@@ -12,11 +12,6 @@ import com.kyroxova.continuumlib.model.environment.MappingNamespace;
 import java.nio.file.Path;
 import java.util.*;
 
-/**
- * Unified canonical resolved target representation.
- * Consolidates environment properties, artifact manifests, classpaths, mappings,
- * rule packs, isolated workspace, and project configuration.
- */
 public record ResolvedTarget(
         String targetId,
         EnvironmentId sourceEnvironment,
@@ -35,17 +30,24 @@ public record ResolvedTarget(
         ContinuumProjectConfiguration projectConfiguration
 ) {
     public ResolvedTarget {
-        Objects.requireNonNull(targetId, "targetId");
+        targetId = GeneratedWorkspace.validateTargetId(targetId);
         Objects.requireNonNull(sourceEnvironment, "sourceEnvironment");
         Objects.requireNonNull(targetEnvironment, "targetEnvironment");
+        Objects.requireNonNull(workspace, "workspace");
+        if (!workspace.targetId().equals(targetId)) {
+            throw new IllegalArgumentException("Workspace target ID '" + workspace.targetId()
+                    + "' does not match resolved target '" + targetId + "'");
+        }
         if (outputMode == null || outputMode.isBlank()) {
             outputMode = "per_version";
         }
-        sourceArtifacts = sourceArtifacts != null ? Map.copyOf(sourceArtifacts) : Map.of();
-        targetArtifacts = targetArtifacts != null ? Map.copyOf(targetArtifacts) : Map.of();
-        sourceClasspath = sourceClasspath != null ? Map.copyOf(sourceClasspath) : Map.of();
-        targetClasspath = targetClasspath != null ? Map.copyOf(targetClasspath) : Map.of();
-        rulePacks = rulePacks != null ? List.copyOf(rulePacks) : List.of();
+        sourceArtifacts = sortedMap(sourceArtifacts);
+        targetArtifacts = sortedMap(targetArtifacts);
+        sourceClasspath = sortedMap(sourceClasspath);
+        targetClasspath = sortedMap(targetClasspath);
+        rulePacks = rulePacks != null
+                ? rulePacks.stream().sorted(Comparator.comparing(RulePack::id)).toList()
+                : List.of();
     }
 
     public String minecraftVersion() {
@@ -65,7 +67,21 @@ public record ResolvedTarget(
     }
 
     public TargetContext toTargetContext() {
-        return new TargetContext(targetEnvironment, loaderVersion, outputMode);
+        MappingNamespace effectiveNamespace = mappingNamespace();
+        EnvironmentId contextEnvironment = effectiveNamespace == targetEnvironment.mappings()
+                ? targetEnvironment
+                : new EnvironmentId(
+                        targetEnvironment.minecraftVersion(),
+                        targetEnvironment.loader(),
+                        effectiveNamespace,
+                        targetEnvironment.javaVersion()
+                );
+        return new TargetContext(contextEnvironment, loaderVersion, outputMode);
+    }
+
+    private static <T> Map<String, T> sortedMap(Map<String, T> values) {
+        if (values == null || values.isEmpty()) return Map.of();
+        return Collections.unmodifiableMap(new TreeMap<>(values));
     }
 
     public static Builder builder() {

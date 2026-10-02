@@ -313,7 +313,8 @@ class FilterSystemTest {
                 import net.minecraft.world.level.block.Block;
                 
                 public class ModBlocks {
-                    public static final DeferredRegister<Block> BLOCKS = null;
+                    public static final DeferredRegister<Block> BLOCKS =
+                            DeferredRegister.create(null, "example");
                     public static final RegistryObject<Block> TEST = BLOCKS.register("test", () -> null);
                 }
                 """;
@@ -404,4 +405,435 @@ class FilterSystemTest {
                 """);
         assertThrows(FilterConfigurationException.class, () -> reader.loadExclusions(configRoot));
     }
+    @Test
+    void typedFieldsWithoutExplicitRegistrationAreNotInventedAsRegistryEntries() {
+        String code = """
+                package com.example;
+                import net.minecraft.world.level.block.Block;
+                public class Blocks {
+                    public static final Block DECORATIVE_ONLY = null;
+                }
+                """;
+
+        SourceUnit unit = new SourceParser(List.of(), List.of())
+                .parseString("com/example/Blocks.java", code);
+
+        var result = new com.kyroxova.continuumlib.filter.registry.RegistryDeclarationScanner()
+                .scan(List.of(unit));
+
+        assertTrue(result.entries().isEmpty(), result.entries().toString());
+    }
+
+    @Test
+    void exclusionValidationDoesNotConfuseSameNamedFieldsOnOtherOwners() {
+        String declarations = """
+                package com.example;
+                class ModBlocks {
+                    static final Object BLOCKS = null;
+                    static final Object TEST = BLOCKS.register("test", () -> null);
+                }
+                """;
+        String user = """
+                package com.example;
+                import com.example.ModBlocks;
+                class Other { static final Object TEST = new Object(); }
+                class User { Object value() { return Other.TEST; } }
+                """;
+
+        SourceParser parser = new SourceParser(List.of(), List.of());
+        SourceUnit declarationUnit = parser.parseString("com/example/ModBlocks.java", declarations);
+        SourceUnit userUnit = parser.parseString("com/example/User.java", user);
+        var rule = new RegistryFilterRule(
+                RegistryType.BLOCK,
+                "test",
+                EnvironmentCondition.ALWAYS,
+                Path.of("rules.json")
+        );
+        var exclusions = new ExclusionRuleSet(
+                com.kyroxova.continuumlib.filter.rule.RuleSet.builder().addRegistry(rule).build());
+
+        assertDoesNotThrow(() -> new FilterEngine().process(
+                TargetContext.of(env1211),
+                InclusionRuleSet.EMPTY,
+                exclusions,
+                List.of(declarationUnit, userUnit),
+                Map.of()
+        ));
+    }
+
+    @Test
+    void exclusionValidationCatchesUnqualifiedSameClassReferenceBeforeRemoval() {
+        String code = """
+                package com.example;
+                class ModBlocks {
+                    static final Object BLOCKS = null;
+                    static final Object TEST = BLOCKS.register("test", () -> null);
+                    Object use() { return TEST; }
+                }
+                """;
+
+        SourceUnit unit = new SourceParser(List.of(), List.of())
+                .parseString("com/example/ModBlocks.java", code);
+        var rule = new RegistryFilterRule(
+                RegistryType.BLOCK,
+                "test",
+                EnvironmentCondition.ALWAYS,
+                Path.of("rules.json")
+        );
+        var exclusions = new ExclusionRuleSet(
+                com.kyroxova.continuumlib.filter.rule.RuleSet.builder().addRegistry(rule).build());
+
+        assertThrows(ExclusionConflictException.class, () -> new FilterEngine().process(
+                TargetContext.of(env1211),
+                InclusionRuleSet.EMPTY,
+                exclusions,
+                List.of(unit),
+                Map.of()
+        ));
+    }
+
+    @Test
+    void registryRemovalTargetsExactOwnerWhenFieldNamesRepeat() {
+        String code = """
+                package com.example;
+                class First {
+                    static final Object BLOCKS = null;
+                    static final Object SAME = BLOCKS.register("first", () -> null);
+                }
+                class Second {
+                    static final Object BLOCKS = null;
+                    static final Object SAME = BLOCKS.register("second", () -> null);
+                }
+                """;
+
+        SourceUnit unit = new SourceParser(List.of(), List.of())
+                .parseString("com/example/Combined.java", code);
+        var rule = new RegistryFilterRule(
+                RegistryType.BLOCK,
+                "first",
+                EnvironmentCondition.ALWAYS,
+                Path.of("rules.json")
+        );
+        var exclusions = new ExclusionRuleSet(
+                com.kyroxova.continuumlib.filter.rule.RuleSet.builder().addRegistry(rule).build());
+
+        var result = new FilterEngine().process(
+                TargetContext.of(env1211),
+                InclusionRuleSet.EMPTY,
+                exclusions,
+                List.of(unit),
+                Map.of()
+        );
+
+        String generated = result.activeSources().get(0).ast().toString();
+        assertFalse(generated.contains("SAME = BLOCKS.register(\"first\""), generated);
+        assertTrue(generated.contains("SAME = BLOCKS.register(\"second\""), generated);
+    }
+
+    @Test
+    void nestedRegistryDeclarationsKeepQualifiedOwnerIdentity() {
+        String code = """
+                package com.example;
+                class Outer {
+                    static class Inner {
+                        static final Object BLOCKS = null;
+                        static final Object VALUE = BLOCKS.register("nested", () -> null);
+                    }
+                }
+                """;
+
+        SourceUnit unit = new SourceParser(List.of(), List.of())
+                .parseString("com/example/Outer.java", code);
+        var index = new com.kyroxova.continuumlib.filter.registry.RegistryDeclarationScanner()
+                .scan(List.of(unit));
+
+        assertEquals(1, index.entries().size());
+        assertEquals("com.example.Outer.Inner", index.entries().get(0).ownerClass());
+    }
+
+    @Test
+    void deferredRegisterNamespaceIsCarriedIntoRegistryEntry() {
+        String code = """
+                package com.example;
+                import net.minecraftforge.registries.DeferredRegister;
+                import net.minecraftforge.registries.RegistryObject;
+                import net.minecraft.world.level.block.Block;
+
+                class ModBlocks {
+                    static final String MOD_ID = "buildscape";
+                    static final DeferredRegister<Block> BLOCKS = DeferredRegister.create(null, MOD_ID);
+                    static final RegistryObject<Block> MANGROVE =
+                            BLOCKS.register("mangrove_planks", () -> null);
+                }
+                """;
+
+        SourceUnit unit = new SourceParser(List.of(), List.of())
+                .parseString("com/example/ModBlocks.java", code);
+        var entries = new com.kyroxova.continuumlib.filter.registry.RegistryDeclarationScanner()
+                .scan(List.of(unit))
+                .entries();
+
+        assertEquals(1, entries.size(), entries.toString());
+        assertEquals("buildscape", entries.get(0).namespace());
+        assertEquals("buildscape:mangrove_planks", entries.get(0).fullId());
+        assertEquals(RegistryType.BLOCK, entries.get(0).registryType());
+    }
+
+    @Test
+    void explicitIdentifierNamespaceOverridesDeferredRegisterNamespace() {
+        String code = """
+                package com.example;
+                import net.minecraftforge.registries.DeferredRegister;
+                import net.minecraftforge.registries.RegistryObject;
+                import net.minecraft.world.level.block.Block;
+
+                class ModBlocks {
+                    static final DeferredRegister<Block> BLOCKS =
+                            DeferredRegister.create(null, "buildscape");
+                    static final RegistryObject<Block> TEST =
+                            BLOCKS.register("other:test", () -> null);
+                }
+                """;
+
+        SourceUnit unit = new SourceParser(List.of(), List.of())
+                .parseString("com/example/ModBlocks.java", code);
+        var entry = new com.kyroxova.continuumlib.filter.registry.RegistryDeclarationScanner()
+                .scan(List.of(unit))
+                .entries()
+                .get(0);
+
+        assertEquals("other", entry.namespace());
+        assertEquals("other:test", entry.fullId());
+    }
+
+    @Test
+    void deferredRegisterNamespaceCanComeFromAnotherSourceClass() {
+        String mod = """
+                package com.example;
+                class BuildScape {
+                    static final String MOD_ID = "buildscape";
+                }
+                """;
+        String blocks = """
+                package com.example;
+                import net.minecraftforge.registries.DeferredRegister;
+                import net.minecraftforge.registries.RegistryObject;
+                import net.minecraft.world.level.block.Block;
+
+                class ModBlocks {
+                    static final DeferredRegister<Block> BLOCKS =
+                            DeferredRegister.create(null, BuildScape.MOD_ID);
+                    static final RegistryObject<Block> MANGROVE =
+                            BLOCKS.register("mangrove_planks", () -> null);
+                }
+                """;
+
+        SourceParser parser = new SourceParser(List.of(), List.of());
+        SourceUnit modUnit = parser.parseString("com/example/BuildScape.java", mod);
+        SourceUnit blockUnit = parser.parseString("com/example/ModBlocks.java", blocks);
+
+        var entry = new com.kyroxova.continuumlib.filter.registry.RegistryDeclarationScanner()
+                .scan(List.of(modUnit, blockUnit))
+                .entries()
+                .get(0);
+
+        assertEquals("buildscape:mangrove_planks", entry.fullId());
+    }
+
+    @Test
+    void namespacedRegistryRuleDoesNotMatchUnknownNamespace() {
+        var rules = com.kyroxova.continuumlib.filter.rule.RuleSet.builder()
+                .addRegistry(new RegistryFilterRule(
+                        RegistryType.BLOCK,
+                        "example:test",
+                        EnvironmentCondition.ALWAYS,
+                        Path.of("rules.json")
+                ))
+                .build();
+
+        assertFalse(rules.matchesRegistry(RegistryType.BLOCK, "test"));
+        assertTrue(rules.matchesRegistry(RegistryType.BLOCK, "example:test"));
+        assertFalse(rules.matchesRegistry(RegistryType.BLOCK, "other:test"));
+    }
+
+    @Test
+    void unqualifiedRegistryRuleIntentionallyMatchesAnyNamespace() {
+        var rules = com.kyroxova.continuumlib.filter.rule.RuleSet.builder()
+                .addRegistry(new RegistryFilterRule(
+                        RegistryType.BLOCK,
+                        "test",
+                        EnvironmentCondition.ALWAYS,
+                        Path.of("rules.json")
+                ))
+                .build();
+
+        assertTrue(rules.matchesRegistry(RegistryType.BLOCK, "test"));
+        assertTrue(rules.matchesRegistry(RegistryType.BLOCK, "example:test"));
+        assertTrue(rules.matchesRegistry(RegistryType.BLOCK, "other:test"));
+    }
+
+    @Test
+    void ambiguousSharedModConstantDoesNotInventNamespace() {
+        String first = """
+                package first;
+                class BuildScape {
+                    static final String MOD_ID = "buildscape";
+                }
+                """;
+        String second = """
+                package second;
+                class BuildScape {
+                    static final String MOD_ID = "buildscape";
+                }
+                """;
+        String blocks = """
+                package consumer;
+                import net.minecraftforge.registries.DeferredRegister;
+                import net.minecraftforge.registries.RegistryObject;
+                import net.minecraft.world.level.block.Block;
+
+                class ModBlocks {
+                    static final DeferredRegister<Block> BLOCKS =
+                            DeferredRegister.create(null, BuildScape.MOD_ID);
+                    static final RegistryObject<Block> MANGROVE =
+                            BLOCKS.register("mangrove_planks", () -> null);
+                }
+                """;
+
+        SourceParser parser = new SourceParser(List.of(), List.of());
+        var entry = new com.kyroxova.continuumlib.filter.registry.RegistryDeclarationScanner()
+                .scan(List.of(
+                        parser.parseString("first/BuildScape.java", first),
+                        parser.parseString("second/BuildScape.java", second),
+                        parser.parseString("consumer/ModBlocks.java", blocks)
+                ))
+                .entries()
+                .get(0);
+
+        assertNull(entry.namespace());
+        assertEquals("mangrove_planks", entry.fullId());
+    }
+
+    @Test
+    void nestedClassExclusionRemovesOnlyNestedDeclaration() {
+        String code = """
+                package com.example;
+                class Outer {
+                    static class Keep {
+                        int value() { return 1; }
+                    }
+
+                    static class LegacyHelper {
+                        int value() { return 2; }
+                    }
+
+                    int outerValue() { return 3; }
+                }
+                """;
+
+        SourceUnit unit = new SourceParser(List.of(), List.of())
+                .parseString("com/example/Outer.java", code);
+        var exclusions = new ExclusionRuleSet(
+                com.kyroxova.continuumlib.filter.rule.RuleSet.builder()
+                        .addClass(new com.kyroxova.continuumlib.filter.rule.ClassFilterRule(
+                                "com.example.Outer.LegacyHelper",
+                                EnvironmentCondition.ALWAYS,
+                                Path.of("classes.json")
+                        ))
+                        .build()
+        );
+
+        var result = new FilterEngine().process(
+                TargetContext.of(env1211),
+                InclusionRuleSet.EMPTY,
+                exclusions,
+                List.of(unit),
+                Map.of()
+        );
+
+        assertEquals(1, result.activeSources().size());
+        String generated = result.activeSources().get(0).ast().toString();
+        assertTrue(generated.contains("class Outer"), generated);
+        assertTrue(generated.contains("class Keep"), generated);
+        assertFalse(generated.contains("class LegacyHelper"), generated);
+        assertTrue(generated.contains("outerValue"), generated);
+    }
+
+
+    @Test
+    void registryExclusionRemovesEnumDeclaredEntry() {
+        String code = """
+                package com.example;
+                enum Holder {
+                    INSTANCE;
+
+                    static final Object BLOCKS = null;
+                    static final Object LEGACY = BLOCKS.register("legacy", () -> null);
+                    static final Object KEEP = BLOCKS.register("keep", () -> null);
+                }
+                """;
+
+        SourceUnit unit = new SourceParser(List.of(), List.of())
+                .parseString("com/example/Holder.java", code);
+        var exclusions = new ExclusionRuleSet(
+                com.kyroxova.continuumlib.filter.rule.RuleSet.builder()
+                        .addRegistry(new RegistryFilterRule(
+                                RegistryType.BLOCK,
+                                "legacy",
+                                EnvironmentCondition.ALWAYS,
+                                Path.of("registry.json")
+                        ))
+                        .build()
+        );
+
+        var result = new FilterEngine().process(
+                TargetContext.of(env1211),
+                InclusionRuleSet.EMPTY,
+                exclusions,
+                List.of(unit),
+                Map.of()
+        );
+
+        assertEquals(1, result.excludedRegistryEntries().size());
+        assertEquals("com.example.Holder", result.excludedRegistryEntries().get(0).ownerClass());
+        String generated = result.activeSources().get(0).ast().toString();
+        assertFalse(generated.contains("LEGACY = BLOCKS.register"), generated);
+        assertTrue(generated.contains("KEEP = BLOCKS.register"), generated);
+    }
+
+    @Test
+    void nestedRecordExclusionRemovesOnlySelectedRecord() {
+        String code = """
+                package com.example;
+                class Outer {
+                    record Keep(int value) {}
+                    record Legacy(int value) {}
+                }
+                """;
+
+        SourceUnit unit = new SourceParser(List.of(), List.of())
+                .parseString("com/example/Outer.java", code);
+        var exclusions = new ExclusionRuleSet(
+                com.kyroxova.continuumlib.filter.rule.RuleSet.builder()
+                        .addClass(new com.kyroxova.continuumlib.filter.rule.ClassFilterRule(
+                                "com.example.Outer.Legacy",
+                                EnvironmentCondition.ALWAYS,
+                                Path.of("classes.json")
+                        ))
+                        .build()
+        );
+
+        var result = new FilterEngine().process(
+                TargetContext.of(env1211),
+                InclusionRuleSet.EMPTY,
+                exclusions,
+                List.of(unit),
+                Map.of()
+        );
+
+        String generated = result.activeSources().get(0).ast().toString();
+        assertTrue(generated.contains("record Keep"), generated);
+        assertFalse(generated.contains("record Legacy"), generated);
+    }
+
 }
