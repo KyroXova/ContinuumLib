@@ -38,8 +38,10 @@ public final class SourceCompiler {
             options.add(outputClassesDir.toAbsolutePath().normalize().toString());
             options.add("-encoding");
             options.add("UTF-8");
-            options.add("--release");
-            options.add(Integer.toString(javaVersion));
+            options.addAll(externalLanguageLevelOptions(
+                    javaVersion,
+                    Runtime.version().feature()
+            ));
 
             if (!classpathJars.isEmpty()) {
                 options.add("-classpath");
