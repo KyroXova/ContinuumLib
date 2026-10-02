@@ -345,9 +345,8 @@ public final class RegistryDeclarationScanner {
 
             Map<String, String> uniqueSuffixes = new HashMap<>();
             for (var entry : suffixValues.entrySet()) {
-                List<String> values = entry.getValue().stream().distinct().toList();
-                if (values.size() == 1) {
-                    uniqueSuffixes.put(entry.getKey(), values.get(0));
+                if (entry.getValue().size() == 1) {
+                    uniqueSuffixes.put(entry.getKey(), entry.getValue().get(0));
                 }
             }
             return new GlobalConstants(Map.copyOf(qualified), Map.copyOf(uniqueSuffixes));
@@ -361,12 +360,12 @@ public final class RegistryDeclarationScanner {
             String suffix = uniqueSuffixes.get(key);
             if (suffix != null) return Optional.of(suffix);
 
-            List<String> matches = qualified.entrySet().stream()
+            List<Map.Entry<String, String>> matches = qualified.entrySet().stream()
                     .filter(entry -> entry.getKey().endsWith("." + key))
-                    .map(Map.Entry::getValue)
-                    .distinct()
                     .toList();
-            return matches.size() == 1 ? Optional.of(matches.get(0)) : Optional.empty();
+            return matches.size() == 1
+                    ? Optional.of(matches.get(0).getValue())
+                    : Optional.empty();
         }
     }
 

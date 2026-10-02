@@ -672,4 +672,46 @@ class FilterSystemTest {
         assertTrue(rules.matchesRegistry(RegistryType.BLOCK, "other:test"));
     }
 
+    @Test
+    void ambiguousSharedModConstantDoesNotInventNamespace() {
+        String first = """
+                package first;
+                class BuildScape {
+                    static final String MOD_ID = "buildscape";
+                }
+                """;
+        String second = """
+                package second;
+                class BuildScape {
+                    static final String MOD_ID = "buildscape";
+                }
+                """;
+        String blocks = """
+                package consumer;
+                import net.minecraftforge.registries.DeferredRegister;
+                import net.minecraftforge.registries.RegistryObject;
+                import net.minecraft.world.level.block.Block;
+
+                class ModBlocks {
+                    static final DeferredRegister<Block> BLOCKS =
+                            DeferredRegister.create(null, BuildScape.MOD_ID);
+                    static final RegistryObject<Block> MANGROVE =
+                            BLOCKS.register("mangrove_planks", () -> null);
+                }
+                """;
+
+        SourceParser parser = new SourceParser(List.of(), List.of());
+        var entry = new com.kyroxova.continuumlib.filter.registry.RegistryDeclarationScanner()
+                .scan(List.of(
+                        parser.parseString("first/BuildScape.java", first),
+                        parser.parseString("second/BuildScape.java", second),
+                        parser.parseString("consumer/ModBlocks.java", blocks)
+                ))
+                .entries()
+                .get(0);
+
+        assertNull(entry.namespace());
+        assertEquals("mangrove_planks", entry.fullId());
+    }
+
 }
