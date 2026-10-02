@@ -605,4 +605,38 @@ class FilterSystemTest {
         assertEquals("other:test", entry.fullId());
     }
 
+    @Test
+    void deferredRegisterNamespaceCanComeFromAnotherSourceClass() {
+        String mod = """
+                package com.example;
+                class BuildScape {
+                    static final String MOD_ID = "buildscape";
+                }
+                """;
+        String blocks = """
+                package com.example;
+                import net.minecraftforge.registries.DeferredRegister;
+                import net.minecraftforge.registries.RegistryObject;
+                import net.minecraft.world.level.block.Block;
+
+                class ModBlocks {
+                    static final DeferredRegister<Block> BLOCKS =
+                            DeferredRegister.create(null, BuildScape.MOD_ID);
+                    static final RegistryObject<Block> MANGROVE =
+                            BLOCKS.register("mangrove_planks", () -> null);
+                }
+                """;
+
+        SourceParser parser = new SourceParser(List.of(), List.of());
+        SourceUnit modUnit = parser.parseString("com/example/BuildScape.java", mod);
+        SourceUnit blockUnit = parser.parseString("com/example/ModBlocks.java", blocks);
+
+        var entry = new com.kyroxova.continuumlib.filter.registry.RegistryDeclarationScanner()
+                .scan(List.of(modUnit, blockUnit))
+                .entries()
+                .get(0);
+
+        assertEquals("buildscape:mangrove_planks", entry.fullId());
+    }
+
 }
