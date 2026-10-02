@@ -65,4 +65,59 @@ class TransformRequestTest {
         assertThrows(IOException.class, () -> TransformRequest.read(config, dir));
     }
 
+    @Test
+    void normalizesProgrammaticMappingIdentity() {
+        Path relative = Path.of("mappings/test.tiny");
+        var request = new MappingRequest(
+                relative,
+                "A".repeat(64),
+                com.kyroxova.continuumlib.model.environment.MappingNamespace.OBFUSCATED,
+                java.util.Map.of(
+                        "obf", com.kyroxova.continuumlib.model.environment.MappingNamespace.OBFUSCATED,
+                        "named", com.kyroxova.continuumlib.model.environment.MappingNamespace.MOJMAP
+                ),
+                "  Synthetic License  "
+        );
+
+        assertTrue(request.file().isAbsolute());
+        assertEquals(relative.toAbsolutePath().normalize(), request.file());
+        assertEquals("a".repeat(64), request.sha256());
+        assertEquals("Synthetic License", request.license());
+    }
+
+    @Test
+    void rejectsInvalidProgrammaticMappingIdentity() {
+        var namespaces = java.util.Map.of(
+                "obf", com.kyroxova.continuumlib.model.environment.MappingNamespace.OBFUSCATED
+        );
+
+        assertThrows(NullPointerException.class, () ->
+                new MappingRequest(
+                        Path.of("map.tiny"),
+                        "0".repeat(64),
+                        com.kyroxova.continuumlib.model.environment.MappingNamespace.OBFUSCATED,
+                        null,
+                        "license"
+                )
+        );
+        assertThrows(IllegalArgumentException.class, () ->
+                new MappingRequest(
+                        Path.of("map.tiny"),
+                        "bad",
+                        com.kyroxova.continuumlib.model.environment.MappingNamespace.OBFUSCATED,
+                        namespaces,
+                        "license"
+                )
+        );
+        assertThrows(IllegalArgumentException.class, () ->
+                new MappingRequest(
+                        Path.of("map.tiny"),
+                        "0".repeat(64),
+                        com.kyroxova.continuumlib.model.environment.MappingNamespace.OBFUSCATED,
+                        namespaces,
+                        "   "
+                )
+        );
+    }
+
 }
