@@ -51,7 +51,7 @@ public final class FilterEngine {
                 continue;
             }
 
-            if (applyTopLevelClassFilters(unit.ast(), include, exclude)) {
+            if (applyClassFilters(unit.ast(), include, exclude)) {
                 activeSourceUnits.add(unit);
             } else {
                 excludedSourceUnits.add(unit);
@@ -161,7 +161,7 @@ public final class FilterEngine {
                 .orElse(entry);
     }
 
-    private static boolean applyTopLevelClassFilters(
+    private static boolean applyClassFilters(
             CompilationUnit ast,
             RuleSet inclusions,
             RuleSet exclusions
@@ -169,7 +169,6 @@ public final class FilterEngine {
         if (!inclusions.hasClassRules() && !exclusions.hasClassRules()) {
             return true;
         }
-
         if (ast.getTypes().isEmpty()) {
             return true;
         }
@@ -183,7 +182,32 @@ public final class FilterEngine {
                 type.remove();
             }
         }
+
+        if (exclusions.hasClassRules()) {
+            List<ClassOrInterfaceDeclaration> nested = ast.findAll(ClassOrInterfaceDeclaration.class).stream()
+                    .filter(type -> type.getParentNode()
+                            .filter(ClassOrInterfaceDeclaration.class::isInstance)
+                            .isPresent())
+                    .sorted(Comparator.comparingInt(FilterEngine::typeDepth).reversed())
+                    .toList();
+
+            for (ClassOrInterfaceDeclaration type : nested) {
+                if (exclusions.matchesClass(sourceTypeName(type, pkg))) {
+                    type.remove();
+                }
+            }
+        }
         return !ast.getTypes().isEmpty();
+    }
+
+    private static int typeDepth(ClassOrInterfaceDeclaration type) {
+        int depth = 0;
+        com.github.javaparser.ast.Node current = type.getParentNode().orElse(null);
+        while (current != null) {
+            if (current instanceof ClassOrInterfaceDeclaration) depth++;
+            current = current.getParentNode().orElse(null);
+        }
+        return depth;
     }
 
     private static String sourceTypeName(ClassOrInterfaceDeclaration type, String pkg) {

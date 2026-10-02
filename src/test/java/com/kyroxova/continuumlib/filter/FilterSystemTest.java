@@ -714,4 +714,49 @@ class FilterSystemTest {
         assertEquals("mangrove_planks", entry.fullId());
     }
 
+    @Test
+    void nestedClassExclusionRemovesOnlyNestedDeclaration() {
+        String code = """
+                package com.example;
+                class Outer {
+                    static class Keep {
+                        int value() { return 1; }
+                    }
+
+                    static class LegacyHelper {
+                        int value() { return 2; }
+                    }
+
+                    int outerValue() { return 3; }
+                }
+                """;
+
+        SourceUnit unit = new SourceParser(List.of(), List.of())
+                .parseString("com/example/Outer.java", code);
+        var exclusions = new ExclusionRuleSet(
+                com.kyroxova.continuumlib.filter.rule.RuleSet.builder()
+                        .addClass(new com.kyroxova.continuumlib.filter.rule.ClassFilterRule(
+                                "com.example.Outer.LegacyHelper",
+                                EnvironmentCondition.ALWAYS,
+                                Path.of("classes.json")
+                        ))
+                        .build()
+        );
+
+        var result = new FilterEngine().process(
+                TargetContext.of(env1211),
+                InclusionRuleSet.EMPTY,
+                exclusions,
+                List.of(unit),
+                Map.of()
+        );
+
+        assertEquals(1, result.activeSources().size());
+        String generated = result.activeSources().get(0).ast().toString();
+        assertTrue(generated.contains("class Outer"), generated);
+        assertTrue(generated.contains("class Keep"), generated);
+        assertFalse(generated.contains("class LegacyHelper"), generated);
+        assertTrue(generated.contains("outerValue"), generated);
+    }
+
 }
