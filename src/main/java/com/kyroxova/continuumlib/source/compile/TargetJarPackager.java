@@ -85,16 +85,13 @@ public final class TargetJarPackager {
         }
 
         String version = sorted.remove(Attributes.Name.MANIFEST_VERSION.toString());
-        attributes.put(
-                Attributes.Name.MANIFEST_VERSION,
-                version == null || version.isBlank() ? "1.0" : version
-        );
+        String effectiveVersion = version == null || version.isBlank() ? "1.0" : version;
+        validateManifestValue(Attributes.Name.MANIFEST_VERSION.toString(), effectiveVersion);
+        attributes.put(Attributes.Name.MANIFEST_VERSION, effectiveVersion);
 
         for (var entry : sorted.entrySet()) {
             String value = entry.getValue();
-            if (value.indexOf('\r') >= 0 || value.indexOf('\n') >= 0) {
-                throw new IOException("Manifest attribute contains a line break: " + entry.getKey());
-            }
+            validateManifestValue(entry.getKey(), value);
             try {
                 attributes.put(new Attributes.Name(entry.getKey()), value);
             } catch (IllegalArgumentException invalidName) {
@@ -166,6 +163,12 @@ public final class TargetJarPackager {
         }
     }
 
+
+    private static void validateManifestValue(String name, String value) throws IOException {
+        if (value.indexOf('\r') >= 0 || value.indexOf('\n') >= 0) {
+            throw new IOException("Manifest attribute contains a line break: " + name);
+        }
+    }
 
     private static boolean isManifest(String entryName) {
         return entryName.equalsIgnoreCase("META-INF/MANIFEST.MF");

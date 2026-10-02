@@ -123,6 +123,26 @@ class TargetJarPackagerTest {
         assertFalse(Files.exists(root.resolve("duplicate.jar.tmp")));
     }
 
+
+    @Test
+    void rejectsLineBreaksInManifestVersion(@TempDir Path root) throws Exception {
+        Path classes = root.resolve("classes");
+        Files.createDirectories(classes);
+
+        IOException failure = assertThrows(IOException.class, () ->
+                TargetJarPackager.packageJarWithResources(
+                        classes,
+                        Map.of(),
+                        Map.of("Manifest-Version", "1.0\nInjected: true"),
+                        root.resolve("bad-manifest.jar")
+                )
+        );
+
+        assertTrue(failure.getMessage().contains("Manifest-Version"));
+        assertFalse(Files.exists(root.resolve("bad-manifest.jar")));
+        assertFalse(Files.exists(root.resolve("bad-manifest.jar.tmp")));
+    }
+
     @Test
     void failedPackagingRemovesTemporaryJar(@TempDir Path root) throws Exception {
         Path classes = root.resolve("classes");
