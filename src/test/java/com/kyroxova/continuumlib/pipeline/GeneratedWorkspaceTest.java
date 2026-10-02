@@ -32,6 +32,18 @@ class GeneratedWorkspaceTest {
         assertFalse(Files.exists(workspace.stagingDir().resolve("partial.jar")));
         assertEquals("last-good", Files.readString(workspace.finalJar("mod.jar")));
     }
+
+    @Test
+    void normalizesTargetIdBeforeBuildingWorkspacePath(@TempDir Path root) {
+        GeneratedWorkspace workspace = new GeneratedWorkspace(root.resolve("build"), "  forge-1.20.1  ");
+
+        assertEquals("forge-1.20.1", workspace.targetId());
+        assertEquals(
+                root.resolve("build/continuum/targets/forge-1.20.1").toAbsolutePath().normalize(),
+                workspace.rootDir()
+        );
+    }
+
     @Test
     void cleanStagingRemovesPartialArtifacts(@TempDir Path root) throws Exception {
         GeneratedWorkspace workspace = new GeneratedWorkspace(root.resolve("build"), "target");

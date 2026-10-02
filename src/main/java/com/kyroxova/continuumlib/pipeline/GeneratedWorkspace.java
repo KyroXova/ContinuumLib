@@ -17,10 +17,15 @@ public final class GeneratedWorkspace {
     private final Path outputDir;
 
     public GeneratedWorkspace(Path buildRoot, String targetId) {
-        this(validateTargetId(targetId), Objects.requireNonNull(buildRoot, "buildRoot")
-                .resolve("continuum/targets/" + targetId)
+        this(validateTargetId(targetId), workspaceRoot(buildRoot, validateTargetId(targetId)));
+    }
+
+    private static Path workspaceRoot(Path buildRoot, String targetId) {
+        return Objects.requireNonNull(buildRoot, "buildRoot")
+                .resolve("continuum/targets")
+                .resolve(targetId)
                 .toAbsolutePath()
-                .normalize());
+                .normalize();
     }
 
     private GeneratedWorkspace(String targetId, Path rootDir) {
