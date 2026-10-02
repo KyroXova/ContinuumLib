@@ -1,5 +1,6 @@
 package com.kyroxova.continuumlib.gradle;
 
+import com.kyroxova.continuumlib.artifact.ArtifactPublisher;
 import com.kyroxova.continuumlib.knowledge.rule.RulePack;
 import com.kyroxova.continuumlib.pipeline.*;
 import org.gradle.api.GradleException;
@@ -10,9 +11,7 @@ import org.gradle.api.provider.Property;
 import org.gradle.api.tasks.*;
 
 import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.util.List;
 
 @CacheableTask
@@ -118,9 +117,8 @@ public abstract class GenerateTargetTask extends ArtifactRequestTask {
         }
 
         Path generatedJar = result.outputJar();
-        if (generatedJar != null && !generatedJar.equals(finalTaskJar) && Files.exists(generatedJar)) {
-            Files.createDirectories(finalTaskJar.getParent());
-            Files.copy(generatedJar, finalTaskJar, StandardCopyOption.REPLACE_EXISTING);
+        if (generatedJar != null && !generatedJar.equals(finalTaskJar)) {
+            ArtifactPublisher.publish(generatedJar, finalTaskJar);
         }
 
         getLogger().lifecycle("ContinuumLib successfully generated target '{}' at {}", targetId, finalTaskJar);
