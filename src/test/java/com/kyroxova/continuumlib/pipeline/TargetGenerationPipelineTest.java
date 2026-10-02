@@ -797,4 +797,93 @@ class TargetGenerationPipelineTest {
         return writer.toByteArray();
     }
 
+    @Test
+    void rejectsSourceFileSymlinkEscapingConfiguredRoot(@TempDir Path project) throws Exception {
+        Path sourceRoot = project.resolve("src/main/java");
+        Path outside = project.resolve("outside/External.java");
+        Files.createDirectories(sourceRoot);
+        Files.createDirectories(outside.getParent());
+        Files.writeString(outside, "package external; class External {}");
+
+        Path linked = sourceRoot.resolve("External.java");
+        try {
+            Files.createSymbolicLink(linked, outside);
+        } catch (UnsupportedOperationException | IOException unavailable) {
+            org.junit.jupiter.api.Assumptions.assumeTrue(false,
+                    "Symbolic links are unavailable in this test environment");
+        }
+
+        EnvironmentId env = new EnvironmentId(
+                "1.20.1",
+                Loader.FABRIC,
+                MappingNamespace.OFFICIAL,
+                17
+        );
+        ResolvedTarget target = ResolvedTarget.builder()
+                .targetId("source-symlink")
+                .sourceEnvironment(env)
+                .targetEnvironment(env)
+                .workspace(new GeneratedWorkspace(project.resolve("build"), "source-symlink"))
+                .projectConfiguration(ContinuumProjectConfiguration.empty(
+                        project.resolve("src/main/resources/continuumlib")))
+                .build();
+
+        IOException failure = assertThrows(IOException.class, () ->
+                new TargetGenerationPipeline().execute(
+                        target,
+                        project,
+                        List.of(sourceRoot),
+                        List.of(),
+                        "target.jar"
+                ));
+
+        assertTrue(failure.getMessage().contains("Source file escapes configured root"), failure.getMessage());
+        assertTrue(Files.isRegularFile(outside));
+    }
+
+    @Test
+    void rejectsResourceFileSymlinkEscapingConfiguredRoot(@TempDir Path project) throws Exception {
+        Path resourceRoot = project.resolve("src/main/resources");
+        Path outside = project.resolve("outside/secret.json");
+        Files.createDirectories(resourceRoot);
+        Files.createDirectories(outside.getParent());
+        Files.writeString(outside, "{\"secret\":true}");
+
+        Path linked = resourceRoot.resolve("assets/example/secret.json");
+        Files.createDirectories(linked.getParent());
+        try {
+            Files.createSymbolicLink(linked, outside);
+        } catch (UnsupportedOperationException | IOException unavailable) {
+            org.junit.jupiter.api.Assumptions.assumeTrue(false,
+                    "Symbolic links are unavailable in this test environment");
+        }
+
+        EnvironmentId env = new EnvironmentId(
+                "1.20.1",
+                Loader.FABRIC,
+                MappingNamespace.OFFICIAL,
+                17
+        );
+        ResolvedTarget target = ResolvedTarget.builder()
+                .targetId("resource-symlink")
+                .sourceEnvironment(env)
+                .targetEnvironment(env)
+                .workspace(new GeneratedWorkspace(project.resolve("build"), "resource-symlink"))
+                .projectConfiguration(ContinuumProjectConfiguration.empty(
+                        resourceRoot.resolve("continuumlib")))
+                .build();
+
+        IOException failure = assertThrows(IOException.class, () ->
+                new TargetGenerationPipeline().execute(
+                        target,
+                        project,
+                        List.of(),
+                        List.of(resourceRoot),
+                        "target.jar"
+                ));
+
+        assertTrue(failure.getMessage().contains("Resource file escapes configured root"), failure.getMessage());
+        assertEquals("{\"secret\":true}", Files.readString(outside));
+    }
+
 }

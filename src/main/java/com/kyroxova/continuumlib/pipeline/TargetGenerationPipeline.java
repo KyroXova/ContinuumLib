@@ -427,9 +427,13 @@ public final class TargetGenerationPipeline {
             Path normalizedRoot = root.toAbsolutePath().normalize();
             if (!Files.isDirectory(normalizedRoot)) continue;
             try (Stream<Path> stream = Files.walk(normalizedRoot)) {
-                stream.filter(p -> Files.isRegularFile(p) && p.getFileName().toString().endsWith(".java"))
-                        .map(path -> path.toAbsolutePath().normalize())
-                        .forEach(files::add);
+                for (Path path : stream
+                        .filter(p -> Files.isRegularFile(p) && p.getFileName().toString().endsWith(".java"))
+                        .map(candidate -> candidate.toAbsolutePath().normalize())
+                        .toList()) {
+                    ensureRealPathWithinRoot(normalizedRoot, path, "Source");
+                    files.add(path);
+                }
             }
         }
         return List.copyOf(files);
@@ -447,6 +451,7 @@ public final class TargetGenerationPipeline {
                     continue;
                 }
                 Path value = entry.getValue().toAbsolutePath().normalize();
+                ensureRealPathWithinRoot(normalizedRoot, value, "Resource");
                 Path previous = map.putIfAbsent(path, value);
                 if (previous != null && !previous.equals(value)) {
                     throw new IOException("Duplicate resource path across roots: " + path
@@ -455,6 +460,19 @@ public final class TargetGenerationPipeline {
             }
         }
         return Collections.unmodifiableMap(map);
+    }
+
+    private static void ensureRealPathWithinRoot(
+            Path root,
+            Path file,
+            String label
+    ) throws IOException {
+        Path realRoot = root.toRealPath();
+        Path realFile = file.toRealPath();
+        if (!realFile.startsWith(realRoot)) {
+            throw new IOException(label + " file escapes configured root through symbolic links: "
+                    + file + " -> " + realFile + " (root " + root + ")");
+        }
     }
 
     private static void validateUniqueSourcePaths(List<Path> sourceFiles, List<Path> sourceRoots) throws IOException {
