@@ -182,9 +182,7 @@ public final class FilterEngine {
 
         if (inclusions.hasClassRules() || exclusions.hasClassRules()) {
             var nested = ast.findAll(TypeDeclaration.class).stream()
-                    .filter(type -> type.getParentNode()
-                            .filter(TypeDeclaration.class::isInstance)
-                            .isPresent())
+                    .filter(type -> typeDepth((TypeDeclaration<?>) type) > 0)
                     .sorted(Comparator.comparingInt(type -> typeDepth((TypeDeclaration<?>) type)).reversed())
                     .toList();
 
