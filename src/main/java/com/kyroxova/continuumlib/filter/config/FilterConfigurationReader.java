@@ -29,8 +29,13 @@ public final class FilterConfigurationReader {
     );
 
     public ContinuumProjectConfiguration load(Path configurationRoot) throws IOException {
-        if (configurationRoot == null || !Files.exists(configurationRoot) || !Files.isDirectory(configurationRoot)) {
+        if (configurationRoot == null || !Files.exists(configurationRoot)) {
             return ContinuumProjectConfiguration.empty(configurationRoot);
+        }
+        if (!Files.isDirectory(configurationRoot)) {
+            throw new FilterConfigurationException(
+                    "ContinuumLib filter configuration root is not a directory: " + configurationRoot
+            );
         }
 
         Path inclusionsDir = configurationRoot.resolve("inclusions");

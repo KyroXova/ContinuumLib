@@ -11,6 +11,20 @@ import java.nio.file.Path;
 import static org.junit.jupiter.api.Assertions.*;
 
 class FilterConfigurationReaderTest {
+
+    @Test
+    void loadRejectsConfigurationRootFile(@TempDir Path root) throws Exception {
+        Path config = root.resolve("continuumlib");
+        Files.writeString(config, "not a directory");
+
+        FilterConfigurationException failure = assertThrows(
+                FilterConfigurationException.class,
+                () -> new FilterConfigurationReader().load(config)
+        );
+
+        assertTrue(failure.getMessage().contains("not a directory"));
+    }
+
     @Test
     void rejectsUnknownRuleKeys(@TempDir Path root) throws Exception {
         Path file = root.resolve("rule.json");
