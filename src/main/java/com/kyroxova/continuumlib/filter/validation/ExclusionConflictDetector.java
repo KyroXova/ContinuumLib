@@ -9,6 +9,7 @@ import com.github.javaparser.ast.expr.FieldAccessExpr;
 import com.github.javaparser.ast.expr.NameExpr;
 import com.kyroxova.continuumlib.filter.condition.TargetContext;
 import com.kyroxova.continuumlib.filter.registry.RegistryEntry;
+import com.kyroxova.continuumlib.source.ast.SourceTypes;
 import com.kyroxova.continuumlib.source.ast.SourceUnit;
 
 import java.util.*;
@@ -114,7 +115,7 @@ public final class ExclusionConflictDetector {
         Node current = node;
         while (current != null) {
             if (current instanceof TypeDeclaration<?> type) {
-                String sourceName = sourceTypeName(type);
+                String sourceName = SourceTypes.qualifiedName(type);
                 String normalizedOwner = ownerClass.replace('$', '.');
                 if (sameOwner(sourceName, ownerClass)
                         || sameOwner(ownerClass, sourceName)
@@ -126,19 +127,6 @@ public final class ExclusionConflictDetector {
         }
         return false;
     }
-
-    private static String sourceTypeName(TypeDeclaration<?> type) {
-        Deque<String> names = new ArrayDeque<>();
-        Node current = type;
-        while (current != null) {
-            if (current instanceof TypeDeclaration<?> declaration) {
-                names.addFirst(declaration.getNameAsString());
-            }
-            current = current.getParentNode().orElse(null);
-        }
-        return String.join(".", names);
-    }
-
     private static boolean sameOwner(String left, String right) {
         return left.replace('$', '.').equals(right.replace('$', '.'));
     }

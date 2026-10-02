@@ -2,7 +2,6 @@ package com.kyroxova.continuumlib.filter.registry;
 
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.body.FieldDeclaration;
-import com.github.javaparser.ast.body.TypeDeclaration;
 import com.github.javaparser.ast.body.VariableDeclarator;
 import com.github.javaparser.ast.expr.BinaryExpr;
 import com.github.javaparser.ast.expr.Expression;
@@ -12,6 +11,7 @@ import com.github.javaparser.ast.expr.NameExpr;
 import com.github.javaparser.ast.expr.ObjectCreationExpr;
 import com.github.javaparser.ast.expr.StringLiteralExpr;
 import com.kyroxova.continuumlib.filter.domain.RegistryType;
+import com.kyroxova.continuumlib.source.ast.SourceTypes;
 import com.kyroxova.continuumlib.source.ast.SourceUnit;
 
 import java.util.*;
@@ -35,13 +35,12 @@ public final class RegistryDeclarationScanner {
     private List<RegistryEntry> scanUnit(SourceUnit unit, GlobalConstants globalConstants) {
         List<RegistryEntry> entries = new ArrayList<>();
         CompilationUnit ast = unit.ast();
-        String pkg = ast.getPackageDeclaration().map(p -> p.getNameAsString() + ".").orElse("");
 
-        for (TypeDeclaration<?> typeDecl : ast.findAll(TypeDeclaration.class)) {
-            String className = sourceTypeName(typeDecl, pkg);
+        for (var typeDecl : SourceTypes.all(ast)) {
+            String className = SourceTypes.qualifiedName(typeDecl);
             ClassContext context = context(typeDecl, globalConstants);
 
-            for (FieldDeclaration field : fields(typeDecl)) {
+            for (FieldDeclaration field : SourceTypes.fields(typeDecl)) {
                 for (VariableDeclarator variable : field.getVariables()) {
                     inspectField(variable, className, unit.relativePath(), context, globalConstants)
                             .ifPresent(entries::add);
@@ -52,11 +51,11 @@ public final class RegistryDeclarationScanner {
     }
 
     private static ClassContext context(
-            TypeDeclaration<?> type,
+            com.github.javaparser.ast.body.TypeDeclaration<?> type,
             GlobalConstants globalConstants
     ) {
         Map<String, String> constants = new HashMap<>();
-        for (FieldDeclaration field : fields(type)) {
+        for (FieldDeclaration field : SourceTypes.fields(type)) {
             for (VariableDeclarator variable : field.getVariables()) {
                 variable.getInitializer()
                         .flatMap(initializer -> literalString(initializer, constants, globalConstants))
@@ -65,7 +64,7 @@ public final class RegistryDeclarationScanner {
         }
 
         Map<String, String> registryNamespaces = new HashMap<>();
-        for (FieldDeclaration field : fields(type)) {
+        for (FieldDeclaration field : SourceTypes.fields(type)) {
             for (VariableDeclarator variable : field.getVariables()) {
                 inferRegistryNamespace(variable, constants, globalConstants)
                         .ifPresent(namespace -> registryNamespaces.put(variable.getNameAsString(), namespace));
@@ -315,12 +314,9 @@ public final class RegistryDeclarationScanner {
         static GlobalConstants from(Collection<SourceUnit> units) {
             Map<String, String> qualified = new HashMap<>();
             for (SourceUnit unit : units) {
-                String pkg = unit.ast().getPackageDeclaration()
-                        .map(declaration -> declaration.getNameAsString() + ".")
-                        .orElse("");
-                for (TypeDeclaration<?> type : unit.ast().findAll(TypeDeclaration.class)) {
-                    String owner = sourceTypeName(type, pkg);
-                    for (FieldDeclaration field : fields(type)) {
+                for (var type : SourceTypes.all(unit.ast())) {
+                    String owner = SourceTypes.qualifiedName(type);
+                    for (FieldDeclaration field : SourceTypes.fields(type)) {
                         for (VariableDeclarator variable : field.getVariables()) {
                             variable.getInitializer()
                                     .flatMap(RegistryDeclarationScanner::directLiteralString)
@@ -367,25 +363,6 @@ public final class RegistryDeclarationScanner {
                     ? Optional.of(matches.get(0).getValue())
                     : Optional.empty();
         }
-    }
-
-    private static List<FieldDeclaration> fields(TypeDeclaration<?> type) {
-        return type.getMembers().stream()
-                .filter(FieldDeclaration.class::isInstance)
-                .map(FieldDeclaration.class::cast)
-                .toList();
-    }
-
-    private static String sourceTypeName(TypeDeclaration<?> type, String pkg) {
-        Deque<String> names = new ArrayDeque<>();
-        com.github.javaparser.ast.Node current = type;
-        while (current != null) {
-            if (current instanceof TypeDeclaration<?> declaration) {
-                names.addFirst(declaration.getNameAsString());
-            }
-            current = current.getParentNode().orElse(null);
-        }
-        return pkg + String.join(".", names);
     }
 
     private static Optional<String> directLiteralString(Expression expression) {

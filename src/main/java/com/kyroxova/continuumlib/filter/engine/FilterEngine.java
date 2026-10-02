@@ -13,6 +13,7 @@ import com.kyroxova.continuumlib.filter.rule.FilterRule;
 import com.kyroxova.continuumlib.filter.rule.InclusionRuleSet;
 import com.kyroxova.continuumlib.filter.rule.RuleSet;
 import com.kyroxova.continuumlib.filter.validation.ExclusionConflictDetector;
+import com.kyroxova.continuumlib.source.ast.SourceTypes;
 import com.kyroxova.continuumlib.source.ast.SourceUnit;
 
 import java.io.IOException;
@@ -172,22 +173,21 @@ public final class FilterEngine {
             return true;
         }
 
-        String pkg = ast.getPackageDeclaration().map(p -> p.getNameAsString() + ".").orElse("");
         for (TypeDeclaration<?> type : new ArrayList<>(ast.getTypes())) {
-            String qualifiedName = pkg + type.getNameAsString();
+            String qualifiedName = SourceTypes.qualifiedName(type);
             if (!classIncluded(inclusions, qualifiedName) || exclusions.matchesClass(qualifiedName)) {
                 type.remove();
             }
         }
 
         if (inclusions.hasClassRules() || exclusions.hasClassRules()) {
-            var nested = ast.findAll(TypeDeclaration.class).stream()
-                    .filter(type -> typeDepth((TypeDeclaration<?>) type) > 0)
-                    .sorted(Comparator.comparingInt(type -> typeDepth((TypeDeclaration<?>) type)).reversed())
+            var nested = SourceTypes.all(ast).stream()
+                    .filter(type -> SourceTypes.depth(type) > 0)
+                    .sorted(Comparator.comparingInt(SourceTypes::depth).reversed())
                     .toList();
 
             for (TypeDeclaration<?> type : nested) {
-                String qualifiedName = sourceTypeName(type, pkg);
+                String qualifiedName = SourceTypes.qualifiedName(type);
                 if (!classIncluded(inclusions, qualifiedName) || exclusions.matchesClass(qualifiedName)) {
                     type.remove();
                 }
@@ -210,29 +210,6 @@ public final class FilterEngine {
         }
         return false;
     }
-
-    private static int typeDepth(TypeDeclaration<?> type) {
-        int depth = 0;
-        com.github.javaparser.ast.Node current = type.getParentNode().orElse(null);
-        while (current != null) {
-            if (current instanceof TypeDeclaration<?>) depth++;
-            current = current.getParentNode().orElse(null);
-        }
-        return depth;
-    }
-
-    private static String sourceTypeName(TypeDeclaration<?> type, String pkg) {
-        Deque<String> names = new ArrayDeque<>();
-        com.github.javaparser.ast.Node current = type;
-        while (current != null) {
-            if (current instanceof TypeDeclaration<?> declaration) {
-                names.addFirst(declaration.getNameAsString());
-            }
-            current = current.getParentNode().orElse(null);
-        }
-        return pkg + String.join(".", names);
-    }
-
     private static boolean sameOwner(String left, String right) {
         return left.replace('$', '.').equals(right.replace('$', '.'));
     }
@@ -242,18 +219,11 @@ public final class FilterEngine {
             if (!unit.relativePath().replace('\\', '/').equals(entry.sourcePath().replace('\\', '/'))) {
                 continue;
             }
-            String pkg = unit.ast().getPackageDeclaration()
-                    .map(declaration -> declaration.getNameAsString() + ".")
-                    .orElse("");
-            for (TypeDeclaration<?> type : unit.ast().findAll(TypeDeclaration.class)) {
-                String owner = sourceTypeName(type, pkg);
+            for (var type : SourceTypes.all(unit.ast())) {
+                String owner = SourceTypes.qualifiedName(type);
                 if (!sameOwner(owner, entry.ownerClass())) continue;
 
-                List<FieldDeclaration> fields = type.getMembers().stream()
-                        .filter(FieldDeclaration.class::isInstance)
-                        .map(FieldDeclaration.class::cast)
-                        .toList();
-                for (FieldDeclaration field : new ArrayList<>(fields)) {
+                for (FieldDeclaration field : new ArrayList<>(SourceTypes.fields(type))) {
                     field.getVariables().removeIf(variable -> variable.getNameAsString().equals(entry.fieldName()));
                     if (field.getVariables().isEmpty()) field.remove();
                 }
