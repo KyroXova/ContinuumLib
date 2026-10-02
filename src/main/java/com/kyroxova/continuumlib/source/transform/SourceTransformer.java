@@ -166,6 +166,41 @@ public final class SourceTransformer {
         }
 
         ast.accept(new ModifierVisitor<Void>() {
+            private void renameAnnotation(AnnotationExpr annotation) {
+                String owner = resolveAnnotationOwner(annotation.getNameAsString(), simpleToQualified, ast);
+                var rename = plan.findClassRename(owner);
+                if (rename.isEmpty()) return;
+
+                String target = rename.get().targetOwner().replace('/', '.');
+                annotation.setName(simpleName(target));
+                ensureImport(ast, target);
+                appliedMigrations.add(AppliedMigration.from(
+                        rename.get(),
+                        MigrationLayer.SOURCE_AST,
+                        MigrationConfidence.STRUCTURALLY_RESOLVED,
+                        sourcePath,
+                        annotation.getBegin().map(p -> p.line).orElse(-1)
+                ));
+            }
+
+            @Override
+            public Visitable visit(MarkerAnnotationExpr n, Void arg) {
+                renameAnnotation(n);
+                return super.visit(n, arg);
+            }
+
+            @Override
+            public Visitable visit(SingleMemberAnnotationExpr n, Void arg) {
+                renameAnnotation(n);
+                return super.visit(n, arg);
+            }
+
+            @Override
+            public Visitable visit(NormalAnnotationExpr n, Void arg) {
+                renameAnnotation(n);
+                return super.visit(n, arg);
+            }
+
             @Override
             public Visitable visit(ClassOrInterfaceType n, Void arg) {
                 TypeIdentity identity = resolveTypeIdentity(n, simpleToQualified);
@@ -1655,6 +1690,27 @@ public final class SourceTransformer {
             return new TypeIdentity(samePackage, MigrationConfidence.STRUCTURALLY_RESOLVED);
         }
         return new TypeIdentity(sourceName, MigrationConfidence.STRUCTURALLY_RESOLVED);
+    }
+
+    private static String resolveAnnotationOwner(
+            String name,
+            Map<String, String> imports,
+            CompilationUnit ast
+    ) {
+        String normalized = name.replace('/', '.');
+        int dot = normalized.indexOf('.');
+        String first = dot >= 0 ? normalized.substring(0, dot) : normalized;
+        String imported = imports.get(first);
+        if (imported != null) {
+            return dot >= 0 ? imported + normalized.substring(dot) : imported;
+        }
+        if (dot >= 0 && Character.isLowerCase(normalized.charAt(0))) {
+            return normalized;
+        }
+        String pkg = ast.getPackageDeclaration()
+                .map(declaration -> declaration.getNameAsString() + ".")
+                .orElse("");
+        return pkg + normalized;
     }
 
     private static String resolveQualified(String simpleName, Map<String, String> imports) {
