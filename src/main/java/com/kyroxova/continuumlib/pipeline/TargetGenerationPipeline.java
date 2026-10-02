@@ -330,7 +330,11 @@ public final class TargetGenerationPipeline {
                         .build());
             }
 
-            ws.cleanStaging();
+            try {
+                ws.cleanStaging();
+            } catch (IOException cleanupFailure) {
+                e.addSuppressed(cleanupFailure);
+            }
             TargetGenerationResult partialResult = resultBuilder.build();
             try {
                 reportWriter.write(partialResult);

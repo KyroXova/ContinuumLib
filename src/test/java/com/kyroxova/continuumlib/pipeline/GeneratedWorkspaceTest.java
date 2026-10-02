@@ -33,6 +33,19 @@ class GeneratedWorkspaceTest {
         assertEquals("last-good", Files.readString(workspace.finalJar("mod.jar")));
     }
     @Test
+    void cleanStagingRemovesPartialArtifacts(@TempDir Path root) throws Exception {
+        GeneratedWorkspace workspace = new GeneratedWorkspace(root.resolve("build"), "target");
+        workspace.init();
+        Path partial = workspace.stagingDir().resolve("partial.jar");
+        Files.writeString(partial, "partial");
+
+        workspace.cleanStaging();
+
+        assertFalse(Files.exists(partial));
+        assertTrue(Files.isDirectory(workspace.stagingDir()));
+    }
+
+    @Test
     void rejectsUnsafeArtifactNames(@TempDir Path root) {
         GeneratedWorkspace workspace = new GeneratedWorkspace(root.resolve("build"), "target");
 

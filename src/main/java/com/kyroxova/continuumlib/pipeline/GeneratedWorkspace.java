@@ -124,12 +124,9 @@ public final class GeneratedWorkspace {
         return finalDest;
     }
 
-    public void cleanStaging() {
-        try {
-            clean(stagingDir);
-            Files.createDirectories(stagingDir);
-        } catch (IOException ignored) {
-        }
+    public void cleanStaging() throws IOException {
+        clean(stagingDir);
+        Files.createDirectories(stagingDir);
     }
 
     private static void clean(Path directory) throws IOException {
