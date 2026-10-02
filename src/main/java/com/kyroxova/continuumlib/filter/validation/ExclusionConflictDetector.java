@@ -3,8 +3,8 @@ package com.kyroxova.continuumlib.filter.validation;
 import com.github.javaparser.ast.CompilationUnit;
 import com.github.javaparser.ast.ImportDeclaration;
 import com.github.javaparser.ast.Node;
-import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.FieldDeclaration;
+import com.github.javaparser.ast.body.TypeDeclaration;
 import com.github.javaparser.ast.expr.FieldAccessExpr;
 import com.github.javaparser.ast.expr.NameExpr;
 import com.kyroxova.continuumlib.filter.condition.TargetContext;
@@ -113,7 +113,7 @@ public final class ExclusionConflictDetector {
     private static boolean isInsideOwnerType(Node node, String ownerClass) {
         Node current = node;
         while (current != null) {
-            if (current instanceof ClassOrInterfaceDeclaration type) {
+            if (current instanceof TypeDeclaration<?> type) {
                 String sourceName = sourceTypeName(type);
                 String normalizedOwner = ownerClass.replace('$', '.');
                 if (sameOwner(sourceName, ownerClass)
@@ -127,11 +127,11 @@ public final class ExclusionConflictDetector {
         return false;
     }
 
-    private static String sourceTypeName(ClassOrInterfaceDeclaration type) {
+    private static String sourceTypeName(TypeDeclaration<?> type) {
         Deque<String> names = new ArrayDeque<>();
         Node current = type;
         while (current != null) {
-            if (current instanceof ClassOrInterfaceDeclaration declaration) {
+            if (current instanceof TypeDeclaration<?> declaration) {
                 names.addFirst(declaration.getNameAsString());
             }
             current = current.getParentNode().orElse(null);

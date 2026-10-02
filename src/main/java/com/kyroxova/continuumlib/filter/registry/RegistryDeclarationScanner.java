@@ -1,8 +1,8 @@
 package com.kyroxova.continuumlib.filter.registry;
 
 import com.github.javaparser.ast.CompilationUnit;
-import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
 import com.github.javaparser.ast.body.FieldDeclaration;
+import com.github.javaparser.ast.body.TypeDeclaration;
 import com.github.javaparser.ast.body.VariableDeclarator;
 import com.github.javaparser.ast.expr.BinaryExpr;
 import com.github.javaparser.ast.expr.Expression;
@@ -37,11 +37,11 @@ public final class RegistryDeclarationScanner {
         CompilationUnit ast = unit.ast();
         String pkg = ast.getPackageDeclaration().map(p -> p.getNameAsString() + ".").orElse("");
 
-        for (ClassOrInterfaceDeclaration typeDecl : ast.findAll(ClassOrInterfaceDeclaration.class)) {
-            String className = typeDecl.getFullyQualifiedName().orElse(pkg + typeDecl.getNameAsString());
+        for (TypeDeclaration<?> typeDecl : ast.findAll(TypeDeclaration.class)) {
+            String className = sourceTypeName(typeDecl, pkg);
             ClassContext context = context(typeDecl, globalConstants);
 
-            for (FieldDeclaration field : typeDecl.getFields()) {
+            for (FieldDeclaration field : fields(typeDecl)) {
                 for (VariableDeclarator variable : field.getVariables()) {
                     inspectField(variable, className, unit.relativePath(), context, globalConstants)
                             .ifPresent(entries::add);
@@ -52,11 +52,11 @@ public final class RegistryDeclarationScanner {
     }
 
     private static ClassContext context(
-            ClassOrInterfaceDeclaration type,
+            TypeDeclaration<?> type,
             GlobalConstants globalConstants
     ) {
         Map<String, String> constants = new HashMap<>();
-        for (FieldDeclaration field : type.getFields()) {
+        for (FieldDeclaration field : fields(type)) {
             for (VariableDeclarator variable : field.getVariables()) {
                 variable.getInitializer()
                         .flatMap(initializer -> literalString(initializer, constants, globalConstants))
@@ -65,7 +65,7 @@ public final class RegistryDeclarationScanner {
         }
 
         Map<String, String> registryNamespaces = new HashMap<>();
-        for (FieldDeclaration field : type.getFields()) {
+        for (FieldDeclaration field : fields(type)) {
             for (VariableDeclarator variable : field.getVariables()) {
                 inferRegistryNamespace(variable, constants, globalConstants)
                         .ifPresent(namespace -> registryNamespaces.put(variable.getNameAsString(), namespace));
@@ -318,9 +318,9 @@ public final class RegistryDeclarationScanner {
                 String pkg = unit.ast().getPackageDeclaration()
                         .map(declaration -> declaration.getNameAsString() + ".")
                         .orElse("");
-                for (ClassOrInterfaceDeclaration type : unit.ast().findAll(ClassOrInterfaceDeclaration.class)) {
-                    String owner = type.getFullyQualifiedName().orElse(pkg + type.getNameAsString());
-                    for (FieldDeclaration field : type.getFields()) {
+                for (TypeDeclaration<?> type : unit.ast().findAll(TypeDeclaration.class)) {
+                    String owner = sourceTypeName(type, pkg);
+                    for (FieldDeclaration field : fields(type)) {
                         for (VariableDeclarator variable : field.getVariables()) {
                             variable.getInitializer()
                                     .flatMap(RegistryDeclarationScanner::directLiteralString)
@@ -367,6 +367,25 @@ public final class RegistryDeclarationScanner {
                     ? Optional.of(matches.get(0).getValue())
                     : Optional.empty();
         }
+    }
+
+    private static List<FieldDeclaration> fields(TypeDeclaration<?> type) {
+        return type.getMembers().stream()
+                .filter(FieldDeclaration.class::isInstance)
+                .map(FieldDeclaration.class::cast)
+                .toList();
+    }
+
+    private static String sourceTypeName(TypeDeclaration<?> type, String pkg) {
+        Deque<String> names = new ArrayDeque<>();
+        com.github.javaparser.ast.Node current = type;
+        while (current != null) {
+            if (current instanceof TypeDeclaration<?> declaration) {
+                names.addFirst(declaration.getNameAsString());
+            }
+            current = current.getParentNode().orElse(null);
+        }
+        return pkg + String.join(".", names);
     }
 
     private static Optional<String> directLiteralString(Expression expression) {

@@ -759,4 +759,81 @@ class FilterSystemTest {
         assertTrue(generated.contains("outerValue"), generated);
     }
 
+
+    @Test
+    void registryExclusionRemovesEnumDeclaredEntry() {
+        String code = """
+                package com.example;
+                enum Holder {
+                    INSTANCE;
+
+                    static final Object BLOCKS = null;
+                    static final Object LEGACY = BLOCKS.register("legacy", () -> null);
+                    static final Object KEEP = BLOCKS.register("keep", () -> null);
+                }
+                """;
+
+        SourceUnit unit = new SourceParser(List.of(), List.of())
+                .parseString("com/example/Holder.java", code);
+        var exclusions = new ExclusionRuleSet(
+                com.kyroxova.continuumlib.filter.rule.RuleSet.builder()
+                        .addRegistry(new RegistryFilterRule(
+                                RegistryType.BLOCK,
+                                "legacy",
+                                EnvironmentCondition.ALWAYS,
+                                Path.of("registry.json")
+                        ))
+                        .build()
+        );
+
+        var result = new FilterEngine().process(
+                TargetContext.of(env1211),
+                InclusionRuleSet.EMPTY,
+                exclusions,
+                List.of(unit),
+                Map.of()
+        );
+
+        assertEquals(1, result.excludedRegistryEntries().size());
+        assertEquals("com.example.Holder", result.excludedRegistryEntries().get(0).ownerClass());
+        String generated = result.activeSources().get(0).ast().toString();
+        assertFalse(generated.contains("LEGACY = BLOCKS.register"), generated);
+        assertTrue(generated.contains("KEEP = BLOCKS.register"), generated);
+    }
+
+    @Test
+    void nestedRecordExclusionRemovesOnlySelectedRecord() {
+        String code = """
+                package com.example;
+                class Outer {
+                    record Keep(int value) {}
+                    record Legacy(int value) {}
+                }
+                """;
+
+        SourceUnit unit = new SourceParser(List.of(), List.of())
+                .parseString("com/example/Outer.java", code);
+        var exclusions = new ExclusionRuleSet(
+                com.kyroxova.continuumlib.filter.rule.RuleSet.builder()
+                        .addClass(new com.kyroxova.continuumlib.filter.rule.ClassFilterRule(
+                                "com.example.Outer.Legacy",
+                                EnvironmentCondition.ALWAYS,
+                                Path.of("classes.json")
+                        ))
+                        .build()
+        );
+
+        var result = new FilterEngine().process(
+                TargetContext.of(env1211),
+                InclusionRuleSet.EMPTY,
+                exclusions,
+                List.of(unit),
+                Map.of()
+        );
+
+        String generated = result.activeSources().get(0).ast().toString();
+        assertTrue(generated.contains("record Keep"), generated);
+        assertFalse(generated.contains("record Legacy"), generated);
+    }
+
 }
