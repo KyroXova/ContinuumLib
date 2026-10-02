@@ -550,4 +550,59 @@ class FilterSystemTest {
         assertEquals("com.example.Outer.Inner", index.entries().get(0).ownerClass());
     }
 
+    @Test
+    void deferredRegisterNamespaceIsCarriedIntoRegistryEntry() {
+        String code = """
+                package com.example;
+                import net.minecraftforge.registries.DeferredRegister;
+                import net.minecraftforge.registries.RegistryObject;
+                import net.minecraft.world.level.block.Block;
+
+                class ModBlocks {
+                    static final String MOD_ID = "buildscape";
+                    static final DeferredRegister<Block> BLOCKS = DeferredRegister.create(null, MOD_ID);
+                    static final RegistryObject<Block> MANGROVE =
+                            BLOCKS.register("mangrove_planks", () -> null);
+                }
+                """;
+
+        SourceUnit unit = new SourceParser(List.of(), List.of())
+                .parseString("com/example/ModBlocks.java", code);
+        var entries = new com.kyroxova.continuumlib.filter.registry.RegistryDeclarationScanner()
+                .scan(List.of(unit))
+                .entries();
+
+        assertEquals(1, entries.size(), entries.toString());
+        assertEquals("buildscape", entries.get(0).namespace());
+        assertEquals("buildscape:mangrove_planks", entries.get(0).fullId());
+        assertEquals(RegistryType.BLOCK, entries.get(0).registryType());
+    }
+
+    @Test
+    void explicitIdentifierNamespaceOverridesDeferredRegisterNamespace() {
+        String code = """
+                package com.example;
+                import net.minecraftforge.registries.DeferredRegister;
+                import net.minecraftforge.registries.RegistryObject;
+                import net.minecraft.world.level.block.Block;
+
+                class ModBlocks {
+                    static final DeferredRegister<Block> BLOCKS =
+                            DeferredRegister.create(null, "buildscape");
+                    static final RegistryObject<Block> TEST =
+                            BLOCKS.register("other:test", () -> null);
+                }
+                """;
+
+        SourceUnit unit = new SourceParser(List.of(), List.of())
+                .parseString("com/example/ModBlocks.java", code);
+        var entry = new com.kyroxova.continuumlib.filter.registry.RegistryDeclarationScanner()
+                .scan(List.of(unit))
+                .entries()
+                .get(0);
+
+        assertEquals("other", entry.namespace());
+        assertEquals("other:test", entry.fullId());
+    }
+
 }
