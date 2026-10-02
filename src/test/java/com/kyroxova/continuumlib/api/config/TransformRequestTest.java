@@ -120,4 +120,48 @@ class TransformRequestTest {
         );
     }
 
+    @Test
+    void normalizesProgrammaticTransformRequestIdentity() {
+        var request = new TransformRequest(
+                "  fixture  ",
+                java.util.Map.of(" game ", Path.of("relative/source.jar")),
+                java.util.Map.of("game", Path.of("relative/target.jar"))
+        );
+
+        assertEquals("fixture", request.packId());
+        assertEquals(
+                Path.of("relative/source.jar").toAbsolutePath().normalize(),
+                request.sourceArtifacts().get("game")
+        );
+        assertEquals(
+                Path.of("relative/target.jar").toAbsolutePath().normalize(),
+                request.targetArtifacts().get("game")
+        );
+    }
+
+    @Test
+    void rejectsInvalidProgrammaticTransformRequestIdentity() {
+        assertThrows(IllegalArgumentException.class, () ->
+                new TransformRequest(
+                        "fixture",
+                        java.util.Map.of(),
+                        java.util.Map.of("game", Path.of("target.jar"))
+                )
+        );
+        assertThrows(IllegalArgumentException.class, () ->
+                new TransformRequest(
+                        "fixture",
+                        java.util.Map.of("   ", Path.of("source.jar")),
+                        java.util.Map.of("game", Path.of("target.jar"))
+                )
+        );
+        assertThrows(NullPointerException.class, () ->
+                new TransformRequest(
+                        "fixture",
+                        null,
+                        java.util.Map.of("game", Path.of("target.jar"))
+                )
+        );
+    }
+
 }

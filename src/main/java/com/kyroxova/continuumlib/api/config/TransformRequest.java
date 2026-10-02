@@ -24,16 +24,61 @@ public record TransformRequest(String packId, Map<String, Path> sourceArtifacts,
                 sourceClasspath, targetClasspath, null);
     }
     public TransformRequest {
-        if (packId == null || packId.isBlank() || sourceArtifacts.isEmpty() || targetArtifacts.isEmpty())
-            throw new IllegalArgumentException("pack, source artifacts and target artifacts are required");
-        sourceArtifacts = Map.copyOf(sourceArtifacts);
-        targetArtifacts = Map.copyOf(targetArtifacts);
-        sourceClasspath = Map.copyOf(sourceClasspath);
-        targetClasspath = Map.copyOf(targetClasspath);
+        if (packId == null || packId.isBlank()) {
+            throw new IllegalArgumentException("pack is required");
+        }
+        packId = packId.trim();
+        sourceArtifacts = normalizeArtifacts(sourceArtifacts, "source");
+        targetArtifacts = normalizeArtifacts(targetArtifacts, "target");
+        sourceClasspath = normalizeClasspath(sourceClasspath, "source");
+        targetClasspath = normalizeClasspath(targetClasspath, "target");
         targetLoaderVersion = targetLoaderVersion == null || targetLoaderVersion.isBlank()
                 ? null
                 : targetLoaderVersion.trim();
     }
+    private static Map<String, Path> normalizeArtifacts(Map<String, Path> artifacts, String side) {
+        Objects.requireNonNull(artifacts, side + "Artifacts");
+        if (artifacts.isEmpty()) {
+            throw new IllegalArgumentException(side + " artifacts are required");
+        }
+
+        Map<String, Path> normalized = new TreeMap<>();
+        for (var entry : artifacts.entrySet()) {
+            String name = Objects.requireNonNull(entry.getKey(), side + " artifact name").trim();
+            Path path = Objects.requireNonNull(entry.getValue(), side + " artifact path");
+            if (name.isEmpty()) {
+                throw new IllegalArgumentException("Blank " + side + " artifact name");
+            }
+            if (normalized.putIfAbsent(name, path.toAbsolutePath().normalize()) != null) {
+                throw new IllegalArgumentException("Duplicate " + side + " artifact name: " + name);
+            }
+        }
+        return Map.copyOf(normalized);
+    }
+
+    private static Map<String, ClasspathArtifact> normalizeClasspath(
+            Map<String, ClasspathArtifact> classpath,
+            String side
+    ) {
+        if (classpath == null || classpath.isEmpty()) return Map.of();
+
+        Map<String, ClasspathArtifact> normalized = new TreeMap<>();
+        for (var entry : classpath.entrySet()) {
+            String name = Objects.requireNonNull(entry.getKey(), side + " classpath name").trim();
+            ClasspathArtifact artifact = Objects.requireNonNull(
+                    entry.getValue(),
+                    side + " classpath artifact"
+            );
+            if (name.isEmpty()) {
+                throw new IllegalArgumentException("Blank " + side + " classpath name");
+            }
+            if (normalized.putIfAbsent(name, artifact) != null) {
+                throw new IllegalArgumentException("Duplicate " + side + " classpath name: " + name);
+            }
+        }
+        return Map.copyOf(normalized);
+    }
+
     public static TransformRequest read(Path config, Path projectRoot) throws IOException {
         Properties properties = new Properties() {
             @Override public synchronized Object put(Object key, Object value) {
