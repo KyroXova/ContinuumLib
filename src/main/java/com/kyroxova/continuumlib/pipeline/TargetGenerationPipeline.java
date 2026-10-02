@@ -482,8 +482,13 @@ public final class TargetGenerationPipeline {
             if (!Files.isRegularFile(normalized) || !normalized.getFileName().toString().endsWith(".java")) {
                 continue;
             }
-            Path root = findMatchingRoot(normalized, sourceRoots);
-            ensureRealPathWithinRoot(root.toAbsolutePath().normalize(), normalized, "Source");
+            Path root = sourceRoots.stream()
+                    .map(path -> path.toAbsolutePath().normalize())
+                    .filter(normalized::startsWith)
+                    .max(Comparator.comparingInt(Path::getNameCount))
+                    .orElseThrow(() -> new IOException(
+                            "Selected source is outside configured source roots: " + normalized));
+            ensureRealPathWithinRoot(root, normalized, "Source");
             selected.add(normalized);
         }
         return selected.stream().distinct().sorted().toList();
