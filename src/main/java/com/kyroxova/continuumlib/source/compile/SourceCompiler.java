@@ -88,10 +88,7 @@ public final class SourceCompiler {
             args.add(argFileToken(output));
             args.add("-encoding");
             args.add("UTF-8");
-            if (javaVersion >= 8) {
-                args.add("--release");
-                args.add(Integer.toString(javaVersion));
-            }
+            args.addAll(externalLanguageLevelOptions(javaVersion));
             if (!classpathJars.isEmpty()) {
                 args.add("-classpath");
                 String cp = classpathJars.stream()
@@ -136,6 +133,16 @@ public final class SourceCompiler {
         } finally {
             Files.deleteIfExists(argFile);
         }
+    }
+
+    static List<String> externalLanguageLevelOptions(int javaVersion) {
+        if (javaVersion < 8) {
+            throw new IllegalArgumentException("Unsupported Java target version: " + javaVersion);
+        }
+        if (javaVersion == 8) {
+            return List.of("-source", "8", "-target", "8");
+        }
+        return List.of("--release", Integer.toString(javaVersion));
     }
 
     private static String formatDiagnostics(DiagnosticCollector<JavaFileObject> diagnostics) {
