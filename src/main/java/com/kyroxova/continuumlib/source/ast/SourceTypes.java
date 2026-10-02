@@ -30,6 +30,17 @@ public final class SourceTypes {
                 .toList();
     }
 
+    public static boolean remove(TypeDeclaration<?> type) {
+        Node parent = type.getParentNode().orElse(null);
+        if (parent instanceof TypeDeclaration<?> owner) {
+            return owner.getMembers().remove(type);
+        }
+        if (parent instanceof com.github.javaparser.ast.CompilationUnit unit) {
+            return unit.getTypes().remove(type);
+        }
+        return type.remove();
+    }
+
     public static int depth(TypeDeclaration<?> type) {
         int depth = 0;
         Node current = type.getParentNode().orElse(null);

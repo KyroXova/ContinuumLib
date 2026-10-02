@@ -176,7 +176,7 @@ public final class FilterEngine {
         for (TypeDeclaration<?> type : new ArrayList<>(ast.getTypes())) {
             String qualifiedName = SourceTypes.qualifiedName(type);
             if (!classIncluded(inclusions, qualifiedName) || exclusions.matchesClass(qualifiedName)) {
-                type.remove();
+                SourceTypes.remove(type);
             }
         }
 
@@ -189,7 +189,7 @@ public final class FilterEngine {
             for (TypeDeclaration<?> type : nested) {
                 String qualifiedName = SourceTypes.qualifiedName(type);
                 if (!classIncluded(inclusions, qualifiedName) || exclusions.matchesClass(qualifiedName)) {
-                    type.remove();
+                    SourceTypes.remove(type);
                 }
             }
         }
