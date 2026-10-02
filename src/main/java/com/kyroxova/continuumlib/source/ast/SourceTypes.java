@@ -1,8 +1,10 @@
 package com.kyroxova.continuumlib.source.ast;
 
 import com.github.javaparser.ast.Node;
+import com.github.javaparser.ast.body.EnumConstantDeclaration;
 import com.github.javaparser.ast.body.FieldDeclaration;
 import com.github.javaparser.ast.body.TypeDeclaration;
+import com.github.javaparser.ast.expr.ObjectCreationExpr;
 import com.github.javaparser.ast.stmt.LocalClassDeclarationStmt;
 import com.github.javaparser.ast.stmt.LocalRecordDeclarationStmt;
 
@@ -79,6 +81,19 @@ public final class SourceTypes {
         Node parent = type.getParentNode().orElse(null);
         if (parent instanceof LocalClassDeclarationStmt || parent instanceof LocalRecordDeclarationStmt) {
             return false;
+        }
+
+        Node current = parent;
+        while (current != null) {
+            if (current instanceof ObjectCreationExpr creation
+                    && creation.getAnonymousClassBody().isPresent()) {
+                return false;
+            }
+            if (current instanceof EnumConstantDeclaration constant
+                    && !constant.getClassBody().isEmpty()) {
+                return false;
+            }
+            current = current.getParentNode().orElse(null);
         }
         return type.findCompilationUnit().isPresent();
     }

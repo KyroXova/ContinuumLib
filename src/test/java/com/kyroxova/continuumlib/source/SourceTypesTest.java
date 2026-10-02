@@ -63,6 +63,41 @@ class SourceTypesTest {
         );
     }
 
+
+    @Test
+    void ignoresNamedTypesInsideAnonymousBodies() {
+        String code = """
+                package example;
+                class Outer {
+                    Object value = new Object() {
+                        class AnonymousMember {}
+                    };
+
+                    enum Kind {
+                        VALUE {
+                            class EnumBodyMember {}
+                        }
+                    }
+
+                    class RealMember {}
+                }
+                """;
+
+        var unit = new SourceParser(List.of(), List.of())
+                .parseString("example/Outer.java", code);
+
+        assertEquals(
+                List.of(
+                        "example.Outer",
+                        "example.Outer.Kind",
+                        "example.Outer.RealMember"
+                ),
+                SourceTypes.all(unit.ast()).stream()
+                        .map(SourceTypes::qualifiedName)
+                        .toList()
+        );
+    }
+
     @Test
     void discoversNestedMemberTypesButNotMethodLocalTypes() {
         String code = """
