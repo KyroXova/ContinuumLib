@@ -55,6 +55,26 @@ public final class TargetGenerationPipeline {
             List<Path> resourceRoots,
             String artifactName
     ) throws Exception {
+        return execute(
+                target,
+                projectRoot,
+                sourceRoots,
+                resourceRoots,
+                artifactName,
+                null,
+                null
+        );
+    }
+
+    public TargetGenerationResult execute(
+            ResolvedTarget target,
+            Path projectRoot,
+            List<Path> sourceRoots,
+            List<Path> resourceRoots,
+            String artifactName,
+            Collection<Path> selectedSourceFiles,
+            Collection<Path> selectedResourceFiles
+    ) throws Exception {
         Objects.requireNonNull(target, "target");
         Objects.requireNonNull(projectRoot, "projectRoot");
 
@@ -102,9 +122,13 @@ public final class TargetGenerationPipeline {
 
             // Stage 5: Discover Source Files and Resources
             stage = "DISCOVERY";
-            List<Path> discoveredSources = discoverJavaSources(sourceRoots);
+            List<Path> discoveredSources = selectedSourceFiles == null
+                    ? discoverJavaSources(sourceRoots)
+                    : selectedJavaSources(sourceRoots, selectedSourceFiles);
             validateUniqueSourcePaths(discoveredSources, sourceRoots);
-            Map<String, Path> discoveredResources = discoverProjectResources(resourceRoots);
+            Map<String, Path> discoveredResources = selectedResourceFiles == null
+                    ? discoverProjectResources(resourceRoots)
+                    : selectedProjectResources(resourceRoots, selectedResourceFiles);
             resultBuilder.discoveredSourceFiles(discoveredSources);
             resultBuilder.discoveredResources(discoveredResources);
 
@@ -445,6 +469,56 @@ public final class TargetGenerationPipeline {
             }
         }
         return List.copyOf(files);
+    }
+
+    private static List<Path> selectedJavaSources(
+            List<Path> sourceRoots,
+            Collection<Path> selectedSourceFiles
+    ) throws IOException {
+        List<Path> selected = new ArrayList<>();
+        for (Path file : selectedSourceFiles) {
+            if (file == null) continue;
+            Path normalized = file.toAbsolutePath().normalize();
+            if (!Files.isRegularFile(normalized) || !normalized.getFileName().toString().endsWith(".java")) {
+                continue;
+            }
+            Path root = findMatchingRoot(normalized, sourceRoots);
+            ensureRealPathWithinRoot(root.toAbsolutePath().normalize(), normalized, "Source");
+            selected.add(normalized);
+        }
+        return selected.stream().distinct().sorted().toList();
+    }
+
+    private static Map<String, Path> selectedProjectResources(
+            List<Path> resourceRoots,
+            Collection<Path> selectedResourceFiles
+    ) throws IOException {
+        Map<String, Path> map = new TreeMap<>();
+        for (Path file : selectedResourceFiles) {
+            if (file == null) continue;
+            Path normalized = file.toAbsolutePath().normalize();
+            if (!Files.isRegularFile(normalized)) continue;
+
+            Path root = resourceRoots.stream()
+                    .map(path -> path.toAbsolutePath().normalize())
+                    .filter(normalized::startsWith)
+                    .max(Comparator.comparingInt(Path::getNameCount))
+                    .orElseThrow(() -> new IOException(
+                            "Selected resource is outside configured resource roots: " + normalized));
+
+            ensureRealPathWithinRoot(root, normalized, "Resource");
+            String path = root.relativize(normalized).toString().replace('\\', '/');
+            if (path.startsWith("continuumlib/") || path.startsWith("data/continuumlib/")) {
+                continue;
+            }
+
+            Path previous = map.putIfAbsent(path, normalized);
+            if (previous != null && !previous.equals(normalized)) {
+                throw new IOException("Duplicate resource path across roots: " + path
+                        + " -> " + previous + " and " + normalized);
+            }
+        }
+        return Collections.unmodifiableMap(map);
     }
 
     private static Map<String, Path> discoverProjectResources(List<Path> resourceRoots) throws IOException {

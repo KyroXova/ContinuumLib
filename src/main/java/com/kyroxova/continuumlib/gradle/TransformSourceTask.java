@@ -34,6 +34,10 @@ public abstract class TransformSourceTask extends ArtifactRequestTask {
 
     @InputFiles
     @PathSensitive(PathSensitivity.RELATIVE)
+    public abstract ConfigurableFileCollection getSourceFiles();
+
+    @InputFiles
+    @PathSensitive(PathSensitivity.RELATIVE)
     public abstract ConfigurableFileCollection getResourceFiles();
 
     @InputFiles
@@ -71,6 +75,13 @@ public abstract class TransformSourceTask extends ArtifactRequestTask {
         }
         sourceRoots = sourceRoots.stream().distinct().sorted().toList();
 
+        List<Path> sourceFiles = getSourceFiles().getFiles().stream()
+                .map(file -> file.toPath().toAbsolutePath().normalize())
+                .filter(path -> path.getFileName().toString().endsWith(".java"))
+                .distinct()
+                .sorted()
+                .toList();
+
         List<Path> resourceRoots = getResourceRoots().getFiles().stream()
                 .map(file -> file.toPath().toAbsolutePath().normalize())
                 .sorted()
@@ -78,6 +89,12 @@ public abstract class TransformSourceTask extends ArtifactRequestTask {
         if (resourceRoots.isEmpty()) {
             resourceRoots = List.of(projectRoot.resolve("src/main/resources").toAbsolutePath().normalize());
         }
+        List<Path> resourceFiles = getResourceFiles().getFiles().stream()
+                .map(file -> file.toPath().toAbsolutePath().normalize())
+                .filter(java.nio.file.Files::isRegularFile)
+                .distinct()
+                .sorted()
+                .toList();
         Path configFile = getConfigFile().get().getAsFile().toPath();
         Path generatedSourceOutput = getGeneratedSourceDirectory().get().getAsFile().toPath();
         Path compiledClassesOutput = getCompiledClassesDirectory().get().getAsFile().toPath();
@@ -134,7 +151,9 @@ public abstract class TransformSourceTask extends ArtifactRequestTask {
                 projectRoot,
                 sourceRoots,
                 resourceRoots,
-                finalTaskJar.getFileName().toString()
+                finalTaskJar.getFileName().toString(),
+                sourceFiles,
+                resourceFiles
         );
         if (!result.isSuccess()) {
             throw new GradleException("ContinuumLib source transformation failed. See report: "

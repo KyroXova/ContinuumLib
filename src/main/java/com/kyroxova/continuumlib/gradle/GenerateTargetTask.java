@@ -30,6 +30,10 @@ public abstract class GenerateTargetTask extends ArtifactRequestTask {
 
     @InputFiles
     @PathSensitive(PathSensitivity.RELATIVE)
+    public abstract ConfigurableFileCollection getSourceFiles();
+
+    @InputFiles
+    @PathSensitive(PathSensitivity.RELATIVE)
     public abstract ConfigurableFileCollection getResourceFiles();
 
     @InputFiles
@@ -62,6 +66,13 @@ public abstract class GenerateTargetTask extends ArtifactRequestTask {
         }
         sourceRoots = sourceRoots.stream().distinct().sorted().toList();
 
+        List<Path> sourceFiles = getSourceFiles().getFiles().stream()
+                .map(file -> file.toPath().toAbsolutePath().normalize())
+                .filter(path -> path.getFileName().toString().endsWith(".java"))
+                .distinct()
+                .sorted()
+                .toList();
+
         List<Path> resourceRoots = getResourceRoots().getFiles().stream()
                 .map(file -> file.toPath().toAbsolutePath().normalize())
                 .sorted()
@@ -69,6 +80,12 @@ public abstract class GenerateTargetTask extends ArtifactRequestTask {
         if (resourceRoots.isEmpty()) {
             resourceRoots = List.of(projectRoot.resolve("src/main/resources").toAbsolutePath().normalize());
         }
+        List<Path> resourceFiles = getResourceFiles().getFiles().stream()
+                .map(file -> file.toPath().toAbsolutePath().normalize())
+                .filter(java.nio.file.Files::isRegularFile)
+                .distinct()
+                .sorted()
+                .toList();
         Path configFile = getConfigFile().get().getAsFile().toPath();
         Path finalTaskJar = getOutputJar().get().getAsFile().toPath();
 
@@ -108,7 +125,9 @@ public abstract class GenerateTargetTask extends ArtifactRequestTask {
                 projectRoot,
                 sourceRoots,
                 resourceRoots,
-                outputJarName
+                outputJarName,
+                sourceFiles,
+                resourceFiles
         );
 
         if (!result.isSuccess()) {
