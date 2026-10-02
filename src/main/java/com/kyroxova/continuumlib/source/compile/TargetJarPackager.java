@@ -18,8 +18,9 @@ public final class TargetJarPackager {
         Path tempJar = prepareTemp(outputJar);
         try {
             try (var out = new JarOutputStream(Files.newOutputStream(tempJar))) {
-                writeDirectory(out, classesDir, true);
-                writeDirectory(out, resourcesDir, false);
+                Set<String> writtenEntries = new HashSet<>();
+                writeDirectory(out, classesDir, true, writtenEntries, false);
+                writeDirectory(out, resourcesDir, false, writtenEntries, false);
             }
             replace(tempJar, outputJar);
         } finally {
@@ -44,19 +45,18 @@ public final class TargetJarPackager {
         Path tempJar = prepareTemp(outputJar);
         try {
             try (var out = new JarOutputStream(Files.newOutputStream(tempJar))) {
-                if (manifestAttributes != null) {
-                    writeManifest(out, manifestAttributes);
+                Set<String> writtenEntries = new HashSet<>();
+                boolean explicitManifest = manifestAttributes != null;
+                if (explicitManifest) {
+                    writeManifest(out, manifestAttributes, writtenEntries);
                 }
-                writeDirectory(out, classesDir, true);
+                writeDirectory(out, classesDir, true, writtenEntries, explicitManifest);
                 if (resources != null && !resources.isEmpty()) {
                     for (var entry : new TreeMap<>(resources).entrySet()) {
                         String entryName = normalizeEntryName(entry.getKey());
                         if (entryName.endsWith(".class")) continue;
-                        if (manifestAttributes != null
-                                && entryName.equalsIgnoreCase("META-INF/MANIFEST.MF")) {
-                            continue;
-                        }
-                        writeEntry(out, entryName, entry.getValue());
+                        if (explicitManifest && isManifest(entryName)) continue;
+                        writeEntry(out, entryName, entry.getValue(), writtenEntries);
                     }
                 }
             }
@@ -68,7 +68,8 @@ public final class TargetJarPackager {
 
     private static void writeManifest(
             JarOutputStream out,
-            Map<String, String> manifestAttributes
+            Map<String, String> manifestAttributes,
+            Set<String> writtenEntries
     ) throws IOException {
         Manifest manifest = new Manifest();
         Attributes attributes = manifest.getMainAttributes();
@@ -104,7 +105,9 @@ public final class TargetJarPackager {
         ByteArrayOutputStream bytes = new ByteArrayOutputStream();
         manifest.write(bytes);
 
-        JarEntry entry = new JarEntry("META-INF/MANIFEST.MF");
+        String entryName = "META-INF/MANIFEST.MF";
+        registerEntry(entryName, writtenEntries);
+        JarEntry entry = new JarEntry(entryName);
         entry.setTime(0L);
         out.putNextEntry(entry);
         try {
@@ -129,7 +132,9 @@ public final class TargetJarPackager {
     private static void writeDirectory(
             JarOutputStream out,
             Path root,
-            boolean includeClasses
+            boolean includeClasses,
+            Set<String> writtenEntries,
+            boolean skipManifest
     ) throws IOException {
         if (root == null || !Files.isDirectory(root)) return;
 
@@ -138,12 +143,19 @@ public final class TargetJarPackager {
             for (Path file : stream.filter(Files::isRegularFile).sorted().toList()) {
                 String entryName = normalizeEntryName(normalizedRoot.relativize(file).toString());
                 if (!includeClasses && entryName.endsWith(".class")) continue;
-                writeEntry(out, entryName, file);
+                if (skipManifest && isManifest(entryName)) continue;
+                writeEntry(out, entryName, file, writtenEntries);
             }
         }
     }
 
-    private static void writeEntry(JarOutputStream out, String entryName, Path file) throws IOException {
+    private static void writeEntry(
+            JarOutputStream out,
+            String entryName,
+            Path file,
+            Set<String> writtenEntries
+    ) throws IOException {
+        registerEntry(entryName, writtenEntries);
         JarEntry entry = new JarEntry(entryName);
         entry.setTime(0L);
         out.putNextEntry(entry);
@@ -151,6 +163,17 @@ public final class TargetJarPackager {
             Files.copy(file, out);
         } finally {
             out.closeEntry();
+        }
+    }
+
+
+    private static boolean isManifest(String entryName) {
+        return entryName.equalsIgnoreCase("META-INF/MANIFEST.MF");
+    }
+
+    private static void registerEntry(String entryName, Set<String> writtenEntries) throws IOException {
+        if (!writtenEntries.add(entryName)) {
+            throw new IOException("Duplicate JAR entry: " + entryName);
         }
     }
 

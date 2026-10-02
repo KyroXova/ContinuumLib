@@ -77,6 +77,52 @@ class TargetJarPackagerTest {
         }
     }
 
+
+    @Test
+    void explicitManifestSkipsGeneratedManifestFromClasses(@TempDir Path root) throws Exception {
+        Path classes = root.resolve("classes");
+        Path generatedManifest = classes.resolve("META-INF/MANIFEST.MF");
+        Files.createDirectories(generatedManifest.getParent());
+        Files.writeString(generatedManifest, "Manifest-Version: 1.0\nGenerated: true\n\n");
+
+        Path output = root.resolve("manifest.jar");
+        TargetJarPackager.packageJarWithResources(
+                classes,
+                Map.of(),
+                Map.of("Implementation-Title", "ContinuumLib"),
+                output
+        );
+
+        try (JarFile jar = new JarFile(output.toFile())) {
+            assertEquals("ContinuumLib",
+                    jar.getManifest().getMainAttributes().getValue("Implementation-Title"));
+            assertNull(jar.getManifest().getMainAttributes().getValue("Generated"));
+        }
+    }
+
+    @Test
+    void duplicateJarEntriesFailClearly(@TempDir Path root) throws Exception {
+        Path classes = root.resolve("classes");
+        Path classResource = classes.resolve("META-INF/services/example.Service");
+        Files.createDirectories(classResource.getParent());
+        Files.writeString(classResource, "first");
+
+        Path duplicate = root.resolve("duplicate-service");
+        Files.writeString(duplicate, "second");
+
+        IOException failure = assertThrows(IOException.class, () ->
+                TargetJarPackager.packageJarWithResources(
+                        classes,
+                        Map.of("META-INF/services/example.Service", duplicate),
+                        root.resolve("duplicate.jar")
+                )
+        );
+
+        assertTrue(failure.getMessage().contains("Duplicate JAR entry"));
+        assertFalse(Files.exists(root.resolve("duplicate.jar")));
+        assertFalse(Files.exists(root.resolve("duplicate.jar.tmp")));
+    }
+
     @Test
     void failedPackagingRemovesTemporaryJar(@TempDir Path root) throws Exception {
         Path classes = root.resolve("classes");
