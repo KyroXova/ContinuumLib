@@ -103,7 +103,32 @@ public abstract class ArtifactRequestTask extends DefaultTask {
 
     private static boolean overlaps(Path first, Path second) throws IOException {
         if (first.startsWith(second) || second.startsWith(first)) return true;
-        return Files.exists(first) && Files.exists(second) && Files.isSameFile(first, second);
+        if (Files.exists(first) && Files.exists(second) && Files.isSameFile(first, second)) return true;
+
+        Path effectiveFirst = resolveThroughExistingAncestor(first);
+        Path effectiveSecond = resolveThroughExistingAncestor(second);
+        return effectiveFirst.equals(effectiveSecond)
+                || effectiveFirst.startsWith(effectiveSecond)
+                || effectiveSecond.startsWith(effectiveFirst);
+    }
+
+    private static Path resolveThroughExistingAncestor(Path path) throws IOException {
+        Path normalized = path.toAbsolutePath().normalize();
+        Path existing = normalized;
+        Deque<Path> suffix = new ArrayDeque<>();
+
+        while (existing != null && !Files.exists(existing, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+            Path name = existing.getFileName();
+            if (name != null) suffix.addFirst(name);
+            existing = existing.getParent();
+        }
+        if (existing == null) return normalized;
+
+        Path resolved = existing.toRealPath();
+        for (Path segment : suffix) {
+            resolved = resolved.resolve(segment);
+        }
+        return resolved.normalize();
     }
 
     private static void rejectSymbolicLink(Path path, String label) {
