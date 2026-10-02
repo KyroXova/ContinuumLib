@@ -75,7 +75,7 @@ public final class SourceCompiler {
                 classpathJars,
                 outputClassesDir,
                 javaVersion,
-                Math.max(9, javaVersion)
+                detectCompilerJavaVersion(javacExecutable)
         );
     }
 
@@ -153,6 +153,65 @@ public final class SourceCompiler {
         } finally {
             Files.deleteIfExists(argFile);
         }
+    }
+
+    static int detectCompilerJavaVersion(Path javacExecutable) throws IOException {
+        Path javac = javacExecutable.toAbsolutePath().normalize();
+        if (!Files.isRegularFile(javac)) {
+            throw new IOException("Resolved javac executable does not exist: " + javac);
+        }
+
+        Process process = new ProcessBuilder(javac.toString(), "-version")
+                .redirectErrorStream(true)
+                .start();
+        String output;
+        try (var input = process.getInputStream()) {
+            output = new String(input.readAllBytes(), StandardCharsets.UTF_8).trim();
+        }
+
+        int exit;
+        try {
+            exit = process.waitFor();
+        } catch (InterruptedException interrupted) {
+            Thread.currentThread().interrupt();
+            process.destroyForcibly();
+            throw new IOException("Interrupted while detecting javac version from " + javac, interrupted);
+        }
+
+        if (exit != 0) {
+            throw new IOException("Could not determine javac version from " + javac + ": " + output);
+        }
+        try {
+            return parseJavacVersion(output);
+        } catch (IllegalArgumentException invalid) {
+            throw new IOException("Could not parse javac version from " + javac + ": " + output, invalid);
+        }
+    }
+
+    static int parseJavacVersion(String output) {
+        Objects.requireNonNull(output, "output");
+        String value = output.trim();
+        int separator = value.indexOf(' ');
+        if (separator >= 0) {
+            value = value.substring(separator + 1).trim();
+        }
+        if (value.startsWith("1.")) {
+            value = value.substring(2);
+        }
+
+        int end = 0;
+        while (end < value.length() && Character.isDigit(value.charAt(end))) {
+            end++;
+        }
+        if (end == 0) {
+            throw new IllegalArgumentException("Unrecognized javac version: " + output);
+        }
+
+        int version = Integer.parseInt(value.substring(0, end));
+        if (version < 8) {
+            throw new IllegalArgumentException("Unsupported javac version: " + output);
+        }
+        return version;
     }
 
     static List<String> externalLanguageLevelOptions(int targetJavaVersion, int compilerJavaVersion) {

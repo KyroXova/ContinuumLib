@@ -39,6 +39,26 @@ class SourceCompilerOptionsTest {
         );
     }
 
+
+    @Test
+    void parsesJava8JavacVersionOutput() {
+        assertEquals(8, SourceCompiler.parseJavacVersion("javac 1.8.0_402"));
+    }
+
+    @Test
+    void parsesModernJavacVersionOutput() {
+        assertEquals(17, SourceCompiler.parseJavacVersion("javac 17.0.15"));
+        assertEquals(21, SourceCompiler.parseJavacVersion("javac 21"));
+    }
+
+    @Test
+    void rejectsUnrecognizedJavacVersionOutput() {
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> SourceCompiler.parseJavacVersion("not-a-javac-version")
+        );
+    }
+
     @Test
     void rejectsUnsupportedPreJava8Targets() {
         assertThrows(
