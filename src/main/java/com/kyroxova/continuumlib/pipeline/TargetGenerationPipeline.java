@@ -66,6 +66,7 @@ public final class TargetGenerationPipeline {
         validateWorkspaceIsolation(target, sourceRoots, resourceRoots);
         ws.prepare();
         TargetContext targetContext = target.toTargetContext();
+        String stage = "TARGET_RESOLUTION";
 
         try {
             // Stage 1 & 2: Validate Target & Environments
@@ -81,9 +82,11 @@ public final class TargetGenerationPipeline {
             }
 
             // Stage 3: Verify Artifacts and Classpaths
+            stage = "ARTIFACT_VERIFICATION";
             verifyArtifacts(target);
 
             // Stage 4: Load Configuration
+            stage = "CONFIGURATION";
             ContinuumProjectConfiguration projConfig = target.projectConfiguration();
             if (projConfig == null) {
                 var discoveredConfig = new ProjectConfigurationLocator().locate(projectRoot);
@@ -98,6 +101,7 @@ public final class TargetGenerationPipeline {
                     : ExclusionRuleSet.EMPTY;
 
             // Stage 5: Discover Source Files and Resources
+            stage = "DISCOVERY";
             List<Path> discoveredSources = discoverJavaSources(sourceRoots);
             validateUniqueSourcePaths(discoveredSources, sourceRoots);
             Map<String, Path> discoveredResources = discoverProjectResources(resourceRoots);
@@ -105,6 +109,7 @@ public final class TargetGenerationPipeline {
             resultBuilder.discoveredResources(discoveredResources);
 
             // Stage 6: File-Level Selection (BEFORE AST PARSING)
+            stage = "FILE_FILTERING";
             List<Path> includedSources = new ArrayList<>();
             List<Path> excludedSources = new ArrayList<>();
 
@@ -141,6 +146,7 @@ public final class TargetGenerationPipeline {
             resultBuilder.excludedResources(excludedResources);
 
             // Stage 7-11: Parse selected source, then apply semantic class/registry filtering.
+            stage = "SOURCE_ANALYSIS";
             List<Path> srcClasspath = new ArrayList<>(target.sourceArtifacts().values());
             for (var artifact : target.sourceClasspath().values()) srcClasspath.add(artifact.file());
 
@@ -180,9 +186,11 @@ public final class TargetGenerationPipeline {
             resultBuilder.excludedRegistryEntries(filterResult.excludedRegistryEntries());
 
             // Stage 12: Resolve Canonical Verified Migration Plan
+            stage = "MIGRATION_PLAN";
             CanonicalMigrationPlan migrationPlan = CanonicalMigrationPlan.fromRulePacks(target.rulePacks());
 
             // Stage 13: Apply Source-Level Transformations
+            stage = "SOURCE_TRANSFORM";
             List<Path> sourceIndexPaths = srcClasspath.stream()
                     .map(path -> path.toAbsolutePath().normalize())
                     .distinct()
@@ -202,6 +210,7 @@ public final class TargetGenerationPipeline {
                 throw new PipelineExecutionException("Source transformation produced fatal diagnostics", transformFailure.get());
             }
 
+            stage = "RESOURCE_STAGING";
             Map<String, Path> workspaceResources = new TreeMap<>();
             for (var entry : includedResources.entrySet()) {
                 Path dest = ws.resourcesDir().resolve(entry.getKey()).toAbsolutePath().normalize();
@@ -214,6 +223,7 @@ public final class TargetGenerationPipeline {
             }
 
             // Stage 16: Compile Generated Target Source
+            stage = "COMPILATION";
             List<Path> targetClasspath = new ArrayList<>(target.targetArtifacts().values());
             for (var art : target.targetClasspath().values()) targetClasspath.add(art.file());
 
@@ -237,11 +247,13 @@ public final class TargetGenerationPipeline {
             resultBuilder.compiledClassesCount(classCount);
 
             // Stage 17: Package Target Artifact into Staging
+            stage = "PACKAGING";
             String jarName = (artifactName != null && !artifactName.isBlank()) ? artifactName : (target.targetId() + ".jar");
             Path stagedJar = ws.stagingJar(jarName);
             TargetJarPackager.packageJarWithResources(ws.classesDir(), workspaceResources, stagedJar);
 
             // Stage 18: Apply bytecode-only migrations that source transformation did not consume.
+            stage = "BYTECODE_MIGRATION";
             var bytecodeResult = new BytecodeMigrationExecutor().apply(
                     stagedJar,
                     migrationPlan,
@@ -249,6 +261,7 @@ public final class TargetGenerationPipeline {
             );
             resultBuilder.appliedMigrations(bytecodeResult.appliedMigrations());
 
+            stage = "NAMESPACE_EXPORT";
             int namespaceAdapted;
             try {
                 namespaceAdapted = new NamespaceExporter().export(stagedJar, target).adaptedClasses();
@@ -266,6 +279,7 @@ public final class TargetGenerationPipeline {
             resultBuilder.bytecodeAdaptedCount(bytecodeResult.adaptedClasses() + namespaceAdapted);
 
             // Stage 19: Run Final Bytecode/Target Reference Audit
+            stage = "AUDIT";
             List<TargetReferenceAudit.Finding> findings = auditTargetArtifact(target, stagedJar);
             resultBuilder.auditFindings(findings);
 
@@ -291,6 +305,7 @@ public final class TargetGenerationPipeline {
             }
 
             // Stage 20: Finalize Target Artifact & Reports
+            stage = "FINALIZATION";
             Path finalJar = ws.finalizeJar(stagedJar, jarName);
             resultBuilder.outputJar(finalJar);
 
@@ -299,11 +314,28 @@ public final class TargetGenerationPipeline {
             return result;
 
         } catch (Exception e) {
+            if (e instanceof PipelineExecutionException pipelineFailure) {
+                resultBuilder.addDiagnostic(pipelineFailure.diagnostic());
+            } else if (!resultBuilder.hasErrorDiagnostic()) {
+                String message = e.getMessage();
+                if (message == null || message.isBlank()) {
+                    message = e.getClass().getSimpleName();
+                }
+                resultBuilder.addDiagnostic(Diagnostic.builder()
+                        .code(DiagnosticCode.PIPELINE_EXECUTION_FAILED)
+                        .severity(Severity.ERROR)
+                        .targetId(target.targetId())
+                        .stage(stage)
+                        .message(message)
+                        .build());
+            }
+
             ws.cleanStaging();
             TargetGenerationResult partialResult = resultBuilder.build();
             try {
                 reportWriter.write(partialResult);
-            } catch (IOException ignored) {}
+            } catch (IOException ignored) {
+            }
             throw e;
         }
     }

@@ -89,8 +89,19 @@ public record TargetGenerationResult(
         public Builder compiledClassesCount(int count) { this.compiledClassesCount = count; return this; }
         public Builder bytecodeAdaptedCount(int count) { this.bytecodeAdaptedCount = count; return this; }
         public Builder auditFindings(Collection<TargetReferenceAudit.Finding> findings) { this.auditFindings.addAll(findings); return this; }
-        public Builder diagnostics(Collection<Diagnostic> diags) { this.diagnostics.addAll(diags); return this; }
-        public Builder addDiagnostic(Diagnostic diag) { this.diagnostics.add(diag); return this; }
+        public Builder diagnostics(Collection<Diagnostic> diags) {
+            if (diags != null) diags.forEach(this::addDiagnostic);
+            return this;
+        }
+        public Builder addDiagnostic(Diagnostic diag) {
+            if (diag != null && !this.diagnostics.contains(diag)) {
+                this.diagnostics.add(diag);
+            }
+            return this;
+        }
+        boolean hasErrorDiagnostic() {
+            return diagnostics.stream().anyMatch(diagnostic -> diagnostic.severity() == Severity.ERROR);
+        }
         public Builder outputJar(Path jar) { this.outputJar = jar; return this; }
 
         public TargetGenerationResult build() {
