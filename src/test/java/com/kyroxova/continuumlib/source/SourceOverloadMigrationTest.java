@@ -91,7 +91,7 @@ class SourceOverloadMigrationTest {
     }
 
     @Test
-    void unresolvedOverloadFailsInsteadOfGuessingByArgumentCount() {
+    void exactLiteralTypeKeepsUnmigratedOverloadWithoutGuessing() {
         String code = """
                 package example;
                 import api.Legacy;
@@ -110,8 +110,7 @@ class SourceOverloadMigrationTest {
         String generated = unit.ast().toString();
         assertTrue(generated.contains("Legacy.old(\"x\")"), generated);
         assertFalse(generated.contains("newCall(\"x\")"), generated);
-        assertEquals(1, diagnostics.size(), diagnostics.toString());
-        assertEquals(DiagnosticCode.AMBIGUOUS_MIGRATION, diagnostics.get(0).code());
+        assertTrue(diagnostics.isEmpty(), diagnostics.toString());
     }
 
     private static CanonicalMigrationRule intMethodRename() {
