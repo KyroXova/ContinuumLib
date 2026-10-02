@@ -93,7 +93,13 @@ public final class ProjectConfigurationLocator {
     }
 
     private static boolean hasProjectConfigFiles(Path dir) {
-        if (!Files.isDirectory(dir)) return false;
+        if (!Files.exists(dir)) return false;
+        if (!Files.isDirectory(dir)) {
+            throw new IllegalStateException(
+                    "ContinuumLib configuration root is not a directory: " + dir
+            );
+        }
+
         Path knowledge = dir.resolve("knowledge").toAbsolutePath().normalize();
         try (Stream<Path> stream = Files.walk(dir)) {
             return stream.filter(Files::isRegularFile).anyMatch(path -> {
@@ -103,7 +109,10 @@ public final class ProjectConfigurationLocator {
                 return name.endsWith(".properties") || name.endsWith(".json") || name.endsWith(".xml");
             });
         } catch (IOException e) {
-            return false;
+            throw new IllegalStateException(
+                    "Cannot inspect ContinuumLib configuration root: " + dir,
+                    e
+            );
         }
     }
 

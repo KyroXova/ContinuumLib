@@ -37,6 +37,22 @@ class ProjectConfigurationLocatorTest {
                 () -> new ProjectConfigurationLocator().locate(project));
     }
 
+
+    @Test
+    void rejectsConfigRootThatIsNotDirectory(@TempDir Path project) throws Exception {
+        Path canonical = project.resolve("src/main/resources/continuumlib");
+        Files.createDirectories(canonical.getParent());
+        Files.writeString(canonical, "not a directory");
+
+        IllegalStateException failure = assertThrows(
+                IllegalStateException.class,
+                () -> new ProjectConfigurationLocator().locate(project)
+        );
+
+        assertTrue(failure.getMessage().contains("configuration root is not a directory"));
+        assertTrue(failure.getMessage().contains("continuumlib"));
+    }
+
     @Test
     void legacyConfigWinsOverCanonicalKnowledgeOnly(@TempDir Path project) throws Exception {
         Path canonicalKnowledge = project.resolve("src/main/resources/continuumlib/knowledge");
