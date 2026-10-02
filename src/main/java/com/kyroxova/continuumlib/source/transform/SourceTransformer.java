@@ -664,7 +664,7 @@ public final class SourceTransformer {
 
             @Override
             public Visitable visit(AssignExpr n, Void arg) {
-                Optional<ResolvedFieldUse> assignedField = resolveAssignedField(n.getTarget());
+                Optional<ResolvedFieldUse> assignedField = resolveAssignedField(n.getTarget(), simpleToQualified);
                 super.visit(n, arg);
 
                 if (assignedField.isEmpty()) return n;
@@ -719,7 +719,7 @@ public final class SourceTransformer {
             @Override
             public Visitable visit(UnaryExpr n, Void arg) {
                 Optional<ResolvedFieldUse> updatedField = isUpdateOperator(n.getOperator())
-                        ? resolveAssignedField(n.getExpression())
+                        ? resolveAssignedField(n.getExpression(), simpleToQualified)
                         : Optional.empty();
                 super.visit(n, arg);
 
@@ -841,22 +841,105 @@ public final class SourceTransformer {
         }
     }
 
-    private static Optional<ResolvedFieldUse> resolveAssignedField(Expression expression) {
+    private Optional<ResolvedFieldUse> resolveAssignedField(
+            Expression expression,
+            Map<String, String> imports
+    ) {
         Expression target = unwrap(expression);
+        Optional<ResolvedFieldUse> resolved = resolveFieldDirect(target);
+        if (resolved.isPresent()) return resolved;
+
         if (target instanceof FieldAccessExpr fieldAccess) {
+            Optional<String> owner = fieldOwner(fieldAccess, imports);
+            if (owner.isPresent()) {
+                return sourceApi.uniqueField(owner.get(), fieldAccess.getNameAsString())
+                        .map(field -> new ResolvedFieldUse(field.reference(), field.isStatic()));
+            }
+        }
+
+        if (target instanceof NameExpr name) {
+            Optional<String> owner = enclosingSourceOwner(name);
+            if (owner.isPresent()) {
+                return sourceApi.uniqueField(owner.get(), name.getNameAsString())
+                        .map(field -> new ResolvedFieldUse(field.reference(), field.isStatic()));
+            }
+        }
+        return Optional.empty();
+    }
+
+    private static Optional<ResolvedFieldUse> resolveFieldDirect(Expression expression) {
+        if (expression instanceof FieldAccessExpr fieldAccess) {
             return resolveField(fieldAccess);
         }
-        if (target instanceof NameExpr name) {
+        if (expression instanceof NameExpr name) {
             try {
                 var resolved = name.resolve();
                 if (!resolved.isField()) return Optional.empty();
                 var field = resolved.asField();
-                return JvmDescriptors.field(field).map(member -> new ResolvedFieldUse(member, field.isStatic()));
+                return JvmDescriptors.field(field)
+                        .map(member -> new ResolvedFieldUse(member, field.isStatic()));
             } catch (Throwable ignored) {
                 return Optional.empty();
             }
         }
         return Optional.empty();
+    }
+
+    private static Optional<String> fieldOwner(
+            FieldAccessExpr fieldAccess,
+            Map<String, String> imports
+    ) {
+        Expression scope = unwrap(fieldAccess.getScope());
+
+        if (scope instanceof ThisExpr || scope instanceof SuperExpr) {
+            return enclosingSourceOwner(fieldAccess);
+        }
+
+        if (scope instanceof NameExpr name) {
+            String scopeName = name.getNameAsString();
+            Optional<String> variableType = findVariableType(fieldAccess, scopeName)
+                    .map(type -> resolveQualified(type, imports));
+            if (variableType.isPresent()) return variableType;
+
+            if (imports.containsKey(scopeName)
+                    || (!scopeName.isEmpty() && Character.isUpperCase(scopeName.charAt(0)))) {
+                return Optional.of(resolveQualified(scopeName, imports));
+            }
+        }
+
+        try {
+            var type = scope.calculateResolvedType();
+            if (type.isReferenceType()) {
+                return Optional.of(type.asReferenceType().getQualifiedName());
+            }
+        } catch (Throwable ignored) {
+        }
+        return Optional.empty();
+    }
+
+    private static Optional<String> enclosingSourceOwner(com.github.javaparser.ast.Node node) {
+        Deque<String> names = new ArrayDeque<>();
+        com.github.javaparser.ast.Node current = node;
+        CompilationUnit compilationUnit = null;
+
+        while (current != null) {
+            if (current instanceof com.github.javaparser.ast.body.ClassOrInterfaceDeclaration declaration) {
+                names.addFirst(declaration.getNameAsString());
+            }
+            if (current instanceof CompilationUnit unit) {
+                compilationUnit = unit;
+                break;
+            }
+            current = current.getParentNode().orElse(null);
+        }
+
+        if (names.isEmpty()) return Optional.empty();
+        String prefix = compilationUnit == null
+                ? ""
+                : compilationUnit.getPackageDeclaration()
+                        .map(pkg -> pkg.getNameAsString() + ".")
+                        .orElse("");
+        return Optional.of(prefix + String.join(".", names));
     }
 
     private static boolean isWriteTarget(Expression expression) {
