@@ -139,6 +139,12 @@ tasks.withType(JavaCompile).configureEach { task ->
 }
 
 
+tasks.matching {
+    it.name == 'generateMetadataFileForPluginMavenPublication'
+}.configureEach {
+    enabled = false
+}
+
 afterEvaluate {
     publishing.publications.named('pluginMaven') {
         setArtifacts([
