@@ -1520,7 +1520,10 @@ public final class SourceTransformer {
     }
 
     private static String normalizeJavaType(String type) {
-        return type.replace('
+        return type.replace("$", ".").replace(" ", "");
+    }
+
+    private static Optional<CanonicalMigrationRule> broadRule(List<CanonicalMigrationRule> rules) {
         return rules.stream()
                 .filter(rule -> rule.sourceDescriptor() == null)
                 .findFirst();
