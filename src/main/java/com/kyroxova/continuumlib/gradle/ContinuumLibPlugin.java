@@ -96,10 +96,15 @@ public final class ContinuumLibPlugin implements Plugin<Project> {
                     .file("reports/continuumlib/api-inventory.tsv"));
         });
 
-        configureTargets(project, jar, config);
+        configureTargets(project, jar, config, mainSourceSet);
     }
 
-    private static void configureTargets(Project project, TaskProvider<Jar> jar, ProjectConfigurationLocator.DiscoveredConfiguration config) {
+    private static void configureTargets(
+            Project project,
+            TaskProvider<Jar> jar,
+            ProjectConfigurationLocator.DiscoveredConfiguration config,
+            SourceSet mainSourceSet
+    ) {
         Path targetsPath = config.targetsFile().toFile().isFile()
                 ? config.targetsFile()
                 : project.getProjectDir().toPath().resolve("src/main/resources/data/continuumlib/targets.properties");
