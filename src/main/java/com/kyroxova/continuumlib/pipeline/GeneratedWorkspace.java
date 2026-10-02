@@ -116,15 +116,23 @@ public final class GeneratedWorkspace {
 
     public Path finalizeJar(Path stagedJar, String jarName) throws IOException {
         Objects.requireNonNull(stagedJar, "stagedJar");
-        if (!Files.exists(stagedJar) || !Files.isRegularFile(stagedJar)) {
+        Path normalizedStaged = stagedJar.toAbsolutePath().normalize();
+        Path normalizedStagingDir = stagingDir.toAbsolutePath().normalize();
+        if (!normalizedStaged.startsWith(normalizedStagingDir)) {
+            throw new IOException("Staged JAR must be inside this target workspace: " + stagedJar);
+        }
+        if (Files.isSymbolicLink(normalizedStaged)) {
+            throw new IOException("Staged JAR must not be a symbolic link: " + stagedJar);
+        }
+        if (!Files.exists(normalizedStaged) || !Files.isRegularFile(normalizedStaged)) {
             throw new IOException("Staged JAR does not exist: " + stagedJar);
         }
         Path finalDest = finalJar(jarName);
         Files.createDirectories(finalDest.getParent());
         try {
-            Files.move(stagedJar, finalDest, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            Files.move(normalizedStaged, finalDest, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
         } catch (AtomicMoveNotSupportedException e) {
-            Files.move(stagedJar, finalDest, StandardCopyOption.REPLACE_EXISTING);
+            Files.move(normalizedStaged, finalDest, StandardCopyOption.REPLACE_EXISTING);
         }
         return finalDest;
     }

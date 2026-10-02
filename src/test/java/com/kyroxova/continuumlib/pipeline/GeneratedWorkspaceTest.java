@@ -3,6 +3,7 @@ package com.kyroxova.continuumlib.pipeline;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
@@ -55,6 +56,18 @@ class GeneratedWorkspaceTest {
 
         assertFalse(Files.exists(partial));
         assertTrue(Files.isDirectory(workspace.stagingDir()));
+    }
+
+    @Test
+    void finalizeRejectsFilesOutsideStaging(@TempDir Path root) throws Exception {
+        GeneratedWorkspace workspace = new GeneratedWorkspace(root.resolve("build"), "target");
+        workspace.init();
+        Path unrelated = root.resolve("unrelated.jar");
+        Files.writeString(unrelated, "not-a-staged-artifact");
+
+        assertThrows(IOException.class, () -> workspace.finalizeJar(unrelated, "mod.jar"));
+        assertTrue(Files.exists(unrelated));
+        assertFalse(Files.exists(workspace.finalJar("mod.jar")));
     }
 
     @Test
