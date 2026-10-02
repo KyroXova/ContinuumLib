@@ -19,7 +19,6 @@ import java.util.stream.Stream;
  * Discovers and parses inclusion and exclusion rule configurations recursively.
  */
 public final class FilterConfigurationReader {
-    private static final Gson GSON = new Gson();
     private static final Set<String> RULE_KEYS = Set.of(
             "domain", "type", "id", "class", "className", "path", "when"
     );
@@ -50,8 +49,13 @@ public final class FilterConfigurationReader {
     }
 
     public InclusionRuleSet loadInclusions(Path inclusionsDir) throws IOException {
-        if (inclusionsDir == null || !Files.exists(inclusionsDir) || !Files.isDirectory(inclusionsDir)) {
+        if (inclusionsDir == null || !Files.exists(inclusionsDir)) {
             return InclusionRuleSet.EMPTY;
+        }
+        if (!Files.isDirectory(inclusionsDir)) {
+            throw new FilterConfigurationException(
+                    "ContinuumLib inclusions path is not a directory: " + inclusionsDir
+            );
         }
         RuleSet.Builder builder = RuleSet.builder();
         List<Path> jsonFiles = findJsonFiles(inclusionsDir);
@@ -63,8 +67,13 @@ public final class FilterConfigurationReader {
     }
 
     public ExclusionRuleSet loadExclusions(Path exclusionsDir) throws IOException {
-        if (exclusionsDir == null || !Files.exists(exclusionsDir) || !Files.isDirectory(exclusionsDir)) {
+        if (exclusionsDir == null || !Files.exists(exclusionsDir)) {
             return ExclusionRuleSet.EMPTY;
+        }
+        if (!Files.isDirectory(exclusionsDir)) {
+            throw new FilterConfigurationException(
+                    "ContinuumLib exclusions path is not a directory: " + exclusionsDir
+            );
         }
         RuleSet.Builder builder = RuleSet.builder();
         List<Path> jsonFiles = findJsonFiles(exclusionsDir);

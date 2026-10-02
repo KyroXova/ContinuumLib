@@ -25,6 +25,29 @@ class FilterConfigurationReaderTest {
         assertTrue(failure.getMessage().contains("not a directory"));
     }
 
+
+    @Test
+    void rejectsInclusionsFileInPlaceOfDirectory(@TempDir Path root) throws Exception {
+        Path inclusions = root.resolve("inclusions");
+        Files.writeString(inclusions, "not a directory");
+
+        assertThrows(
+                FilterConfigurationException.class,
+                () -> new FilterConfigurationReader().loadInclusions(inclusions)
+        );
+    }
+
+    @Test
+    void rejectsExclusionsFileInPlaceOfDirectory(@TempDir Path root) throws Exception {
+        Path exclusions = root.resolve("exclusions");
+        Files.writeString(exclusions, "not a directory");
+
+        assertThrows(
+                FilterConfigurationException.class,
+                () -> new FilterConfigurationReader().loadExclusions(exclusions)
+        );
+    }
+
     @Test
     void rejectsUnknownRuleKeys(@TempDir Path root) throws Exception {
         Path file = root.resolve("rule.json");
