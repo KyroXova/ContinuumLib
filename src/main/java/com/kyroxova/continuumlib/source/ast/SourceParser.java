@@ -24,6 +24,9 @@ public final class SourceParser {
     }
 
     public SourceParser(List<Path> sourceRoots, List<Path> classpathJars, int javaVersion) {
+        ParserConfiguration.LanguageLevel level = languageLevel(javaVersion);
+        ParserConfiguration solverConfig = new ParserConfiguration().setLanguageLevel(level);
+
         var typeSolver = new CombinedTypeSolver();
         typeSolver.add(new ReflectionTypeSolver());
 
@@ -39,12 +42,12 @@ public final class SourceParser {
 
         for (Path root : sourceRoots) {
             if (Files.exists(root) && Files.isDirectory(root)) {
-                typeSolver.add(new JavaParserTypeSolver(root));
+                typeSolver.add(new JavaParserTypeSolver(root, solverConfig));
             }
         }
 
         var config = new ParserConfiguration()
-                .setLanguageLevel(languageLevel(javaVersion))
+                .setLanguageLevel(level)
                 .setSymbolResolver(new JavaSymbolSolver(typeSolver));
         this.parser = new JavaParser(config);
     }
