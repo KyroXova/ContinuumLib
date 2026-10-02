@@ -175,14 +175,14 @@ public final class FilterEngine {
         String pkg = ast.getPackageDeclaration().map(p -> p.getNameAsString() + ".").orElse("");
         for (TypeDeclaration<?> type : new ArrayList<>(ast.getTypes())) {
             String qualifiedName = pkg + type.getNameAsString();
-            boolean included = !inclusions.hasClassRules() || inclusions.matchesClass(qualifiedName);
+            boolean included = classIncluded(inclusions, qualifiedName);
             boolean excluded = exclusions.matchesClass(qualifiedName);
             if (!included || excluded) {
                 type.remove();
             }
         }
 
-        if (exclusions.hasClassRules()) {
+        if (inclusions.hasClassRules() || exclusions.hasClassRules()) {
             List<TypeDeclaration<?>> nested = ast.findAll(TypeDeclaration.class).stream()
                     .map(type -> (TypeDeclaration<?>) type)
                     .filter(type -> type.getParentNode()
@@ -192,12 +192,144 @@ public final class FilterEngine {
                     .toList();
 
             for (TypeDeclaration<?> type : nested) {
-                if (exclusions.matchesClass(sourceTypeName(type, pkg))) {
+                String qualifiedName = sourceTypeName(type, pkg);
+                if (!classIncluded(inclusions, qualifiedName) || exclusions.matchesClass(qualifiedName)) {
                     type.remove();
                 }
             }
         }
         return !ast.getTypes().isEmpty();
+    }
+
+    private static boolean classIncluded(RuleSet inclusions, String className) {
+        if (!inclusions.hasClassRules()) return true;
+        String normalized = className.replace('
+        int depth = 0;
+        com.github.javaparser.ast.Node current = type.getParentNode().orElse(null);
+        while (current != null) {
+            if (current instanceof TypeDeclaration<?>) depth++;
+            current = current.getParentNode().orElse(null);
+        }
+        return depth;
+    }
+
+    private static String sourceTypeName(TypeDeclaration<?> type, String pkg) {
+        Deque<String> names = new ArrayDeque<>();
+        com.github.javaparser.ast.Node current = type;
+        while (current != null) {
+            if (current instanceof TypeDeclaration<?> declaration) {
+                names.addFirst(declaration.getNameAsString());
+            }
+            current = current.getParentNode().orElse(null);
+        }
+        return pkg + String.join(".", names);
+    }
+
+    private static boolean sameOwner(String left, String right) {
+        return left.replace('$', '.').equals(right.replace('$', '.'));
+    }
+
+    private static void removeDeclarationFromAst(RegistryEntry entry, List<SourceUnit> units) {
+        for (SourceUnit unit : units) {
+            if (!unit.relativePath().replace('\\', '/').equals(entry.sourcePath().replace('\\', '/'))) {
+                continue;
+            }
+            String pkg = unit.ast().getPackageDeclaration()
+                    .map(declaration -> declaration.getNameAsString() + ".")
+                    .orElse("");
+            for (TypeDeclaration<?> type : unit.ast().findAll(TypeDeclaration.class)) {
+                String owner = sourceTypeName(type, pkg);
+                if (!sameOwner(owner, entry.ownerClass())) continue;
+
+                List<FieldDeclaration> fields = type.getMembers().stream()
+                        .filter(FieldDeclaration.class::isInstance)
+                        .map(FieldDeclaration.class::cast)
+                        .toList();
+                for (FieldDeclaration field : new ArrayList<>(fields)) {
+                    field.getVariables().removeIf(variable -> variable.getNameAsString().equals(entry.fieldName()));
+                    if (field.getVariables().isEmpty()) field.remove();
+                }
+            }
+        }
+    }
+
+    public record FilterResult(
+            List<SourceUnit> activeSources,
+            List<SourceUnit> excludedSources,
+            List<RegistryEntry> excludedRegistryEntries,
+            Map<String, Path> activeResources,
+            Map<String, Path> excludedResources
+    ) {}
+}
+, '.');
+
+        for (var rule : inclusions.classRules()) {
+            String included = rule.className().replace('
+        int depth = 0;
+        com.github.javaparser.ast.Node current = type.getParentNode().orElse(null);
+        while (current != null) {
+            if (current instanceof TypeDeclaration<?>) depth++;
+            current = current.getParentNode().orElse(null);
+        }
+        return depth;
+    }
+
+    private static String sourceTypeName(TypeDeclaration<?> type, String pkg) {
+        Deque<String> names = new ArrayDeque<>();
+        com.github.javaparser.ast.Node current = type;
+        while (current != null) {
+            if (current instanceof TypeDeclaration<?> declaration) {
+                names.addFirst(declaration.getNameAsString());
+            }
+            current = current.getParentNode().orElse(null);
+        }
+        return pkg + String.join(".", names);
+    }
+
+    private static boolean sameOwner(String left, String right) {
+        return left.replace('$', '.').equals(right.replace('$', '.'));
+    }
+
+    private static void removeDeclarationFromAst(RegistryEntry entry, List<SourceUnit> units) {
+        for (SourceUnit unit : units) {
+            if (!unit.relativePath().replace('\\', '/').equals(entry.sourcePath().replace('\\', '/'))) {
+                continue;
+            }
+            String pkg = unit.ast().getPackageDeclaration()
+                    .map(declaration -> declaration.getNameAsString() + ".")
+                    .orElse("");
+            for (TypeDeclaration<?> type : unit.ast().findAll(TypeDeclaration.class)) {
+                String owner = sourceTypeName(type, pkg);
+                if (!sameOwner(owner, entry.ownerClass())) continue;
+
+                List<FieldDeclaration> fields = type.getMembers().stream()
+                        .filter(FieldDeclaration.class::isInstance)
+                        .map(FieldDeclaration.class::cast)
+                        .toList();
+                for (FieldDeclaration field : new ArrayList<>(fields)) {
+                    field.getVariables().removeIf(variable -> variable.getNameAsString().equals(entry.fieldName()));
+                    if (field.getVariables().isEmpty()) field.remove();
+                }
+            }
+        }
+    }
+
+    public record FilterResult(
+            List<SourceUnit> activeSources,
+            List<SourceUnit> excludedSources,
+            List<RegistryEntry> excludedRegistryEntries,
+            Map<String, Path> activeResources,
+            Map<String, Path> excludedResources
+    ) {}
+}
+, '.');
+            if (included.equals(normalized)
+                    || included.startsWith(normalized + ".")
+                    || normalized.startsWith(included + ".")) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static int typeDepth(TypeDeclaration<?> type) {

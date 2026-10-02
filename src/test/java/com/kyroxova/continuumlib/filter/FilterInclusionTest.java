@@ -181,4 +181,40 @@ class FilterInclusionTest {
         assertFalse(generated.contains("class Omit"), generated);
     }
 
+
+    @Test
+    void nestedClassInclusionKeepsContainerAndSelectedNestedType() {
+        String code = """
+                package example;
+                class Outer {
+                    static class Keep {}
+                    static class Omit {}
+                }
+                """;
+
+        var unit = new SourceParser(List.of(), List.of())
+                .parseString("example/Outer.java", code);
+        RuleSet rules = RuleSet.builder()
+                .addClass(new ClassFilterRule(
+                        "example.Outer.Keep",
+                        EnvironmentCondition.ALWAYS,
+                        Path.of("classes.json")
+                ))
+                .build();
+
+        var result = new FilterEngine().process(
+                TARGET,
+                new InclusionRuleSet(rules),
+                ExclusionRuleSet.EMPTY,
+                List.of(unit),
+                Map.of()
+        );
+
+        assertEquals(1, result.activeSources().size());
+        String generated = result.activeSources().get(0).ast().toString();
+        assertTrue(generated.contains("class Outer"), generated);
+        assertTrue(generated.contains("class Keep"), generated);
+        assertFalse(generated.contains("class Omit"), generated);
+    }
+
 }
