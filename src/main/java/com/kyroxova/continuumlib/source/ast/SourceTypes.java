@@ -69,7 +69,7 @@ public final class SourceTypes {
     }
 
     public static boolean nested(TypeDeclaration<?> type) {
-        return type.getParentNode().filter(TypeDeclaration.class::isInstance).isPresent();
+        return type.isNestedType();
     }
 
     public static int depth(TypeDeclaration<?> type) {
@@ -85,26 +85,26 @@ public final class SourceTypes {
     }
 
     public static String qualifiedName(TypeDeclaration<?> type) {
-        Deque<String> names = new ArrayDeque<>();
-        Node current = type;
-        while (current != null) {
-            if (current instanceof TypeDeclaration<?> declaration) {
-                names.addFirst(declaration.getNameAsString());
+        return type.getFullyQualifiedName().orElseGet(() -> {
+            Deque<String> names = new ArrayDeque<>();
+            Node current = type;
+            while (current != null) {
+                if (current instanceof TypeDeclaration<?> declaration) {
+                    names.addFirst(declaration.getNameAsString());
+                }
+                current = current.getParentNode().orElse(null);
             }
-            current = current.getParentNode().orElse(null);
-        }
 
-        String pkg = type.findCompilationUnit()
-                .flatMap(unit -> unit.getPackageDeclaration())
-                .map(declaration -> declaration.getNameAsString() + ".")
-                .orElse("");
-        return pkg + String.join(".", names);
+            String pkg = type.findCompilationUnit()
+                    .flatMap(unit -> unit.getPackageDeclaration())
+                    .map(declaration -> declaration.getNameAsString() + ".")
+                    .orElse("");
+            return pkg + String.join(".", names);
+        });
     }
 
     private static boolean memberOrTopLevel(TypeDeclaration<?> type) {
-        Node parent = type.getParentNode().orElse(null);
-        return parent instanceof TypeDeclaration<?>
-                || parent instanceof com.github.javaparser.ast.CompilationUnit;
+        return type.getFullyQualifiedName().isPresent();
     }
 
     private static int sourceOrder(TypeDeclaration<?> type) {
