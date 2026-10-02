@@ -23,7 +23,10 @@ class SourceTypesTest {
         var unit = new SourceParser(List.of(), List.of())
                 .parseString("example/Outer.java", code);
 
-        assertEquals(2, unit.ast().findAll(RecordDeclaration.class).size(), unit.ast().toString());
+        var memberKinds = unit.ast().getType(0).getMembers().stream()
+                .map(member -> member.getClass().getName() + "::" + member)
+                .toList();
+        assertEquals(2, unit.ast().findAll(RecordDeclaration.class).size(), memberKinds.toString());
 
         var types = SourceTypes.all(unit.ast());
         assertEquals(
