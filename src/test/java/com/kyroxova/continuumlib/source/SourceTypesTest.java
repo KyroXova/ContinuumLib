@@ -38,4 +38,35 @@ class SourceTypesTest {
         assertFalse(unit.ast().toString().contains("record Legacy"), unit.ast().toString());
         assertTrue(unit.ast().toString().contains("record Keep"), unit.ast().toString());
     }
+
+    @Test
+    void discoversNestedMemberTypesButNotMethodLocalTypes() {
+        String code = """
+                package example;
+                class Outer {
+                    interface NestedInterface {}
+                    enum NestedEnum { VALUE }
+                    @interface NestedAnnotation {}
+
+                    void method() {
+                        class LocalOnly {}
+                    }
+                }
+                """;
+
+        var unit = new SourceParser(List.of(), List.of())
+                .parseString("example/Outer.java", code);
+
+        assertEquals(
+                List.of(
+                        "example.Outer",
+                        "example.Outer.NestedInterface",
+                        "example.Outer.NestedEnum",
+                        "example.Outer.NestedAnnotation"
+                ),
+                SourceTypes.all(unit.ast()).stream()
+                        .map(SourceTypes::qualifiedName)
+                        .toList()
+        );
+    }
 }

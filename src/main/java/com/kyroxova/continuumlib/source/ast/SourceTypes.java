@@ -5,6 +5,7 @@ import com.github.javaparser.ast.body.FieldDeclaration;
 import com.github.javaparser.ast.body.TypeDeclaration;
 
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.Deque;
 import java.util.List;
@@ -14,11 +15,14 @@ public final class SourceTypes {
     }
 
     public static List<TypeDeclaration<?>> all(Node root) {
-        return root.findAll(TypeDeclaration.class).stream()
-                .map(type -> (TypeDeclaration<?>) type)
-                .filter(SourceTypes::memberOrTopLevel)
-                .sorted(Comparator.comparingInt(SourceTypes::sourceOrder))
-                .toList();
+        List<TypeDeclaration<?>> types = new ArrayList<>();
+        root.findAll(TypeDeclaration.class).forEach(type -> {
+            if (memberOrTopLevel(type)) {
+                types.add(type);
+            }
+        });
+        types.sort(Comparator.comparingInt(SourceTypes::sourceOrder));
+        return List.copyOf(types);
     }
 
     public static List<FieldDeclaration> fields(TypeDeclaration<?> type) {
