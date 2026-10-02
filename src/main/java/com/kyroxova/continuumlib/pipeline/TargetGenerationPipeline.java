@@ -150,7 +150,11 @@ public final class TargetGenerationPipeline {
             List<Path> srcClasspath = new ArrayList<>(target.sourceArtifacts().values());
             for (var artifact : target.sourceClasspath().values()) srcClasspath.add(artifact.file());
 
-            SourceParser parser = new SourceParser(sourceRoots, srcClasspath);
+            SourceParser parser = new SourceParser(
+                    sourceRoots,
+                    srcClasspath,
+                    target.sourceEnvironment().javaVersion()
+            );
             List<SourceUnit> parsedUnits = parser.parseFiles(includedSources, sourceRoots);
 
             FilterEngine.FilterResult filterResult;
