@@ -15,12 +15,29 @@ public final class SourceTypes {
 
     public static List<TypeDeclaration<?>> all(Node root) {
         List<TypeDeclaration<?>> types = new ArrayList<>();
-        root.walk(Node.TreeTraversal.PREORDER, node -> {
-            if (node instanceof TypeDeclaration<?> type) {
-                types.add(type);
+        if (root instanceof com.github.javaparser.ast.CompilationUnit unit) {
+            for (TypeDeclaration<?> type : unit.getTypes()) {
+                collect(type, types);
             }
-        });
+        } else if (root instanceof TypeDeclaration<?> type) {
+            collect(type, types);
+        } else {
+            root.findCompilationUnit().ifPresent(unit -> {
+                for (TypeDeclaration<?> type : unit.getTypes()) {
+                    collect(type, types);
+                }
+            });
+        }
         return List.copyOf(types);
+    }
+
+    private static void collect(TypeDeclaration<?> type, List<TypeDeclaration<?>> types) {
+        types.add(type);
+        for (var member : type.getMembers()) {
+            if (member instanceof TypeDeclaration<?> nested) {
+                collect(nested, types);
+            }
+        }
     }
 
     public static List<FieldDeclaration> fields(TypeDeclaration<?> type) {
