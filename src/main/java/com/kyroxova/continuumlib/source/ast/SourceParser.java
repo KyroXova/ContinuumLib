@@ -111,28 +111,19 @@ public final class SourceParser {
     }
 
     private static ParserConfiguration.LanguageLevel languageLevel(int javaVersion) {
-        return switch (javaVersion) {
-            case 8 -> ParserConfiguration.LanguageLevel.JAVA_8;
-            case 9 -> ParserConfiguration.LanguageLevel.JAVA_9;
-            case 10 -> ParserConfiguration.LanguageLevel.JAVA_10;
-            case 11 -> ParserConfiguration.LanguageLevel.JAVA_11;
-            case 12 -> ParserConfiguration.LanguageLevel.JAVA_12;
-            case 13 -> ParserConfiguration.LanguageLevel.JAVA_13;
-            case 14 -> ParserConfiguration.LanguageLevel.JAVA_14;
-            case 15 -> ParserConfiguration.LanguageLevel.JAVA_15;
-            case 16 -> ParserConfiguration.LanguageLevel.JAVA_16;
-            case 17 -> ParserConfiguration.LanguageLevel.JAVA_17;
-            case 18 -> ParserConfiguration.LanguageLevel.JAVA_18;
-            case 19 -> ParserConfiguration.LanguageLevel.JAVA_19;
-            case 20 -> ParserConfiguration.LanguageLevel.JAVA_20;
-            case 21 -> ParserConfiguration.LanguageLevel.JAVA_21;
-            case 22 -> ParserConfiguration.LanguageLevel.JAVA_22;
-            case 23 -> ParserConfiguration.LanguageLevel.JAVA_23;
-            case 24 -> ParserConfiguration.LanguageLevel.JAVA_24;
-            case 25 -> ParserConfiguration.LanguageLevel.JAVA_25;
-            case 26 -> ParserConfiguration.LanguageLevel.JAVA_26;
-            default -> throw new IllegalArgumentException("Unsupported Java source level: " + javaVersion);
-        };
+        if (javaVersion < 8) {
+            throw new IllegalArgumentException("Unsupported Java source level: " + javaVersion);
+        }
+        String levelName = "JAVA_" + javaVersion;
+        try {
+            return ParserConfiguration.LanguageLevel.valueOf(levelName);
+        } catch (IllegalArgumentException unsupported) {
+            throw new IllegalArgumentException(
+                    "Resolved JavaParser does not support Java source level " + javaVersion
+                            + " (requested " + levelName + ")",
+                    unsupported
+            );
+        }
     }
 
     public SourceUnit parseString(String relativePath, String code) {
