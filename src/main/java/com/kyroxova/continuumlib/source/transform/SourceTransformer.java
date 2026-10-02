@@ -601,7 +601,7 @@ public final class SourceTransformer {
                             ));
                         }
                         var f2aRules = plan.findFieldToAccessors(qualified, fieldName);
-                        if (!f2aRules.isEmpty()) {
+                        if (!isWriteTarget(n) && !f2aRules.isEmpty()) {
                             CanonicalMigrationRule f2a = f2aRules.get(0);
                             appliedMigrations.add(AppliedMigration.from(
                                     f2a,
@@ -628,7 +628,7 @@ public final class SourceTransformer {
                                 ));
                             }
                             var f2aRules = plan.findFieldToAccessors(qualified, fieldName);
-                            if (!f2aRules.isEmpty()) {
+                            if (!isWriteTarget(n) && !f2aRules.isEmpty()) {
                                 CanonicalMigrationRule f2a = f2aRules.get(0);
                                 appliedMigrations.add(AppliedMigration.from(
                                         f2a,
@@ -646,7 +646,7 @@ public final class SourceTransformer {
                     var resolved = n.resolve();
                     String declaringType = resolved.asField().declaringType().getQualifiedName();
                     var f2aRules = plan.findFieldToAccessors(declaringType, fieldName);
-                    if (!f2aRules.isEmpty()) {
+                    if (!isWriteTarget(n) && !f2aRules.isEmpty()) {
                         CanonicalMigrationRule f2a = f2aRules.get(0);
                         appliedMigrations.add(AppliedMigration.from(
                                 f2a,
@@ -672,16 +672,32 @@ public final class SourceTransformer {
                 ResolvedFieldUse use = assignedField.get();
                 int opcode = use.isStatic() ? Opcodes.PUTSTATIC : Opcodes.PUTFIELD;
                 var bridge = plan.findExactCallBridge(use.member(), opcode);
-                if (bridge.isEmpty()) return n;
+                boolean accessorMigration = !plan.findFieldToAccessors(
+                        use.member().owner(),
+                        use.member().name()
+                ).isEmpty();
+
+                if (bridge.isEmpty() && !accessorMigration) return n;
 
                 if (n.getOperator() != AssignExpr.Operator.ASSIGN) {
-                    diagnostics.add(Diagnostic.builder()
-                            .code(DiagnosticCode.MIGRATION_UNRESOLVED)
-                            .severity(Severity.ERROR)
-                            .message("Compound field assignment requires an explicit source strategy for " + use.member())
-                            .path(Path.of(sourcePath))
-                            .line(n.getBegin().map(p -> p.line).orElse(-1))
-                            .build());
+                    addUnsupportedFieldWriteDiagnostic(
+                            diagnostics,
+                            sourcePath,
+                            n,
+                            use.member(),
+                            "Compound field assignment"
+                    );
+                    return n;
+                }
+
+                if (bridge.isEmpty()) {
+                    addUnsupportedFieldWriteDiagnostic(
+                            diagnostics,
+                            sourcePath,
+                            n,
+                            use.member(),
+                            "Field-to-accessor assignment"
+                    );
                     return n;
                 }
 
@@ -698,6 +714,37 @@ public final class SourceTransformer {
                         n.getBegin().map(p -> p.line).orElse(-1)
                 ));
                 return staticCall(ast, bridge.get(), arguments);
+            }
+
+            @Override
+            public Visitable visit(UnaryExpr n, Void arg) {
+                Optional<ResolvedFieldUse> updatedField = isUpdateOperator(n.getOperator())
+                        ? resolveAssignedField(n.getExpression())
+                        : Optional.empty();
+                super.visit(n, arg);
+
+                if (updatedField.isEmpty()) return n;
+
+                ResolvedFieldUse use = updatedField.get();
+                int getOpcode = use.isStatic() ? Opcodes.GETSTATIC : Opcodes.GETFIELD;
+                int putOpcode = use.isStatic() ? Opcodes.PUTSTATIC : Opcodes.PUTFIELD;
+                boolean bridgeMigration = plan.findExactCallBridge(use.member(), getOpcode).isPresent()
+                        || plan.findExactCallBridge(use.member(), putOpcode).isPresent();
+                boolean accessorMigration = !plan.findFieldToAccessors(
+                        use.member().owner(),
+                        use.member().name()
+                ).isEmpty();
+
+                if (bridgeMigration || accessorMigration) {
+                    addUnsupportedFieldWriteDiagnostic(
+                            diagnostics,
+                            sourcePath,
+                            n,
+                            use.member(),
+                            "Increment/decrement field update"
+                    );
+                }
+                return n;
             }
         }, null);
 
@@ -795,10 +842,11 @@ public final class SourceTransformer {
     }
 
     private static Optional<ResolvedFieldUse> resolveAssignedField(Expression expression) {
-        if (expression instanceof FieldAccessExpr fieldAccess) {
+        Expression target = unwrap(expression);
+        if (target instanceof FieldAccessExpr fieldAccess) {
             return resolveField(fieldAccess);
         }
-        if (expression instanceof NameExpr name) {
+        if (target instanceof NameExpr name) {
             try {
                 var resolved = name.resolve();
                 if (!resolved.isField()) return Optional.empty();
@@ -812,18 +860,58 @@ public final class SourceTransformer {
     }
 
     private static boolean isWriteTarget(Expression expression) {
-        return expression.getParentNode()
-                .filter(AssignExpr.class::isInstance)
-                .map(AssignExpr.class::cast)
-                .map(assign -> assign.getTarget() == expression)
-                .orElse(false);
+        com.github.javaparser.ast.Node current = expression;
+        while (current.getParentNode().orElse(null) instanceof EnclosedExpr enclosed
+                && enclosed.getInner() == current) {
+            current = enclosed;
+        }
+
+        var parent = current.getParentNode().orElse(null);
+        if (parent instanceof AssignExpr assignment && assignment.getTarget() == current) {
+            return true;
+        }
+        return parent instanceof UnaryExpr unary
+                && unary.getExpression() == current
+                && isUpdateOperator(unary.getOperator());
+    }
+
+    private static boolean isUpdateOperator(UnaryExpr.Operator operator) {
+        return operator == UnaryExpr.Operator.PREFIX_INCREMENT
+                || operator == UnaryExpr.Operator.PREFIX_DECREMENT
+                || operator == UnaryExpr.Operator.POSTFIX_INCREMENT
+                || operator == UnaryExpr.Operator.POSTFIX_DECREMENT;
+    }
+
+    private static Expression unwrap(Expression expression) {
+        Expression current = expression;
+        while (current instanceof EnclosedExpr enclosed) {
+            current = enclosed.getInner();
+        }
+        return current;
     }
 
     private static Expression receiverForAssignment(Expression target) {
-        if (target instanceof FieldAccessExpr fieldAccess) {
+        Expression unwrapped = unwrap(target);
+        if (unwrapped instanceof FieldAccessExpr fieldAccess) {
             return fieldAccess.getScope().clone();
         }
         return new ThisExpr();
+    }
+
+    private static void addUnsupportedFieldWriteDiagnostic(
+            List<Diagnostic> diagnostics,
+            String sourcePath,
+            com.github.javaparser.ast.Node node,
+            MemberReference field,
+            String operation
+    ) {
+        diagnostics.add(Diagnostic.builder()
+                .code(DiagnosticCode.MIGRATION_UNRESOLVED)
+                .severity(Severity.ERROR)
+                .message(operation + " requires an explicit read/write migration strategy for " + field)
+                .path(Path.of(sourcePath))
+                .line(node.getBegin().map(p -> p.line).orElse(-1))
+                .build());
     }
 
     private static MethodCallExpr staticCall(
