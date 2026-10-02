@@ -1,7 +1,11 @@
 package com.kyroxova.continuumlib.source.ast;
 
 import com.github.javaparser.ast.Node;
+import com.github.javaparser.ast.body.AnnotationDeclaration;
+import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
+import com.github.javaparser.ast.body.EnumDeclaration;
 import com.github.javaparser.ast.body.FieldDeclaration;
+import com.github.javaparser.ast.body.RecordDeclaration;
 import com.github.javaparser.ast.body.TypeDeclaration;
 
 import java.util.ArrayDeque;
@@ -16,13 +20,23 @@ public final class SourceTypes {
 
     public static List<TypeDeclaration<?>> all(Node root) {
         List<TypeDeclaration<?>> types = new ArrayList<>();
-        root.findAll(TypeDeclaration.class).forEach(type -> {
-            if (memberOrTopLevel(type)) {
-                types.add(type);
-            }
-        });
+        addTypes(root.findAll(ClassOrInterfaceDeclaration.class), types);
+        addTypes(root.findAll(EnumDeclaration.class), types);
+        addTypes(root.findAll(AnnotationDeclaration.class), types);
+        addTypes(root.findAll(RecordDeclaration.class), types);
         types.sort(Comparator.comparingInt(SourceTypes::sourceOrder));
         return List.copyOf(types);
+    }
+
+    private static <T extends TypeDeclaration<?>> void addTypes(
+            List<T> candidates,
+            List<TypeDeclaration<?>> destination
+    ) {
+        for (T type : candidates) {
+            if (memberOrTopLevel(type)) {
+                destination.add(type);
+            }
+        }
     }
 
     public static List<FieldDeclaration> fields(TypeDeclaration<?> type) {
