@@ -35,13 +35,10 @@ public record RegistryEntry(
         if (!this.registryType.equals(type)) return false;
         String trimmed = targetId.trim();
         if (trimmed.contains(":")) {
-            if (fullId().equals(trimmed)) return true;
+            if (namespace == null || namespace.isBlank()) return false;
             String nsPart = trimmed.substring(0, trimmed.indexOf(':'));
             String pathPart = trimmed.substring(trimmed.indexOf(':') + 1);
-            if (this.namespace == null || this.namespace.equalsIgnoreCase(nsPart)) {
-                return this.id.equals(pathPart);
-            }
-            return false;
+            return namespace.equalsIgnoreCase(nsPart) && id.equals(pathPart);
         }
         return this.id.equals(trimmed);
     }

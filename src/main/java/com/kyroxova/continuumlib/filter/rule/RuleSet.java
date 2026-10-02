@@ -59,9 +59,12 @@ public record RuleSet(
 
             int ruleColon = ruleId.indexOf(':');
             int idColon = normId.indexOf(':');
-            if (ruleColon >= 0 && idColon < 0 && ruleId.substring(ruleColon + 1).equals(normId)) {
-                return true;
+
+            // A namespaced rule is exact. Do not apply it to an entry whose namespace is unknown.
+            if (ruleColon >= 0 && idColon < 0) {
+                continue;
             }
+            // An unqualified rule intentionally targets that path in any namespace.
             if (ruleColon < 0 && idColon >= 0 && ruleId.equals(normId.substring(idColon + 1))) {
                 return true;
             }

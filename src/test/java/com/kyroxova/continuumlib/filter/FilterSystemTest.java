@@ -313,7 +313,8 @@ class FilterSystemTest {
                 import net.minecraft.world.level.block.Block;
                 
                 public class ModBlocks {
-                    public static final DeferredRegister<Block> BLOCKS = null;
+                    public static final DeferredRegister<Block> BLOCKS =
+                            DeferredRegister.create(null, "example");
                     public static final RegistryObject<Block> TEST = BLOCKS.register("test", () -> null);
                 }
                 """;
@@ -637,6 +638,38 @@ class FilterSystemTest {
                 .get(0);
 
         assertEquals("buildscape:mangrove_planks", entry.fullId());
+    }
+
+    @Test
+    void namespacedRegistryRuleDoesNotMatchUnknownNamespace() {
+        var rules = com.kyroxova.continuumlib.filter.rule.RuleSet.builder()
+                .addRegistry(new RegistryFilterRule(
+                        RegistryType.BLOCK,
+                        "example:test",
+                        EnvironmentCondition.ALWAYS,
+                        Path.of("rules.json")
+                ))
+                .build();
+
+        assertFalse(rules.matchesRegistry(RegistryType.BLOCK, "test"));
+        assertTrue(rules.matchesRegistry(RegistryType.BLOCK, "example:test"));
+        assertFalse(rules.matchesRegistry(RegistryType.BLOCK, "other:test"));
+    }
+
+    @Test
+    void unqualifiedRegistryRuleIntentionallyMatchesAnyNamespace() {
+        var rules = com.kyroxova.continuumlib.filter.rule.RuleSet.builder()
+                .addRegistry(new RegistryFilterRule(
+                        RegistryType.BLOCK,
+                        "test",
+                        EnvironmentCondition.ALWAYS,
+                        Path.of("rules.json")
+                ))
+                .build();
+
+        assertTrue(rules.matchesRegistry(RegistryType.BLOCK, "test"));
+        assertTrue(rules.matchesRegistry(RegistryType.BLOCK, "example:test"));
+        assertTrue(rules.matchesRegistry(RegistryType.BLOCK, "other:test"));
     }
 
 }
