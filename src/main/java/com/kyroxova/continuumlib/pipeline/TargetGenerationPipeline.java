@@ -498,10 +498,16 @@ public final class TargetGenerationPipeline {
     }
 
     private List<TargetReferenceAudit.Finding> auditTargetArtifact(ResolvedTarget target, Path jarPath) throws IOException {
-        Map<String, ClassInfo> targetApi = new TargetApiResolver().forNamespace(
+        Map<String, ClassInfo> targetApi = new HashMap<>(new TargetApiResolver().forNamespace(
                 target,
                 target.mappingNamespace()
-        );
+        ));
+        for (var entry : ArtifactIndex.read(List.of(jarPath)).classes().entrySet()) {
+            if (targetApi.putIfAbsent(entry.getKey(), entry.getValue()) != null) {
+                throw new IOException("Generated mod duplicates target API class: " + entry.getKey());
+            }
+        }
+
         TargetReferenceAudit audit = new TargetReferenceAudit(targetApi);
         ReferenceScanner scanner = new ReferenceScanner();
 

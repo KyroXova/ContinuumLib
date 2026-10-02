@@ -680,4 +680,62 @@ class TargetGenerationPipelineTest {
         assertFalse(Files.exists(sourceRoot.resolve("continuum-target")));
     }
 
+    @Test
+    void finalAuditIncludesGeneratedModDeclarations(@TempDir Path project) throws Exception {
+        Path sourceApi = project.resolve("source-api.jar");
+        Path targetApi = project.resolve("target-api.jar");
+        try (var ignored = new JarOutputStream(Files.newOutputStream(sourceApi))) {}
+        try (var ignored = new JarOutputStream(Files.newOutputStream(targetApi))) {}
+
+        Path sourceRoot = project.resolve("src/main/java");
+        Path resources = project.resolve("src/main/resources");
+        Files.createDirectories(sourceRoot.resolve("example"));
+        Files.createDirectories(resources);
+
+        Files.writeString(sourceRoot.resolve("example/Helper.java"), """
+                package example;
+                public class Helper {
+                    public static int value() { return 7; }
+                }
+                """);
+        Files.writeString(sourceRoot.resolve("example/Entry.java"), """
+                package example;
+                public class Entry {
+                    public int value() { return Helper.value(); }
+                }
+                """);
+
+        EnvironmentId env = new EnvironmentId(
+                "1.20.1",
+                Loader.FABRIC,
+                MappingNamespace.OFFICIAL,
+                17
+        );
+        GeneratedWorkspace workspace = new GeneratedWorkspace(project.resolve("build"), "self-audit");
+        ResolvedTarget target = ResolvedTarget.builder()
+                .targetId("self-audit")
+                .sourceEnvironment(env)
+                .targetEnvironment(env)
+                .sourceArtifacts(Map.of("api", sourceApi))
+                .targetArtifacts(Map.of("api", targetApi))
+                .workspace(workspace)
+                .projectConfiguration(ContinuumProjectConfiguration.empty(
+                        resources.resolve("continuumlib")))
+                .build();
+
+        TargetGenerationResult result = new TargetGenerationPipeline().execute(
+                target,
+                project,
+                List.of(sourceRoot),
+                List.of(resources),
+                "self-audit.jar"
+        );
+
+        assertTrue(result.isSuccess(), result.diagnostics().toString());
+        assertTrue(Files.isRegularFile(result.outputJar()));
+        assertTrue(result.auditFindings().stream()
+                .noneMatch(finding -> finding.status() == com.kyroxova.continuumlib.bytecode.TargetReferenceAudit.Status.OWNER_MISSING
+                        && finding.detail().contains("example/Helper")));
+    }
+
 }
