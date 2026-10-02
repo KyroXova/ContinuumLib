@@ -49,11 +49,22 @@ class ConsumerPluginTest {
         Files.writeString(project.resolve("settings.gradle"), "rootProject.name = 'consumer'");
         Files.writeString(project.resolve("build.gradle"), """
                 plugins { id 'com.kyroxova.continuumlib' }
+                sourceSets {
+                    main {
+                        resources {
+                            srcDir 'extra-resources'
+                        }
+                    }
+                }
                 tasks.register('printContinuumResourceInputs') {
                     doLast {
                         ['continuumLibGenerate_demo', 'continuumLibTransformSource'].each { taskName ->
-                            tasks.named(taskName).get().resourceFiles.files.each {
+                            def task = tasks.named(taskName).get()
+                            task.resourceFiles.files.each {
                                 println(taskName + ':RESOURCE_INPUT=' + project.relativePath(it))
+                            }
+                            task.resourceRoots.files.each {
+                                println(taskName + ':RESOURCE_ROOT=' + project.relativePath(it))
                             }
                         }
                     }
@@ -68,6 +79,9 @@ class ConsumerPluginTest {
         Path asset = project.resolve("src/main/resources/assets/example/model.json");
         Files.createDirectories(asset.getParent());
         Files.writeString(asset, "{}");
+        Path extraAsset = project.resolve("extra-resources/assets/example/extra.json");
+        Files.createDirectories(extraAsset.getParent());
+        Files.writeString(extraAsset, "{}");
 
         var result = GradleRunner.create().withProjectDir(project.toFile()).withPluginClasspath()
                 .withArguments("printContinuumResourceInputs").build();
@@ -78,6 +92,16 @@ class ConsumerPluginTest {
                 "continuumLibGenerate_demo:RESOURCE_INPUT=src/main/resources/continuumlib/inclusions/source.json"));
         assertTrue(result.getOutput().contains(
                 "continuumLibTransformSource:RESOURCE_INPUT=src/main/resources/assets/example/model.json"));
+        assertTrue(result.getOutput().contains(
+                "continuumLibGenerate_demo:RESOURCE_INPUT=extra-resources/assets/example/extra.json"));
+        assertTrue(result.getOutput().contains(
+                "continuumLibTransformSource:RESOURCE_INPUT=extra-resources/assets/example/extra.json"));
+        assertTrue(result.getOutput().contains(
+                "continuumLibGenerate_demo:RESOURCE_ROOT=src/main/resources"));
+        assertTrue(result.getOutput().contains(
+                "continuumLibGenerate_demo:RESOURCE_ROOT=extra-resources"));
+        assertTrue(result.getOutput().contains(
+                "continuumLibTransformSource:RESOURCE_ROOT=extra-resources"));
     }
 
 }

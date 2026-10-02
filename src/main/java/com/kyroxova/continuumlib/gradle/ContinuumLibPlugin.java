@@ -4,6 +4,8 @@ import org.gradle.api.Plugin;
 import org.gradle.api.Project;
 import org.gradle.api.GradleException;
 import org.gradle.api.tasks.TaskProvider;
+import org.gradle.api.plugins.JavaPluginExtension;
+import org.gradle.api.tasks.SourceSet;
 import org.gradle.jvm.tasks.Jar;
 import com.kyroxova.continuumlib.api.config.OutputTargets;
 import com.kyroxova.continuumlib.pipeline.config.ProjectConfigurationLocator;
@@ -25,6 +27,10 @@ public final class ContinuumLibPlugin implements Plugin<Project> {
         });
 
         var jar = project.getTasks().named("jar", Jar.class);
+        var mainSourceSet = project.getExtensions()
+                .getByType(JavaPluginExtension.class)
+                .getSourceSets()
+                .getByName(SourceSet.MAIN_SOURCE_SET_NAME);
         Path transformCfg = config.transformFile().toFile().isFile()
                 ? config.transformFile()
                 : project.getProjectDir().toPath().resolve("src/main/resources/data/continuumlib/transform.properties");
@@ -53,7 +59,8 @@ public final class ContinuumLibPlugin implements Plugin<Project> {
             task.setDescription("Transform developer Java source AST into target-compatible generated source and compile target JAR");
             task.getProjectDirectory().convention(project.getLayout().getProjectDirectory());
             task.getSourceDirectory().convention(project.getLayout().getProjectDirectory().dir("src/main/java"));
-            task.getResourceFiles().from(project.fileTree("src/main/resources"));
+            task.getResourceFiles().from(mainSourceSet.getResources());
+            task.getResourceRoots().from(project.provider(() -> mainSourceSet.getResources().getSrcDirs()));
             task.getTargetWorkspaceDirectory().convention(project.getLayout().getBuildDirectory().dir("continuum/targets/source"));
             task.getConfigFile().convention(project.getLayout().file(project.provider(transformCfg::toFile)));
             task.getRuleFiles().from(project.fileTree("src/main/resources/continuumlib/knowledge", tree -> tree.include("**/*.xml")));
@@ -141,7 +148,8 @@ public final class ContinuumLibPlugin implements Plugin<Project> {
                 task.getTargetId().convention(id);
                 task.getProjectDirectory().convention(project.getLayout().getProjectDirectory());
                 task.getSourceDirectory().convention(project.getLayout().getProjectDirectory().dir("src/main/java"));
-                task.getResourceFiles().from(project.fileTree("src/main/resources"));
+                task.getResourceFiles().from(mainSourceSet.getResources());
+                task.getResourceRoots().from(project.provider(() -> mainSourceSet.getResources().getSrcDirs()));
                 task.getConfigFile().convention(project.getLayout().file(project.provider(finalTargetConfigFile::toFile)));
                 task.getRuleFiles().from(project.fileTree("src/main/resources/continuumlib/knowledge", tree -> tree.include("**/*.xml")));
                 task.getRuleFiles().from(project.fileTree("src/main/resources/data/continuumlib/knowledge", tree -> tree.include("**/*.xml")));

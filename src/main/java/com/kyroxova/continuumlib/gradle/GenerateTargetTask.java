@@ -28,6 +28,10 @@ public abstract class GenerateTargetTask extends ArtifactRequestTask {
     @PathSensitive(PathSensitivity.RELATIVE)
     public abstract ConfigurableFileCollection getResourceFiles();
 
+    @InputFiles
+    @PathSensitive(PathSensitivity.RELATIVE)
+    public abstract ConfigurableFileCollection getResourceRoots();
+
     @OutputDirectory
     public abstract DirectoryProperty getTargetWorkspaceDirectory();
 
@@ -40,13 +44,28 @@ public abstract class GenerateTargetTask extends ArtifactRequestTask {
         Path projectRoot = getProjectDirectory().get().getAsFile().toPath();
         Path buildRoot = getProjectDirectory().get().dir("build").getAsFile().toPath();
         Path srcDir = getSourceDirectory().get().getAsFile().toPath();
-        Path resDir = projectRoot.resolve("src/main/resources");
+        List<Path> resourceRoots = getResourceRoots().getFiles().stream()
+                .map(file -> file.toPath().toAbsolutePath().normalize())
+                .sorted()
+                .toList();
+        if (resourceRoots.isEmpty()) {
+            resourceRoots = List.of(projectRoot.resolve("src/main/resources").toAbsolutePath().normalize());
+        }
         Path configFile = getConfigFile().get().getAsFile().toPath();
         Path finalTaskJar = getOutputJar().get().getAsFile().toPath();
 
         Path workspaceRoot = getTargetWorkspaceDirectory().get().getAsFile().toPath();
-        protectGeneratedDirectory(workspaceRoot, List.of(srcDir, resDir, finalTaskJar));
-        protectOutput(finalTaskJar, List.of(srcDir, resDir, workspaceRoot));
+        List<Path> consumerInputs = new java.util.ArrayList<>();
+        consumerInputs.add(srcDir);
+        consumerInputs.addAll(resourceRoots);
+        consumerInputs.add(finalTaskJar);
+        protectGeneratedDirectory(workspaceRoot, consumerInputs);
+
+        List<Path> outputInputs = new java.util.ArrayList<>();
+        outputInputs.add(srcDir);
+        outputInputs.addAll(resourceRoots);
+        outputInputs.add(workspaceRoot);
+        protectOutput(finalTaskJar, outputInputs);
 
         List<RulePack> packs = rulePacks();
         GeneratedWorkspace workspace = GeneratedWorkspace.atTargetRoot(
@@ -70,7 +89,7 @@ public abstract class GenerateTargetTask extends ArtifactRequestTask {
                 target,
                 projectRoot,
                 List.of(srcDir),
-                List.of(resDir),
+                resourceRoots,
                 outputJarName
         );
 

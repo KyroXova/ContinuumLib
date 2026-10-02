@@ -30,6 +30,10 @@ public abstract class TransformSourceTask extends ArtifactRequestTask {
     @PathSensitive(PathSensitivity.RELATIVE)
     public abstract ConfigurableFileCollection getResourceFiles();
 
+    @InputFiles
+    @PathSensitive(PathSensitivity.RELATIVE)
+    public abstract ConfigurableFileCollection getResourceRoots();
+
     @OutputDirectory
     public abstract DirectoryProperty getTargetWorkspaceDirectory();
 
@@ -47,21 +51,46 @@ public abstract class TransformSourceTask extends ArtifactRequestTask {
         Path projectRoot = getProjectDirectory().get().getAsFile().toPath();
         Path buildRoot = projectRoot.resolve("build");
         Path sourceRoot = getSourceDirectory().get().getAsFile().toPath();
-        Path resourcesRoot = projectRoot.resolve("src/main/resources");
+        List<Path> resourceRoots = getResourceRoots().getFiles().stream()
+                .map(file -> file.toPath().toAbsolutePath().normalize())
+                .sorted()
+                .toList();
+        if (resourceRoots.isEmpty()) {
+            resourceRoots = List.of(projectRoot.resolve("src/main/resources").toAbsolutePath().normalize());
+        }
         Path configFile = getConfigFile().get().getAsFile().toPath();
         Path generatedSourceOutput = getGeneratedSourceDirectory().get().getAsFile().toPath();
         Path compiledClassesOutput = getCompiledClassesDirectory().get().getAsFile().toPath();
         Path finalTaskJar = getOutputJar().get().getAsFile().toPath();
 
         Path workspaceRoot = getTargetWorkspaceDirectory().get().getAsFile().toPath();
-        protectGeneratedDirectory(workspaceRoot, List.of(
-                sourceRoot, resourcesRoot, generatedSourceOutput, compiledClassesOutput, finalTaskJar));
-        protectGeneratedDirectory(generatedSourceOutput, List.of(
-                sourceRoot, resourcesRoot, workspaceRoot, compiledClassesOutput, finalTaskJar));
-        protectGeneratedDirectory(compiledClassesOutput, List.of(
-                sourceRoot, resourcesRoot, workspaceRoot, generatedSourceOutput, finalTaskJar));
-        protectOutput(finalTaskJar, List.of(
-                sourceRoot, resourcesRoot, workspaceRoot, generatedSourceOutput, compiledClassesOutput));
+        List<Path> consumerInputs = new java.util.ArrayList<>();
+        consumerInputs.add(sourceRoot);
+        consumerInputs.addAll(resourceRoots);
+
+        List<Path> workspaceInputs = new java.util.ArrayList<>(consumerInputs);
+        workspaceInputs.add(generatedSourceOutput);
+        workspaceInputs.add(compiledClassesOutput);
+        workspaceInputs.add(finalTaskJar);
+        protectGeneratedDirectory(workspaceRoot, workspaceInputs);
+
+        List<Path> generatedSourceInputs = new java.util.ArrayList<>(consumerInputs);
+        generatedSourceInputs.add(workspaceRoot);
+        generatedSourceInputs.add(compiledClassesOutput);
+        generatedSourceInputs.add(finalTaskJar);
+        protectGeneratedDirectory(generatedSourceOutput, generatedSourceInputs);
+
+        List<Path> classesInputs = new java.util.ArrayList<>(consumerInputs);
+        classesInputs.add(workspaceRoot);
+        classesInputs.add(generatedSourceOutput);
+        classesInputs.add(finalTaskJar);
+        protectGeneratedDirectory(compiledClassesOutput, classesInputs);
+
+        List<Path> outputInputs = new java.util.ArrayList<>(consumerInputs);
+        outputInputs.add(workspaceRoot);
+        outputInputs.add(generatedSourceOutput);
+        outputInputs.add(compiledClassesOutput);
+        protectOutput(finalTaskJar, outputInputs);
 
         List<RulePack> packs = rulePacks();
 
@@ -84,7 +113,7 @@ public abstract class TransformSourceTask extends ArtifactRequestTask {
                 target,
                 projectRoot,
                 List.of(sourceRoot),
-                List.of(resourcesRoot),
+                resourceRoots,
                 finalTaskJar.getFileName().toString()
         );
         if (!result.isSuccess()) {
