@@ -168,17 +168,17 @@ public final class SourceTransformer {
         ast.accept(new ModifierVisitor<Void>() {
             @Override
             public Visitable visit(ClassOrInterfaceType n, Void arg) {
-                String name = n.getNameAsString();
-                String qualified = resolveQualified(name, simpleToQualified);
-                var rename = plan.findClassRename(qualified);
+                TypeIdentity identity = resolveTypeIdentity(n, simpleToQualified);
+                var rename = plan.findClassRename(identity.owner());
                 if (rename.isPresent()) {
-                    String targetQ = rename.get().targetOwner().replace('/', '.');
-                    String simpleTarget = simpleName(targetQ);
-                    n.setName(simpleTarget);
-                    ensureImport(ast, targetQ);
+                    String target = rename.get().targetOwner().replace('/', '.');
+                    n.removeScope();
+                    n.setName(simpleName(target));
+                    ensureImport(ast, target);
                     appliedMigrations.add(AppliedMigration.from(
                             rename.get(),
-                            MigrationConfidence.STRUCTURALLY_RESOLVED,
+                            MigrationLayer.SOURCE_AST,
+                            identity.confidence(),
                             sourcePath,
                             n.getBegin().map(p -> p.line).orElse(-1)
                     ));
@@ -189,6 +189,7 @@ public final class SourceTransformer {
             @Override
             public Visitable visit(ObjectCreationExpr n, Void arg) {
                 Optional<MemberReference> resolvedConstructor = resolveConstructor(n);
+                TypeIdentity sourceType = resolveTypeIdentity(n.getType(), simpleToQualified);
                 super.visit(n, arg);
 
                 if (resolvedConstructor.isPresent()) {
@@ -205,8 +206,7 @@ public final class SourceTransformer {
                     }
                 }
 
-                String typeName = n.getType().getNameAsString();
-                String qualified = resolveQualified(typeName, simpleToQualified);
+                String qualified = sourceType.owner();
 
                 // Check constructor-to-factory rules with descriptor matching
                 var c2fRules = plan.findConstructorToFactories(qualified);
@@ -229,20 +229,6 @@ public final class SourceTransformer {
                         ));
                         return factoryCall;
                     }
-                }
-
-                // Check class rename on creation expression
-                var classRename = plan.findClassRename(qualified);
-                if (classRename.isPresent()) {
-                    String newClassSimple = simpleName(classRename.get().targetOwner());
-                    n.getType().setName(newClassSimple);
-                    ensureImport(ast, classRename.get().targetOwner().replace('/', '.'));
-                    appliedMigrations.add(AppliedMigration.from(
-                            classRename.get(),
-                            MigrationConfidence.STRUCTURALLY_RESOLVED,
-                            sourcePath,
-                            n.getBegin().map(p -> p.line).orElse(-1)
-                    ));
                 }
 
                 return n;
@@ -1267,6 +1253,9 @@ public final class SourceTransformer {
         return new FieldAccessExpr(new NameExpr(simpleName(owner)), rule.targetName());
     }
 
+    private record TypeIdentity(String owner, MigrationConfidence confidence) {
+    }
+
     private record ResolvedMethodUse(MemberReference member, boolean isStatic, boolean isInterface) {
     }
 
@@ -1439,6 +1428,41 @@ public final class SourceTransformer {
             curr = curr.getParentNode().orElse(null);
         }
         return Optional.empty();
+    }
+
+    private static TypeIdentity resolveTypeIdentity(
+            ClassOrInterfaceType type,
+            Map<String, String> imports
+    ) {
+        try {
+            var resolved = type.resolve();
+            if (resolved.isReferenceType()) {
+                return new TypeIdentity(
+                        resolved.asReferenceType().getQualifiedName(),
+                        MigrationConfidence.SEMANTICALLY_RESOLVED
+                );
+            }
+        } catch (Throwable ignored) {
+        }
+
+        String sourceName = type.getNameWithScope();
+        int dot = sourceName.indexOf('.');
+        if (dot < 0) {
+            return new TypeIdentity(
+                    resolveQualified(sourceName, imports),
+                    MigrationConfidence.STRUCTURALLY_RESOLVED
+            );
+        }
+
+        String first = sourceName.substring(0, dot);
+        String imported = imports.get(first);
+        if (imported != null) {
+            return new TypeIdentity(
+                    imported + sourceName.substring(dot),
+                    MigrationConfidence.STRUCTURALLY_RESOLVED
+            );
+        }
+        return new TypeIdentity(sourceName, MigrationConfidence.STRUCTURALLY_RESOLVED);
     }
 
     private static String resolveQualified(String simpleName, Map<String, String> imports) {
