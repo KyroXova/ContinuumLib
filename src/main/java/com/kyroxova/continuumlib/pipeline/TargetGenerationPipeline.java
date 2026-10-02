@@ -497,7 +497,7 @@ public final class TargetGenerationPipeline {
         };
     }
 
-    private List<TargetReferenceAudit.Finding> auditTargetArtifact(ResolvedTarget target, Path jarPath) throws IOException {
+    static List<TargetReferenceAudit.Finding> auditTargetArtifact(ResolvedTarget target, Path jarPath) throws IOException {
         Map<String, ClassInfo> targetApi = new HashMap<>(new TargetApiResolver().forNamespace(
                 target,
                 target.mappingNamespace()
@@ -519,6 +519,16 @@ public final class TargetGenerationPipeline {
                 try (var stream = jar.getInputStream(entry)) {
                     bytes = stream.readAllBytes();
                 }
+                for (String type : scanner.types(bytes)) {
+                    if (isPlatformOwner(type) || targetApi.containsKey(type)) {
+                        continue;
+                    }
+                    findings.add(new TargetReferenceAudit.Finding(
+                            TargetReferenceAudit.Status.OWNER_MISSING,
+                            "Referenced type missing from target/linkage index: " + type
+                    ));
+                }
+
                 for (var use : scanner.scan(bytes)) {
                     if (isPlatformOwner(use.target().owner())) {
                         continue;

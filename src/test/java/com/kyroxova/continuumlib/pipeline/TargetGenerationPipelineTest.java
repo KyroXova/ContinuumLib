@@ -738,4 +738,53 @@ class TargetGenerationPipelineTest {
                         && finding.detail().contains("example/Helper")));
     }
 
+    @Test
+    void finalAuditRejectsDescriptorOnlyMissingTypes(@TempDir Path root) throws Exception {
+        Path jar = root.resolve("missing-type.jar");
+
+        ClassWriter writer = new ClassWriter(0);
+        writer.visit(
+                Opcodes.V17,
+                Opcodes.ACC_PUBLIC,
+                "example/UsesMissing",
+                null,
+                "java/lang/Object",
+                null
+        );
+        writer.visitField(
+                Opcodes.ACC_PUBLIC,
+                "value",
+                "Lmissing/OnlyInDescriptor;",
+                null,
+                null
+        ).visitEnd();
+        writer.visitEnd();
+
+        try (JarOutputStream output = new JarOutputStream(Files.newOutputStream(jar))) {
+            output.putNextEntry(new JarEntry("example/UsesMissing.class"));
+            output.write(writer.toByteArray());
+            output.closeEntry();
+        }
+
+        EnvironmentId env = new EnvironmentId(
+                "1.20.1",
+                Loader.FABRIC,
+                MappingNamespace.OFFICIAL,
+                17
+        );
+        ResolvedTarget target = ResolvedTarget.builder()
+                .targetId("missing-type")
+                .sourceEnvironment(env)
+                .targetEnvironment(env)
+                .workspace(new GeneratedWorkspace(root.resolve("build"), "missing-type"))
+                .build();
+
+        var findings = TargetGenerationPipeline.auditTargetArtifact(target, jar);
+
+        assertTrue(findings.stream().anyMatch(finding ->
+                finding.status() == com.kyroxova.continuumlib.bytecode.TargetReferenceAudit.Status.OWNER_MISSING
+                        && finding.detail().contains("missing/OnlyInDescriptor")
+        ), findings.toString());
+    }
+
 }
