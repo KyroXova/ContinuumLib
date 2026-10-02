@@ -25,10 +25,14 @@ public final class SourceParser {
 
     public SourceParser(List<Path> sourceRoots, List<Path> classpathJars, int javaVersion) {
         ParserConfiguration.LanguageLevel level = languageLevel(javaVersion);
-        ParserConfiguration solverConfig = new ParserConfiguration().setLanguageLevel(level);
 
         var typeSolver = new CombinedTypeSolver();
         typeSolver.add(new ReflectionTypeSolver());
+
+        JavaSymbolSolver symbolSolver = new JavaSymbolSolver(typeSolver);
+        ParserConfiguration solverConfig = new ParserConfiguration()
+                .setLanguageLevel(level)
+                .setSymbolResolver(symbolSolver);
 
         for (Path jar : classpathJars) {
             try {
@@ -48,7 +52,7 @@ public final class SourceParser {
 
         var config = new ParserConfiguration()
                 .setLanguageLevel(level)
-                .setSymbolResolver(new JavaSymbolSolver(typeSolver));
+                .setSymbolResolver(symbolSolver);
         this.parser = new JavaParser(config);
     }
 
