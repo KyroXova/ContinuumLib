@@ -1356,11 +1356,20 @@ public final class SourceTransformer {
         if (broad.isPresent()) return broad.get();
 
         List<MemberReference> constructors = sourceApi.constructors(owner);
-        if (constructors.size() == 1) {
-            return selectResolvedRule(rules, constructors.get(0).descriptor()).orElse(null);
+        Optional<String> exactDescriptor = selectExactDescriptor(
+                constructors.stream().map(MemberReference::descriptor).toList(),
+                expression.getArguments()
+        );
+        if (exactDescriptor.isPresent()) {
+            return selectResolvedRule(rules, exactDescriptor.get()).orElse(null);
         }
 
-        if (constructors.isEmpty()) {
+        Optional<CanonicalMigrationRule> exactRule = selectRuleByExactArguments(rules, expression.getArguments());
+        if (exactRule.isPresent()) {
+            return exactRule.get();
+        }
+
+        if (constructors.isEmpty() && rules.size() == 1) {
             addUnresolvedMigrationDiagnostic(
                     diagnostics,
                     sourcePath,
@@ -1373,7 +1382,7 @@ public final class SourceTransformer {
                     sourcePath,
                     expression,
                     "Constructor invocation is ambiguous for " + owner
-                            + "; source API declares " + constructors.size() + " constructors"
+                            + "; exact argument types do not identify one descriptor"
             );
         }
         return null;
@@ -1391,11 +1400,20 @@ public final class SourceTransformer {
         if (broad.isPresent()) return broad.get();
 
         List<SourceApiIndex.Method> methods = sourceApi.methods(owner, methodName);
-        if (methods.size() == 1) {
-            return selectResolvedRule(rules, methods.get(0).reference().descriptor()).orElse(null);
+        Optional<String> exactDescriptor = selectExactDescriptor(
+                methods.stream().map(method -> method.reference().descriptor()).toList(),
+                expression.getArguments()
+        );
+        if (exactDescriptor.isPresent()) {
+            return selectResolvedRule(rules, exactDescriptor.get()).orElse(null);
         }
 
-        if (methods.isEmpty()) {
+        Optional<CanonicalMigrationRule> exactRule = selectRuleByExactArguments(rules, expression.getArguments());
+        if (exactRule.isPresent()) {
+            return exactRule.get();
+        }
+
+        if (methods.isEmpty() && rules.size() == 1) {
             addUnresolvedMigrationDiagnostic(
                     diagnostics,
                     sourcePath,
@@ -1407,11 +1425,255 @@ public final class SourceTransformer {
                     diagnostics,
                     sourcePath,
                     expression,
-                    "Method invocation is ambiguous for " + owner + "#" + methodName
-                            + "; source API declares " + methods.size() + " overloads"
+                    "Ambiguous method invocation for " + owner + "#" + methodName
+                            + "; exact argument types do not identify one descriptor"
             );
         }
         return null;
+    }
+
+    private static Optional<CanonicalMigrationRule> selectRuleByExactArguments(
+            List<CanonicalMigrationRule> rules,
+            NodeList<Expression> arguments
+    ) {
+        List<CanonicalMigrationRule> matches = rules.stream()
+                .filter(rule -> rule.sourceDescriptor() != null)
+                .filter(rule -> descriptorMatchesExactArguments(rule.sourceDescriptor(), arguments))
+                .toList();
+        return matches.size() == 1 ? Optional.of(matches.get(0)) : Optional.empty();
+    }
+
+    private static Optional<String> selectExactDescriptor(
+            List<String> descriptors,
+            NodeList<Expression> arguments
+    ) {
+        List<String> matches = descriptors.stream()
+                .filter(descriptor -> descriptorMatchesExactArguments(descriptor, arguments))
+                .distinct()
+                .toList();
+        return matches.size() == 1 ? Optional.of(matches.get(0)) : Optional.empty();
+    }
+
+    private static boolean descriptorMatchesExactArguments(
+            String descriptor,
+            NodeList<Expression> arguments
+    ) {
+        List<String> parameters = DescriptorMatcher.parseParameterTypes(descriptor);
+        if (parameters.size() != arguments.size()) return false;
+
+        for (int i = 0; i < arguments.size(); i++) {
+            Optional<String> actual = exactExpressionType(arguments.get(i));
+            if (actual.isEmpty() || !sameJavaType(actual.get(), parameters.get(i))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private static Optional<String> exactExpressionType(Expression expression) {
+        Expression value = unwrap(expression);
+
+        try {
+            var resolved = value.calculateResolvedType();
+            if (resolved.isPrimitive()) {
+                return Optional.of(resolved.describe());
+            }
+            if (resolved.isReferenceType()) {
+                return Optional.of(resolved.asReferenceType().getQualifiedName());
+            }
+            if (resolved.isArray()) {
+                return Optional.of(resolved.describe());
+            }
+        } catch (Throwable ignored) {
+        }
+
+        if (value instanceof StringLiteralExpr) return Optional.of("java.lang.String");
+        if (value instanceof BooleanLiteralExpr) return Optional.of("boolean");
+        if (value instanceof CharLiteralExpr) return Optional.of("char");
+        if (value instanceof IntegerLiteralExpr) return Optional.of("int");
+        if (value instanceof LongLiteralExpr) return Optional.of("long");
+        if (value instanceof DoubleLiteralExpr literal) {
+            String text = literal.getValue().toLowerCase(Locale.ROOT);
+            return Optional.of(text.endsWith("f") ? "float" : "double");
+        }
+        if (value instanceof CastExpr cast) {
+            return Optional.of(cast.getType().asString());
+        }
+        if (value instanceof ObjectCreationExpr creation) {
+            try {
+                var resolved = creation.getType().resolve();
+                if (resolved.isReferenceType()) {
+                    return Optional.of(resolved.asReferenceType().getQualifiedName());
+                }
+            } catch (Throwable ignored) {
+            }
+            return Optional.of(creation.getType().getNameWithScope());
+        }
+        if (value instanceof NameExpr name) {
+            return findVariableType(name, name.getNameAsString());
+        }
+        return Optional.empty();
+    }
+
+    private static boolean sameJavaType(String left, String right) {
+        return normalizeJavaType(left).equals(normalizeJavaType(right));
+    }
+
+    private static String normalizeJavaType(String type) {
+        return type.replace('
+        return rules.stream()
+                .filter(rule -> rule.sourceDescriptor() == null)
+                .findFirst();
+    }
+
+    private static Optional<CanonicalMigrationRule> selectResolvedRule(
+            List<CanonicalMigrationRule> rules,
+            String descriptor
+    ) {
+        return rules.stream()
+                .filter(rule -> rule.sourceDescriptor() == null
+                        || Objects.equals(rule.sourceDescriptor(), descriptor))
+                .findFirst();
+    }
+
+    private static void addUnresolvedMigrationDiagnostic(
+            List<Diagnostic> diagnostics,
+            String sourcePath,
+            com.github.javaparser.ast.Node node,
+            String message
+    ) {
+        diagnostics.add(Diagnostic.builder()
+                .code(DiagnosticCode.MIGRATION_UNRESOLVED)
+                .severity(Severity.ERROR)
+                .message(message)
+                .path(Path.of(sourcePath))
+                .line(node.getBegin().map(position -> position.line).orElse(-1))
+                .build());
+    }
+
+    private static void addAmbiguousMigrationDiagnostic(
+            List<Diagnostic> diagnostics,
+            String sourcePath,
+            com.github.javaparser.ast.Node node,
+            String message
+    ) {
+        diagnostics.add(Diagnostic.builder()
+                .code(DiagnosticCode.AMBIGUOUS_MIGRATION)
+                .severity(Severity.ERROR)
+                .message(message)
+                .path(Path.of(sourcePath))
+                .line(node.getBegin().map(position -> position.line).orElse(-1))
+                .build());
+    }
+
+    private static Optional<String> findVariableType(com.github.javaparser.ast.Node node, String varName) {
+        com.github.javaparser.ast.Node curr = node;
+        while (curr != null) {
+            if (curr instanceof com.github.javaparser.ast.body.MethodDeclaration md) {
+                for (var param : md.getParameters()) {
+                    if (param.getNameAsString().equals(varName)) {
+                        return Optional.of(param.getType().asString());
+                    }
+                }
+            } else if (curr instanceof com.github.javaparser.ast.body.ConstructorDeclaration cd) {
+                for (var param : cd.getParameters()) {
+                    if (param.getNameAsString().equals(varName)) {
+                        return Optional.of(param.getType().asString());
+                    }
+                }
+            } else if (curr instanceof com.github.javaparser.ast.stmt.BlockStmt bs) {
+                for (var stmt : bs.getStatements()) {
+                    if (stmt instanceof com.github.javaparser.ast.stmt.ExpressionStmt es
+                            && es.getExpression() instanceof com.github.javaparser.ast.expr.VariableDeclarationExpr vde) {
+                        for (var decl : vde.getVariables()) {
+                            if (decl.getNameAsString().equals(varName)) {
+                                return Optional.of(decl.getType().asString());
+                            }
+                        }
+                    }
+                }
+            } else if (curr instanceof com.github.javaparser.ast.body.ClassOrInterfaceDeclaration cid) {
+                for (var field : cid.getFields()) {
+                    for (var decl : field.getVariables()) {
+                        if (decl.getNameAsString().equals(varName)) {
+                            return Optional.of(decl.getType().asString());
+                        }
+                    }
+                }
+            }
+            curr = curr.getParentNode().orElse(null);
+        }
+        return Optional.empty();
+    }
+
+    private static TypeIdentity resolveTypeIdentity(
+            ClassOrInterfaceType type,
+            Map<String, String> imports
+    ) {
+        try {
+            var resolved = type.resolve();
+            if (resolved.isReferenceType()) {
+                return new TypeIdentity(
+                        resolved.asReferenceType().getQualifiedName(),
+                        MigrationConfidence.SEMANTICALLY_RESOLVED
+                );
+            }
+        } catch (Throwable ignored) {
+        }
+
+        String sourceName = type.getNameWithScope();
+        int dot = sourceName.indexOf('.');
+        if (dot < 0) {
+            String imported = imports.get(sourceName);
+            if (imported != null) {
+                return new TypeIdentity(imported, MigrationConfidence.STRUCTURALLY_RESOLVED);
+            }
+            String samePackage = type.findCompilationUnit()
+                    .flatMap(unit -> unit.getPackageDeclaration())
+                    .map(pkg -> pkg.getNameAsString() + "." + sourceName)
+                    .orElse(sourceName);
+            return new TypeIdentity(samePackage, MigrationConfidence.STRUCTURALLY_RESOLVED);
+        }
+
+        String first = sourceName.substring(0, dot);
+        String imported = imports.get(first);
+        if (imported != null) {
+            return new TypeIdentity(
+                    imported + sourceName.substring(dot),
+                    MigrationConfidence.STRUCTURALLY_RESOLVED
+            );
+        }
+
+        if (!first.isEmpty() && Character.isUpperCase(first.charAt(0))) {
+            String samePackage = type.findCompilationUnit()
+                    .flatMap(unit -> unit.getPackageDeclaration())
+                    .map(pkg -> pkg.getNameAsString() + "." + sourceName)
+                    .orElse(sourceName);
+            return new TypeIdentity(samePackage, MigrationConfidence.STRUCTURALLY_RESOLVED);
+        }
+        return new TypeIdentity(sourceName, MigrationConfidence.STRUCTURALLY_RESOLVED);
+    }
+
+    private static String resolveQualified(String simpleName, Map<String, String> imports) {
+        String imported = imports.get(simpleName);
+        return imported != null ? imported.replace('/', '.') : simpleName.replace('/', '.');
+    }
+
+    private static String simpleName(String qualifiedName) {
+        String norm = qualifiedName.replace('/', '.');
+        int dot = norm.lastIndexOf('.');
+        return dot >= 0 ? norm.substring(dot + 1) : norm;
+    }
+
+    private static void ensureImport(CompilationUnit ast, String qualifiedName) {
+        String norm = qualifiedName.replace('/', '.');
+        for (ImportDeclaration imp : ast.getImports()) {
+            if (imp.getNameAsString().equals(norm)) return;
+        }
+        ast.addImport(norm);
+    }
+}
+, '.').replace(" ", "");
     }
 
     private static Optional<CanonicalMigrationRule> broadRule(List<CanonicalMigrationRule> rules) {
