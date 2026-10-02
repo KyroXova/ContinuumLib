@@ -164,4 +164,26 @@ class TransformRequestTest {
         );
     }
 
+    @Test
+    void preservesDeterministicArtifactOrdering() {
+        java.util.Map<String, Path> source = new java.util.LinkedHashMap<>();
+        source.put("zeta", Path.of("z.jar"));
+        source.put("alpha", Path.of("a.jar"));
+
+        java.util.Map<String, Path> target = new java.util.LinkedHashMap<>();
+        target.put("omega", Path.of("o.jar"));
+        target.put("beta", Path.of("b.jar"));
+
+        var request = new TransformRequest("fixture", source, target);
+
+        assertEquals(
+                java.util.List.of("alpha", "zeta"),
+                new java.util.ArrayList<>(request.sourceArtifacts().keySet())
+        );
+        assertEquals(
+                java.util.List.of("beta", "omega"),
+                new java.util.ArrayList<>(request.targetArtifacts().keySet())
+        );
+    }
+
 }

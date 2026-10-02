@@ -53,7 +53,7 @@ public record TransformRequest(String packId, Map<String, Path> sourceArtifacts,
                 throw new IllegalArgumentException("Duplicate " + side + " artifact name: " + name);
             }
         }
-        return Map.copyOf(normalized);
+        return Collections.unmodifiableMap(new TreeMap<>(normalized));
     }
 
     private static Map<String, ClasspathArtifact> normalizeClasspath(
@@ -76,7 +76,7 @@ public record TransformRequest(String packId, Map<String, Path> sourceArtifacts,
                 throw new IllegalArgumentException("Duplicate " + side + " classpath name: " + name);
             }
         }
-        return Map.copyOf(normalized);
+        return Collections.unmodifiableMap(new TreeMap<>(normalized));
     }
 
     public static TransformRequest read(Path config, Path projectRoot) throws IOException {

@@ -41,11 +41,13 @@ public record ResolvedTarget(
         if (outputMode == null || outputMode.isBlank()) {
             outputMode = "per_version";
         }
-        sourceArtifacts = sourceArtifacts != null ? Map.copyOf(sourceArtifacts) : Map.of();
-        targetArtifacts = targetArtifacts != null ? Map.copyOf(targetArtifacts) : Map.of();
-        sourceClasspath = sourceClasspath != null ? Map.copyOf(sourceClasspath) : Map.of();
-        targetClasspath = targetClasspath != null ? Map.copyOf(targetClasspath) : Map.of();
-        rulePacks = rulePacks != null ? List.copyOf(rulePacks) : List.of();
+        sourceArtifacts = sortedMap(sourceArtifacts);
+        targetArtifacts = sortedMap(targetArtifacts);
+        sourceClasspath = sortedMap(sourceClasspath);
+        targetClasspath = sortedMap(targetClasspath);
+        rulePacks = rulePacks != null
+                ? rulePacks.stream().sorted(Comparator.comparing(RulePack::id)).toList()
+                : List.of();
     }
 
     public String minecraftVersion() {
@@ -75,6 +77,11 @@ public record ResolvedTarget(
                         targetEnvironment.javaVersion()
                 );
         return new TargetContext(contextEnvironment, loaderVersion, outputMode);
+    }
+
+    private static <T> Map<String, T> sortedMap(Map<String, T> values) {
+        if (values == null || values.isEmpty()) return Map.of();
+        return Collections.unmodifiableMap(new TreeMap<>(values));
     }
 
     public static Builder builder() {
