@@ -5,7 +5,7 @@ import com.github.javaparser.ast.body.FieldDeclaration;
 import com.github.javaparser.ast.body.TypeDeclaration;
 
 import java.util.ArrayDeque;
-import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.Deque;
 import java.util.List;
 
@@ -14,30 +14,11 @@ public final class SourceTypes {
     }
 
     public static List<TypeDeclaration<?>> all(Node root) {
-        List<TypeDeclaration<?>> types = new ArrayList<>();
-        if (root instanceof com.github.javaparser.ast.CompilationUnit unit) {
-            for (TypeDeclaration<?> type : unit.getTypes()) {
-                collect(type, types);
-            }
-        } else if (root instanceof TypeDeclaration<?> type) {
-            collect(type, types);
-        } else {
-            root.findCompilationUnit().ifPresent(unit -> {
-                for (TypeDeclaration<?> type : unit.getTypes()) {
-                    collect(type, types);
-                }
-            });
-        }
-        return List.copyOf(types);
-    }
-
-    private static void collect(TypeDeclaration<?> type, List<TypeDeclaration<?>> types) {
-        types.add(type);
-        for (Node child : type.getChildNodes()) {
-            if (child instanceof TypeDeclaration<?> nested) {
-                collect(nested, types);
-            }
-        }
+        return root.findAll(TypeDeclaration.class).stream()
+                .map(type -> (TypeDeclaration<?>) type)
+                .filter(SourceTypes::memberOrTopLevel)
+                .sorted(Comparator.comparingInt(SourceTypes::sourceOrder))
+                .toList();
     }
 
     public static List<FieldDeclaration> fields(TypeDeclaration<?> type) {
@@ -82,5 +63,17 @@ public final class SourceTypes {
                 .map(declaration -> declaration.getNameAsString() + ".")
                 .orElse("");
         return pkg + String.join(".", names);
+    }
+
+    private static boolean memberOrTopLevel(TypeDeclaration<?> type) {
+        Node parent = type.getParentNode().orElse(null);
+        return parent instanceof TypeDeclaration<?>
+                || parent instanceof com.github.javaparser.ast.CompilationUnit;
+    }
+
+    private static int sourceOrder(TypeDeclaration<?> type) {
+        return type.getBegin()
+                .map(position -> position.line * 1_000_000 + position.column)
+                .orElse(Integer.MAX_VALUE);
     }
 }
