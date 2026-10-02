@@ -175,20 +175,17 @@ public final class FilterEngine {
         String pkg = ast.getPackageDeclaration().map(p -> p.getNameAsString() + ".").orElse("");
         for (TypeDeclaration<?> type : new ArrayList<>(ast.getTypes())) {
             String qualifiedName = pkg + type.getNameAsString();
-            boolean included = classIncluded(inclusions, qualifiedName);
-            boolean excluded = exclusions.matchesClass(qualifiedName);
-            if (!included || excluded) {
+            if (!classIncluded(inclusions, qualifiedName) || exclusions.matchesClass(qualifiedName)) {
                 type.remove();
             }
         }
 
         if (inclusions.hasClassRules() || exclusions.hasClassRules()) {
-            List<TypeDeclaration<?>> nested = ast.findAll(TypeDeclaration.class).stream()
-                    .map(type -> (TypeDeclaration<?>) type)
+            var nested = ast.findAll(TypeDeclaration.class).stream()
                     .filter(type -> type.getParentNode()
                             .filter(TypeDeclaration.class::isInstance)
                             .isPresent())
-                    .sorted(Comparator.comparingInt(FilterEngine::typeDepth).reversed())
+                    .sorted(Comparator.comparingInt(type -> typeDepth((TypeDeclaration<?>) type)).reversed())
                     .toList();
 
             for (TypeDeclaration<?> type : nested) {
@@ -203,7 +200,20 @@ public final class FilterEngine {
 
     private static boolean classIncluded(RuleSet inclusions, String className) {
         if (!inclusions.hasClassRules()) return true;
-        String normalized = className.replace('
+        String normalized = className.replace('$', '.');
+
+        for (var rule : inclusions.classRules()) {
+            String included = rule.className().replace('$', '.');
+            if (included.equals(normalized)
+                    || included.startsWith(normalized + ".")
+                    || normalized.startsWith(included + ".")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static int typeDepth(TypeDeclaration<?> type) {
         int depth = 0;
         com.github.javaparser.ast.Node current = type.getParentNode().orElse(null);
         while (current != null) {
