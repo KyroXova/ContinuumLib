@@ -48,6 +48,36 @@ class TargetJarPackagerTest {
     }
 
     @Test
+    void preservesConfiguredManifestAttributes(@TempDir Path root) throws Exception {
+        Path classes = root.resolve("classes");
+        Files.createDirectories(classes.resolve("example"));
+        Files.write(classes.resolve("example/Example.class"), new byte[]{1, 2, 3});
+
+        Path resourceManifest = root.resolve("resource-manifest.mf");
+        Files.writeString(resourceManifest, "Manifest-Version: 1.0\nIgnored: true\n\n");
+
+        Path output = root.resolve("manifest.jar");
+        TargetJarPackager.packageJarWithResources(
+                classes,
+                Map.of("META-INF/MANIFEST.MF", resourceManifest),
+                Map.of(
+                        "MixinConfigs", "example.mixins.json",
+                        "FMLAT", "accesstransformer.cfg"
+                ),
+                output
+        );
+
+        try (JarFile jar = new JarFile(output.toFile())) {
+            assertEquals("example.mixins.json",
+                    jar.getManifest().getMainAttributes().getValue("MixinConfigs"));
+            assertEquals("accesstransformer.cfg",
+                    jar.getManifest().getMainAttributes().getValue("FMLAT"));
+            assertNull(jar.getManifest().getMainAttributes().getValue("Ignored"));
+            assertEquals(0L, jar.getJarEntry("META-INF/MANIFEST.MF").getTime());
+        }
+    }
+
+    @Test
     void failedPackagingRemovesTemporaryJar(@TempDir Path root) throws Exception {
         Path classes = root.resolve("classes");
         Files.createDirectories(classes);

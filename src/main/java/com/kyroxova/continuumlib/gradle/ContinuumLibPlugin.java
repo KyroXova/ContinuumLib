@@ -62,6 +62,13 @@ public final class ContinuumLibPlugin implements Plugin<Project> {
             task.getSourceFiles().from(mainSourceSet.getJava());
             task.getResourceFiles().from(mainSourceSet.getResources());
             task.getResourceRoots().from(project.provider(() -> mainSourceSet.getResources().getSrcDirs()));
+            task.getManifestAttributes().set(project.provider(() -> {
+                java.util.Map<String, String> attributes = new java.util.TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+                jar.get().getManifest().getAttributes().forEach(
+                        (key, value) -> attributes.put(key, String.valueOf(value))
+                );
+                return attributes;
+            }));
             task.getTargetWorkspaceDirectory().convention(project.getLayout().getBuildDirectory().dir("continuum/targets/source"));
             task.getConfigFile().convention(project.getLayout().file(project.provider(transformCfg::toFile)));
             task.getRuleFiles().from(project.fileTree("src/main/resources/continuumlib/knowledge", tree -> tree.include("**/*.xml")));
@@ -157,6 +164,13 @@ public final class ContinuumLibPlugin implements Plugin<Project> {
                 task.getSourceFiles().from(mainSourceSet.getJava());
                 task.getResourceFiles().from(mainSourceSet.getResources());
                 task.getResourceRoots().from(project.provider(() -> mainSourceSet.getResources().getSrcDirs()));
+                task.getManifestAttributes().set(project.provider(() -> {
+                    java.util.Map<String, String> attributes = new java.util.TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+                    jar.get().getManifest().getAttributes().forEach(
+                            (key, value) -> attributes.put(key, String.valueOf(value))
+                    );
+                    return attributes;
+                }));
                 task.getConfigFile().convention(project.getLayout().file(project.provider(finalTargetConfigFile::toFile)));
                 task.getRuleFiles().from(project.fileTree("src/main/resources/continuumlib/knowledge", tree -> tree.include("**/*.xml")));
                 task.getRuleFiles().from(project.fileTree("src/main/resources/data/continuumlib/knowledge", tree -> tree.include("**/*.xml")));

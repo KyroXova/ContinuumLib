@@ -44,6 +44,9 @@ public abstract class TransformSourceTask extends ArtifactRequestTask {
     @PathSensitive(PathSensitivity.RELATIVE)
     public abstract ConfigurableFileCollection getResourceRoots();
 
+    @Input
+    public abstract MapProperty<String, String> getManifestAttributes();
+
     @OutputDirectory
     public abstract DirectoryProperty getTargetWorkspaceDirectory();
 
@@ -95,6 +98,8 @@ public abstract class TransformSourceTask extends ArtifactRequestTask {
                 .distinct()
                 .sorted()
                 .toList();
+        java.util.Map<String, String> manifestAttributes =
+                new java.util.TreeMap<>(getManifestAttributes().getOrElse(java.util.Map.of()));
         Path configFile = getConfigFile().get().getAsFile().toPath();
         Path generatedSourceOutput = getGeneratedSourceDirectory().get().getAsFile().toPath();
         Path compiledClassesOutput = getCompiledClassesDirectory().get().getAsFile().toPath();
@@ -153,7 +158,8 @@ public abstract class TransformSourceTask extends ArtifactRequestTask {
                 resourceRoots,
                 finalTaskJar.getFileName().toString(),
                 sourceFiles,
-                resourceFiles
+                resourceFiles,
+                manifestAttributes
         );
         if (!result.isSuccess()) {
             throw new GradleException("ContinuumLib source transformation failed. See report: "

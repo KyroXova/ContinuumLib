@@ -1,10 +1,13 @@
 package com.kyroxova.continuumlib.source.compile;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.file.*;
 import java.util.*;
+import java.util.jar.Attributes;
 import java.util.jar.JarEntry;
 import java.util.jar.JarOutputStream;
+import java.util.jar.Manifest;
 import java.util.stream.Stream;
 
 public final class TargetJarPackager {
@@ -29,14 +32,30 @@ public final class TargetJarPackager {
             Map<String, Path> resources,
             Path outputJar
     ) throws IOException {
+        packageJarWithResources(classesDir, resources, null, outputJar);
+    }
+
+    public static void packageJarWithResources(
+            Path classesDir,
+            Map<String, Path> resources,
+            Map<String, String> manifestAttributes,
+            Path outputJar
+    ) throws IOException {
         Path tempJar = prepareTemp(outputJar);
         try {
             try (var out = new JarOutputStream(Files.newOutputStream(tempJar))) {
+                if (manifestAttributes != null) {
+                    writeManifest(out, manifestAttributes);
+                }
                 writeDirectory(out, classesDir, true);
                 if (resources != null && !resources.isEmpty()) {
                     for (var entry : new TreeMap<>(resources).entrySet()) {
                         String entryName = normalizeEntryName(entry.getKey());
                         if (entryName.endsWith(".class")) continue;
+                        if (manifestAttributes != null
+                                && entryName.equalsIgnoreCase("META-INF/MANIFEST.MF")) {
+                            continue;
+                        }
                         writeEntry(out, entryName, entry.getValue());
                     }
                 }
@@ -44,6 +63,54 @@ public final class TargetJarPackager {
             replace(tempJar, outputJar);
         } finally {
             Files.deleteIfExists(tempJar);
+        }
+    }
+
+    private static void writeManifest(
+            JarOutputStream out,
+            Map<String, String> manifestAttributes
+    ) throws IOException {
+        Manifest manifest = new Manifest();
+        Attributes attributes = manifest.getMainAttributes();
+
+        TreeMap<String, String> sorted = new TreeMap<>(String.CASE_INSENSITIVE_ORDER);
+        for (var entry : manifestAttributes.entrySet()) {
+            if (entry.getKey() == null || entry.getValue() == null) {
+                throw new IOException("Manifest attributes must not contain null keys or values");
+            }
+            if (sorted.put(entry.getKey(), entry.getValue()) != null) {
+                throw new IOException("Duplicate manifest attribute: " + entry.getKey());
+            }
+        }
+
+        String version = sorted.remove(Attributes.Name.MANIFEST_VERSION.toString());
+        attributes.put(
+                Attributes.Name.MANIFEST_VERSION,
+                version == null || version.isBlank() ? "1.0" : version
+        );
+
+        for (var entry : sorted.entrySet()) {
+            String value = entry.getValue();
+            if (value.indexOf('\r') >= 0 || value.indexOf('\n') >= 0) {
+                throw new IOException("Manifest attribute contains a line break: " + entry.getKey());
+            }
+            try {
+                attributes.put(new Attributes.Name(entry.getKey()), value);
+            } catch (IllegalArgumentException invalidName) {
+                throw new IOException("Invalid manifest attribute name: " + entry.getKey(), invalidName);
+            }
+        }
+
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        manifest.write(bytes);
+
+        JarEntry entry = new JarEntry("META-INF/MANIFEST.MF");
+        entry.setTime(0L);
+        out.putNextEntry(entry);
+        try {
+            out.write(bytes.toByteArray());
+        } finally {
+            out.closeEntry();
         }
     }
 

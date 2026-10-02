@@ -7,6 +7,7 @@ import org.gradle.api.GradleException;
 import org.gradle.api.file.ConfigurableFileCollection;
 import org.gradle.api.file.DirectoryProperty;
 import org.gradle.api.file.RegularFileProperty;
+import org.gradle.api.provider.MapProperty;
 import org.gradle.api.provider.Property;
 import org.gradle.api.tasks.*;
 
@@ -39,6 +40,9 @@ public abstract class GenerateTargetTask extends ArtifactRequestTask {
     @InputFiles
     @PathSensitive(PathSensitivity.RELATIVE)
     public abstract ConfigurableFileCollection getResourceRoots();
+
+    @Input
+    public abstract MapProperty<String, String> getManifestAttributes();
 
     @OutputDirectory
     public abstract DirectoryProperty getTargetWorkspaceDirectory();
@@ -86,6 +90,8 @@ public abstract class GenerateTargetTask extends ArtifactRequestTask {
                 .distinct()
                 .sorted()
                 .toList();
+        java.util.Map<String, String> manifestAttributes =
+                new java.util.TreeMap<>(getManifestAttributes().getOrElse(java.util.Map.of()));
         Path configFile = getConfigFile().get().getAsFile().toPath();
         Path finalTaskJar = getOutputJar().get().getAsFile().toPath();
 
@@ -127,7 +133,8 @@ public abstract class GenerateTargetTask extends ArtifactRequestTask {
                 resourceRoots,
                 outputJarName,
                 sourceFiles,
-                resourceFiles
+                resourceFiles,
+                manifestAttributes
         );
 
         if (!result.isSuccess()) {

@@ -62,6 +62,7 @@ public final class TargetGenerationPipeline {
                 resourceRoots,
                 artifactName,
                 null,
+                null,
                 null
         );
     }
@@ -74,6 +75,28 @@ public final class TargetGenerationPipeline {
             String artifactName,
             Collection<Path> selectedSourceFiles,
             Collection<Path> selectedResourceFiles
+    ) throws Exception {
+        return execute(
+                target,
+                projectRoot,
+                sourceRoots,
+                resourceRoots,
+                artifactName,
+                selectedSourceFiles,
+                selectedResourceFiles,
+                null
+        );
+    }
+
+    public TargetGenerationResult execute(
+            ResolvedTarget target,
+            Path projectRoot,
+            List<Path> sourceRoots,
+            List<Path> resourceRoots,
+            String artifactName,
+            Collection<Path> selectedSourceFiles,
+            Collection<Path> selectedResourceFiles,
+            Map<String, String> manifestAttributes
     ) throws Exception {
         Objects.requireNonNull(target, "target");
         Objects.requireNonNull(projectRoot, "projectRoot");
@@ -278,7 +301,12 @@ public final class TargetGenerationPipeline {
             stage = "PACKAGING";
             String jarName = (artifactName != null && !artifactName.isBlank()) ? artifactName : (target.targetId() + ".jar");
             Path stagedJar = ws.stagingJar(jarName);
-            TargetJarPackager.packageJarWithResources(ws.classesDir(), workspaceResources, stagedJar);
+            TargetJarPackager.packageJarWithResources(
+                    ws.classesDir(),
+                    workspaceResources,
+                    manifestAttributes,
+                    stagedJar
+            );
 
             // Stage 18: Apply bytecode-only migrations that source transformation did not consume.
             stage = "BYTECODE_MIGRATION";
