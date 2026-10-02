@@ -18,12 +18,17 @@ repositories {
     mavenCentral()
 }
 
+configurations {
+    pinnedJavaParser
+}
+
 dependencies {
     implementation 'org.ow2.asm:asm:9.10.1'
     implementation 'org.ow2.asm:asm-commons:9.10.1'
     implementation 'org.ow2.asm:asm-tree:9.10.1'
     implementation 'org.ow2.asm:asm-analysis:9.10.1'
     implementation 'net.fabricmc:mapping-io:0.9.1'
+    pinnedJavaParser 'com.github.javaparser:javaparser-core:3.28.2'
     implementation 'com.github.javaparser:javaparser-core:3.28.2'
     implementation 'com.github.javaparser:javaparser-symbol-solver-core:3.28.2'
     implementation 'com.google.code.gson:gson:2.11.0'
@@ -31,6 +36,24 @@ dependencies {
     testImplementation platform('org.junit:junit-bom:5.10.2')
     testImplementation 'org.junit.jupiter:junit-jupiter'
 }
+
+def withoutBundledJavaParser = { files ->
+    files.filter { !it.name.startsWith('javaparser-core-') }
+}
+
+sourceSets.main.compileClasspath = files(
+        configurations.pinnedJavaParser,
+        withoutBundledJavaParser(sourceSets.main.compileClasspath)
+)
+sourceSets.test.compileClasspath = files(
+        configurations.pinnedJavaParser,
+        withoutBundledJavaParser(sourceSets.test.compileClasspath)
+)
+sourceSets.test.runtimeClasspath = files(
+        sourceSets.test.output,
+        configurations.pinnedJavaParser,
+        withoutBundledJavaParser(sourceSets.test.runtimeClasspath)
+)
 
 gradlePlugin {
     plugins {
