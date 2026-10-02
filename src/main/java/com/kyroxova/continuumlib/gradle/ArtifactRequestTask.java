@@ -22,7 +22,6 @@ import java.util.stream.Stream;
 import com.kyroxova.continuumlib.source.compile.SourceCompilationStrategy;
 import com.kyroxova.continuumlib.source.compile.SourceCompiler;
 
-/** Shared tracked artifact inputs for inspection and transformation tasks. */
 public abstract class ArtifactRequestTask extends DefaultTask {
     @InputFile @PathSensitive(PathSensitivity.NONE) public abstract RegularFileProperty getConfigFile();
     @Internal public abstract DirectoryProperty getProjectDirectory();

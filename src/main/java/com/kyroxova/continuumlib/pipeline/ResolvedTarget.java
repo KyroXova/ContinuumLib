@@ -12,11 +12,6 @@ import com.kyroxova.continuumlib.model.environment.MappingNamespace;
 import java.nio.file.Path;
 import java.util.*;
 
-/**
- * Unified canonical resolved target representation.
- * Consolidates environment properties, artifact manifests, classpaths, mappings,
- * rule packs, isolated workspace, and project configuration.
- */
 public record ResolvedTarget(
         String targetId,
         EnvironmentId sourceEnvironment,

@@ -6,7 +6,6 @@ import java.nio.charset.StandardCharsets;
 import java.util.*;
 import com.kyroxova.continuumlib.model.environment.MappingNamespace;
 
-/** One explicit route request in the consuming project; paths are not downloads. */
 public record TransformRequest(String packId, Map<String, Path> sourceArtifacts, Map<String, Path> targetArtifacts,
                                MappingRequest sourceMapping, MappingRequest targetMapping, MappingNamespace outputNamespace,
                                Map<String, ClasspathArtifact> sourceClasspath, Map<String, ClasspathArtifact> targetClasspath,
