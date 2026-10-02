@@ -47,7 +47,14 @@ public abstract class ArtifactRequestTask extends DefaultTask {
             );
         }
         return (sources, classpath, output, release) ->
-                SourceCompiler.compileWithJavac(javac, sources, classpath, output, release);
+                SourceCompiler.compileWithJavac(
+                        javac,
+                        sources,
+                        classpath,
+                        output,
+                        release,
+                        compilerJavaVersion
+                );
     }
 
     @InputFiles @PathSensitive(PathSensitivity.NONE)

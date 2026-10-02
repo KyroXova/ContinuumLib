@@ -67,6 +67,24 @@ public final class SourceCompiler {
             Path outputClassesDir,
             int javaVersion
     ) throws IOException {
+        compileWithJavac(
+                javacExecutable,
+                sourceFiles,
+                classpathJars,
+                outputClassesDir,
+                javaVersion,
+                Math.max(9, javaVersion)
+        );
+    }
+
+    public static void compileWithJavac(
+            Path javacExecutable,
+            List<Path> sourceFiles,
+            List<Path> classpathJars,
+            Path outputClassesDir,
+            int javaVersion,
+            int compilerJavaVersion
+    ) throws IOException {
         Objects.requireNonNull(javacExecutable, "javacExecutable");
         Objects.requireNonNull(sourceFiles, "sourceFiles");
         Objects.requireNonNull(classpathJars, "classpathJars");
@@ -88,7 +106,7 @@ public final class SourceCompiler {
             args.add(argFileToken(output));
             args.add("-encoding");
             args.add("UTF-8");
-            args.addAll(externalLanguageLevelOptions(javaVersion));
+            args.addAll(externalLanguageLevelOptions(javaVersion, compilerJavaVersion));
             if (!classpathJars.isEmpty()) {
                 args.add("-classpath");
                 String cp = classpathJars.stream()
@@ -135,14 +153,23 @@ public final class SourceCompiler {
         }
     }
 
-    static List<String> externalLanguageLevelOptions(int javaVersion) {
-        if (javaVersion < 8) {
-            throw new IllegalArgumentException("Unsupported Java target version: " + javaVersion);
+    static List<String> externalLanguageLevelOptions(int targetJavaVersion, int compilerJavaVersion) {
+        if (targetJavaVersion < 8) {
+            throw new IllegalArgumentException("Unsupported Java target version: " + targetJavaVersion);
         }
-        if (javaVersion == 8) {
-            return List.of("-source", "8", "-target", "8");
+        if (compilerJavaVersion < targetJavaVersion) {
+            throw new IllegalArgumentException(
+                    "Compiler Java " + compilerJavaVersion
+                            + " cannot target Java " + targetJavaVersion
+            );
         }
-        return List.of("--release", Integer.toString(javaVersion));
+        if (compilerJavaVersion >= 9) {
+            return List.of("--release", Integer.toString(targetJavaVersion));
+        }
+        return List.of(
+                "-source", Integer.toString(targetJavaVersion),
+                "-target", Integer.toString(targetJavaVersion)
+        );
     }
 
     private static String formatDiagnostics(DiagnosticCollector<JavaFileObject> diagnostics) {
