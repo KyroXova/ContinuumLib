@@ -171,7 +171,6 @@ public final class FilterEngine {
         }
 
         if (ast.getTypes().isEmpty()) {
-            // package-info.java and other source units without top-level types are outside CLASS filtering.
             return true;
         }
 
@@ -200,61 +199,7 @@ public final class FilterEngine {
     }
 
     private static boolean sameOwner(String left, String right) {
-        return left.replace('        for (SourceUnit unit : units) {
-            if (!unit.relativePath().replace('\\', '/').equals(entry.sourcePath().replace('\\', '/'))) {
-                continue;
-            }
-            String pkg = unit.ast().getPackageDeclaration()
-                    .map(declaration -> declaration.getNameAsString() + ".")
-                    .orElse("");
-            for (var type : unit.ast().findAll(ClassOrInterfaceDeclaration.class)) {
-                String owner = sourceTypeName(type, pkg);
-                if (!sameOwner(owner, entry.ownerClass())) continue;
-
-                for (FieldDeclaration field : new ArrayList<>(type.getFields())) {
-                    field.getVariables().removeIf(variable -> variable.getNameAsString().equals(entry.fieldName()));
-                    if (field.getVariables().isEmpty()) field.remove();
-                }
-            }
-        }
-    }
-
-    public record FilterResult(
-            List<SourceUnit> activeSources,
-            List<SourceUnit> excludedSources,
-            List<RegistryEntry> excludedRegistryEntries,
-            Map<String, Path> activeResources,
-            Map<String, Path> excludedResources
-    ) {}
-}
-, '.').equals(right.replace('        for (SourceUnit unit : units) {
-            if (!unit.relativePath().replace('\\', '/').equals(entry.sourcePath().replace('\\', '/'))) {
-                continue;
-            }
-            String pkg = unit.ast().getPackageDeclaration()
-                    .map(declaration -> declaration.getNameAsString() + ".")
-                    .orElse("");
-            for (var type : unit.ast().findAll(ClassOrInterfaceDeclaration.class)) {
-                String owner = sourceTypeName(type, pkg);
-                if (!sameOwner(owner, entry.ownerClass())) continue;
-
-                for (FieldDeclaration field : new ArrayList<>(type.getFields())) {
-                    field.getVariables().removeIf(variable -> variable.getNameAsString().equals(entry.fieldName()));
-                    if (field.getVariables().isEmpty()) field.remove();
-                }
-            }
-        }
-    }
-
-    public record FilterResult(
-            List<SourceUnit> activeSources,
-            List<SourceUnit> excludedSources,
-            List<RegistryEntry> excludedRegistryEntries,
-            Map<String, Path> activeResources,
-            Map<String, Path> excludedResources
-    ) {}
-}
-, '.'));
+        return left.replace('$', '.').equals(right.replace('$', '.'));
     }
 
     private static void removeDeclarationFromAst(RegistryEntry entry, List<SourceUnit> units) {

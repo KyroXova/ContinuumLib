@@ -13,14 +13,13 @@ import com.kyroxova.continuumlib.source.ast.SourceUnit;
 
 import java.util.*;
 
-/**
- * Detects whether active target-enabled source code still references an excluded declaration.
- */
 public final class ExclusionConflictDetector {
 
-    public void validate(TargetContext context,
-                         List<RegistryEntry> excludedEntries,
-                         Collection<SourceUnit> activeSourceUnits) {
+    public void validate(
+            TargetContext context,
+            List<RegistryEntry> excludedEntries,
+            Collection<SourceUnit> activeSourceUnits
+    ) {
         if (excludedEntries == null || excludedEntries.isEmpty() || activeSourceUnits == null) {
             return;
         }
@@ -44,7 +43,7 @@ public final class ExclusionConflictDetector {
                         continue;
                     }
                     if (referencesEntry(access, entry)) {
-                        fail(context, targetEnvDesc, entry, unit, access);
+                        fail(targetEnvDesc, entry, unit, access);
                     }
                 }
 
@@ -56,7 +55,7 @@ public final class ExclusionConflictDetector {
                     boolean references = resolved.orElseGet(() ->
                             importsFieldStatic || (isDeclaringFile && isInsideOwnerType(name, entry.ownerClass())));
                     if (references) {
-                        fail(context, targetEnvDesc, entry, unit, name);
+                        fail(targetEnvDesc, entry, unit, name);
                     }
                 }
             }
@@ -116,45 +115,10 @@ public final class ExclusionConflictDetector {
         while (current != null) {
             if (current instanceof ClassOrInterfaceDeclaration type) {
                 String sourceName = sourceTypeName(type);
+                String normalizedOwner = ownerClass.replace('$', '.');
                 if (sameOwner(sourceName, ownerClass)
                         || sameOwner(ownerClass, sourceName)
-                        || ownerClass.replace('
-    private static boolean sameOwner(String left, String right) {
-        return left.replace('$', '.').equals(right.replace('$', '.'));
-    }
-
-    private static void fail(
-            TargetContext context,
-            String targetEnvDesc,
-            RegistryEntry entry,
-            SourceUnit unit,
-            Node reference
-    ) {
-        int line = reference.getRange().map(r -> r.begin.line).orElse(1);
-        throw new ExclusionConflictException(
-                targetEnvDesc,
-                entry.registryType().name().toUpperCase() + " " + entry.fullId(),
-                entry.declaration(),
-                unit.relativePath() + ":" + line
-        );
-    }
-
-    private static boolean isInsideDeclaration(Node node, String fieldName) {
-        Node current = node;
-        while (current != null) {
-            if (current instanceof FieldDeclaration field) {
-                for (var variable : field.getVariables()) {
-                    if (variable.getNameAsString().equals(fieldName)) {
-                        return true;
-                    }
-                }
-            }
-            current = current.getParentNode().orElse(null);
-        }
-        return false;
-    }
-}
-, '.').endsWith("." + sourceName)) {
+                        || normalizedOwner.endsWith("." + sourceName)) {
                     return true;
                 }
             }
@@ -180,7 +144,6 @@ public final class ExclusionConflictDetector {
     }
 
     private static void fail(
-            TargetContext context,
             String targetEnvDesc,
             RegistryEntry entry,
             SourceUnit unit,
