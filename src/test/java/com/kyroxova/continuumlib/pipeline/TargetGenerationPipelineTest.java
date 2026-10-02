@@ -631,4 +631,53 @@ class TargetGenerationPipelineTest {
         assertEquals(original, Files.readString(source));
     }
 
+    @Test
+    void rejectsWorkspaceHiddenBehindSymlinkedParent(@TempDir Path project) throws Exception {
+        Path sourceRoot = project.resolve("src/main/java");
+        Path source = sourceRoot.resolve("example/Keep.java");
+        Files.createDirectories(source.getParent());
+        String original = "package example; public class Keep {}";
+        Files.writeString(source, original);
+
+        Path linkedBuild = project.resolve("linked-build");
+        try {
+            Files.createSymbolicLink(linkedBuild, sourceRoot);
+        } catch (UnsupportedOperationException | IOException unavailable) {
+            org.junit.jupiter.api.Assumptions.assumeTrue(false,
+                    "Symbolic links are unavailable in this test environment");
+        }
+
+        EnvironmentId env = new EnvironmentId(
+                "1.20.1",
+                Loader.FABRIC,
+                MappingNamespace.OFFICIAL,
+                17
+        );
+        GeneratedWorkspace workspace = GeneratedWorkspace.atTargetRoot(
+                linkedBuild.resolve("continuum-target"),
+                "symlink-overlap"
+        );
+        ResolvedTarget target = ResolvedTarget.builder()
+                .targetId("symlink-overlap")
+                .sourceEnvironment(env)
+                .targetEnvironment(env)
+                .workspace(workspace)
+                .projectConfiguration(ContinuumProjectConfiguration.empty(
+                        project.resolve("src/main/resources/continuumlib")))
+                .build();
+
+        IOException failure = assertThrows(IOException.class, () ->
+                new TargetGenerationPipeline().execute(
+                        target,
+                        project,
+                        List.of(sourceRoot),
+                        List.of(project.resolve("src/main/resources")),
+                        "target.jar"
+                ));
+
+        assertTrue(failure.getMessage().contains("through symbolic links"), failure.getMessage());
+        assertEquals(original, Files.readString(source));
+        assertFalse(Files.exists(sourceRoot.resolve("continuum-target")));
+    }
+
 }

@@ -346,6 +346,7 @@ public final class TargetGenerationPipeline {
             List<Path> resourceRoots
     ) throws IOException {
         Path workspace = target.workspace().rootDir().toAbsolutePath().normalize();
+        Path effectiveWorkspace = resolveThroughExistingAncestor(workspace);
         List<Path> inputs = new ArrayList<>();
         if (sourceRoots != null) inputs.addAll(sourceRoots);
         if (resourceRoots != null) inputs.addAll(resourceRoots);
@@ -366,19 +367,31 @@ public final class TargetGenerationPipeline {
                 throw new IOException("Generated workspace must not overlap consumer input path: "
                         + workspace + " vs " + normalizedInput);
             }
-            if (Files.exists(workspace) && Files.exists(normalizedInput)) {
-                Path realWorkspace = workspace.toRealPath();
-                Path realInput = normalizedInput.toRealPath();
-                if (pathsOverlap(realWorkspace, realInput)) {
-                    throw new IOException("Generated workspace must not overlap consumer input path through symbolic links: "
-                            + workspace + " vs " + normalizedInput);
-                }
+
+            Path effectiveInput = resolveThroughExistingAncestor(normalizedInput);
+            if (pathsOverlap(effectiveWorkspace, effectiveInput)) {
+                throw new IOException("Generated workspace must not overlap consumer input path through symbolic links: "
+                        + workspace + " vs " + normalizedInput);
             }
         }
     }
 
     private static boolean pathsOverlap(Path left, Path right) {
         return left.equals(right) || left.startsWith(right) || right.startsWith(left);
+    }
+
+    private static Path resolveThroughExistingAncestor(Path path) throws IOException {
+        Path normalized = path.toAbsolutePath().normalize();
+        Path existing = normalized;
+        while (existing != null && !Files.exists(existing, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+            existing = existing.getParent();
+        }
+        if (existing == null) return normalized;
+
+        Path resolved = existing.toRealPath();
+        if (existing.equals(normalized)) return resolved;
+
+        return resolved.resolve(existing.relativize(normalized)).normalize();
     }
 
     private static void verifyArtifacts(ResolvedTarget target) throws IOException {
