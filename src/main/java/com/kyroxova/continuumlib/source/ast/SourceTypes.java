@@ -33,8 +33,8 @@ public final class SourceTypes {
 
     private static void collect(TypeDeclaration<?> type, List<TypeDeclaration<?>> types) {
         types.add(type);
-        for (var member : type.getMembers()) {
-            if (member instanceof TypeDeclaration<?> nested) {
+        for (Node child : type.getChildNodes()) {
+            if (child instanceof TypeDeclaration<?> nested) {
                 collect(nested, types);
             }
         }
@@ -48,40 +48,39 @@ public final class SourceTypes {
     }
 
     public static boolean remove(TypeDeclaration<?> type) {
-        Node parent = type.getParentNode().orElse(null);
-        if (parent instanceof TypeDeclaration<?> owner) {
-            return owner.getMembers().remove(type);
-        }
-        if (parent instanceof com.github.javaparser.ast.CompilationUnit unit) {
-            return unit.getTypes().remove(type);
-        }
         return type.remove();
     }
 
     public static boolean nested(TypeDeclaration<?> type) {
-        return type.isNestedType();
+        return type.getParentNode().filter(TypeDeclaration.class::isInstance).isPresent();
     }
 
     public static int depth(TypeDeclaration<?> type) {
         int depth = 0;
-        Node current = type;
-        while (current instanceof TypeDeclaration<?> declaration && declaration.isNestedType()) {
-            depth++;
-            current = declaration.getParentNode().orElse(null);
-            while (current != null && !(current instanceof TypeDeclaration<?>)) {
-                current = current.getParentNode().orElse(null);
+        Node current = type.getParentNode().orElse(null);
+        while (current != null) {
+            if (current instanceof TypeDeclaration<?>) {
+                depth++;
             }
+            current = current.getParentNode().orElse(null);
         }
         return depth;
     }
 
     public static String qualifiedName(TypeDeclaration<?> type) {
-        return type.getFullyQualifiedName().orElseGet(() -> {
-            String pkg = type.findCompilationUnit()
-                    .flatMap(unit -> unit.getPackageDeclaration())
-                    .map(declaration -> declaration.getNameAsString() + ".")
-                    .orElse("");
-            return pkg + type.getNameAsString();
-        });
+        Deque<String> names = new ArrayDeque<>();
+        Node current = type;
+        while (current != null) {
+            if (current instanceof TypeDeclaration<?> declaration) {
+                names.addFirst(declaration.getNameAsString());
+            }
+            current = current.getParentNode().orElse(null);
+        }
+
+        String pkg = type.findCompilationUnit()
+                .flatMap(unit -> unit.getPackageDeclaration())
+                .map(declaration -> declaration.getNameAsString() + ".")
+                .orElse("");
+        return pkg + String.join(".", names);
     }
 }
