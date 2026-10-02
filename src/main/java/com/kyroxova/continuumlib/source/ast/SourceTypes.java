@@ -7,6 +7,7 @@ import com.github.javaparser.ast.body.EnumDeclaration;
 import com.github.javaparser.ast.body.FieldDeclaration;
 import com.github.javaparser.ast.body.RecordDeclaration;
 import com.github.javaparser.ast.body.TypeDeclaration;
+import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
 
 import java.util.ArrayDeque;
 import java.util.ArrayList;
@@ -20,23 +21,40 @@ public final class SourceTypes {
 
     public static List<TypeDeclaration<?>> all(Node root) {
         List<TypeDeclaration<?>> types = new ArrayList<>();
-        addTypes(root.findAll(ClassOrInterfaceDeclaration.class), types);
-        addTypes(root.findAll(EnumDeclaration.class), types);
-        addTypes(root.findAll(AnnotationDeclaration.class), types);
-        addTypes(root.findAll(RecordDeclaration.class), types);
+        root.accept(new VoidVisitorAdapter<List<TypeDeclaration<?>>>() {
+            @Override
+            public void visit(ClassOrInterfaceDeclaration type, List<TypeDeclaration<?>> found) {
+                add(type, found);
+                super.visit(type, found);
+            }
+
+            @Override
+            public void visit(EnumDeclaration type, List<TypeDeclaration<?>> found) {
+                add(type, found);
+                super.visit(type, found);
+            }
+
+            @Override
+            public void visit(AnnotationDeclaration type, List<TypeDeclaration<?>> found) {
+                add(type, found);
+                super.visit(type, found);
+            }
+
+            @Override
+            public void visit(RecordDeclaration type, List<TypeDeclaration<?>> found) {
+                add(type, found);
+                super.visit(type, found);
+            }
+
+            private void add(TypeDeclaration<?> type, List<TypeDeclaration<?>> found) {
+                if (memberOrTopLevel(type)) {
+                    found.add(type);
+                }
+            }
+        }, types);
+
         types.sort(Comparator.comparingInt(SourceTypes::sourceOrder));
         return List.copyOf(types);
-    }
-
-    private static <T extends TypeDeclaration<?>> void addTypes(
-            List<T> candidates,
-            List<TypeDeclaration<?>> destination
-    ) {
-        for (T type : candidates) {
-            if (memberOrTopLevel(type)) {
-                destination.add(type);
-            }
-        }
     }
 
     public static List<FieldDeclaration> fields(TypeDeclaration<?> type) {
