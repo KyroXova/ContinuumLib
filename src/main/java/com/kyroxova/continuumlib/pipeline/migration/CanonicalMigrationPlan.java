@@ -19,7 +19,8 @@ public final class CanonicalMigrationPlan {
     private final Map<String, List<CanonicalMigrationRule>> callBridges = new HashMap<>();
 
     public CanonicalMigrationPlan(Collection<CanonicalMigrationRule> rules) {
-        this.rules = List.copyOf(rules);
+        this.rules = List.copyOf(Objects.requireNonNull(rules, "rules"));
+        validateConflicts(this.rules);
         for (var rule : this.rules) {
             switch (rule.type()) {
                 case CLASS_RENAME -> classRenames.put(normalize(rule.sourceOwner()), rule);
@@ -271,6 +272,68 @@ public final class CanonicalMigrationPlan {
         return rules.stream()
                 .filter(r -> r.layer() == MigrationLayer.BYTECODE && !appliedRules.contains(r))
                 .toList();
+    }
+
+    private static void validateConflicts(List<CanonicalMigrationRule> rules) {
+        for (int i = 0; i < rules.size(); i++) {
+            CanonicalMigrationRule left = rules.get(i);
+            for (int j = i + 1; j < rules.size(); j++) {
+                CanonicalMigrationRule right = rules.get(j);
+                if (!overlaps(left, right)) continue;
+                if (sameTransformation(left, right)) continue;
+
+                throw new IllegalArgumentException(
+                        "Conflicting canonical migration rules for "
+                                + sourceIdentity(left) + ": "
+                                + targetIdentity(left) + " vs " + targetIdentity(right)
+                );
+            }
+        }
+    }
+
+    private static boolean overlaps(CanonicalMigrationRule left, CanonicalMigrationRule right) {
+        if (left.type() != right.type()) return false;
+        if (!sourceName(left.sourceOwner()).equals(sourceName(right.sourceOwner()))) return false;
+
+        return switch (left.type()) {
+            case CLASS_RENAME -> true;
+            case CONSTRUCTOR_TO_FACTORY ->
+                    descriptorsOverlap(left.sourceDescriptor(), right.sourceDescriptor());
+            case CALL_BRIDGE ->
+                    Objects.equals(left.sourceName(), right.sourceName())
+                            && descriptorsOverlap(left.sourceDescriptor(), right.sourceDescriptor())
+                            && left.opcode() == right.opcode();
+            case MEMBER_RENAME, FIELD_RENAME, FACTORY_TO_CONSTRUCTOR, FIELD_TO_ACCESSOR ->
+                    Objects.equals(left.sourceName(), right.sourceName())
+                            && descriptorsOverlap(left.sourceDescriptor(), right.sourceDescriptor());
+        };
+    }
+
+    private static boolean descriptorsOverlap(String left, String right) {
+        return left == null || right == null || left.equals(right);
+    }
+
+    private static boolean sameTransformation(CanonicalMigrationRule left, CanonicalMigrationRule right) {
+        return sourceName(left.targetOwner()).equals(sourceName(right.targetOwner()))
+                && Objects.equals(left.targetName(), right.targetName())
+                && Objects.equals(left.targetDescriptor(), right.targetDescriptor())
+                && left.layer() == right.layer();
+    }
+
+    private static String sourceIdentity(CanonicalMigrationRule rule) {
+        StringBuilder value = new StringBuilder(sourceName(rule.sourceOwner()));
+        if (rule.sourceName() != null) value.append('#').append(rule.sourceName());
+        if (rule.sourceDescriptor() != null) value.append(rule.sourceDescriptor());
+        if (rule.type() == MigrationType.CALL_BRIDGE) value.append(" opcode=").append(rule.opcode());
+        return value.toString();
+    }
+
+    private static String targetIdentity(CanonicalMigrationRule rule) {
+        StringBuilder value = new StringBuilder(sourceName(rule.targetOwner()));
+        if (rule.targetName() != null) value.append('#').append(rule.targetName());
+        if (rule.targetDescriptor() != null) value.append(rule.targetDescriptor());
+        value.append(" [").append(rule.layer()).append(']');
+        return value.toString();
     }
 
     private static String normalize(String name) {
