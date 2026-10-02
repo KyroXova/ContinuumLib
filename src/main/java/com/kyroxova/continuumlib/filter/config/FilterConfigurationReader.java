@@ -20,6 +20,13 @@ import java.util.stream.Stream;
  */
 public final class FilterConfigurationReader {
     private static final Gson GSON = new Gson();
+    private static final Set<String> RULE_KEYS = Set.of(
+            "domain", "type", "id", "class", "className", "path", "when"
+    );
+    private static final Set<String> CONDITION_KEYS = Set.of(
+            "minecraft", "loader", "loader_version", "loaderVersion",
+            "java", "java_version", "namespace", "output_mode", "outputMode"
+    );
 
     public ContinuumProjectConfiguration load(Path configurationRoot) throws IOException {
         if (configurationRoot == null || !Files.exists(configurationRoot) || !Files.isDirectory(configurationRoot)) {
@@ -79,7 +86,11 @@ public final class FilterConfigurationReader {
             RuleSet.Builder builder = RuleSet.builder();
             if (root.isJsonObject()) {
                 JsonObject obj = root.getAsJsonObject();
-                if (obj.has("rules") && obj.get("rules").isJsonArray()) {
+                if (obj.has("rules")) {
+                    validateKeys(obj, Set.of("rules"), file, "root");
+                    if (!obj.get("rules").isJsonArray()) {
+                        throw new FilterConfigurationException("'rules' must be an array in " + file);
+                    }
                     JsonArray rules = obj.getAsJsonArray("rules");
                     for (int i = 0; i < rules.size(); i++) {
                         parseRuleElement(rules.get(i), file, i, builder);
@@ -106,6 +117,7 @@ public final class FilterConfigurationReader {
             throw new FilterConfigurationException("Invalid rule in " + file + " (rule #" + index + "): expected JSON object");
         }
         JsonObject obj = elem.getAsJsonObject();
+        validateKeys(obj, RULE_KEYS, file, "rule #" + index);
 
         EnvironmentCondition condition = parseCondition(obj.get("when"), file, index);
 
@@ -179,6 +191,7 @@ public final class FilterConfigurationReader {
             throw new FilterConfigurationException("Invalid 'when' condition in " + file + " (rule #" + index + "): expected JSON object");
         }
         JsonObject when = whenElem.getAsJsonObject();
+        validateKeys(when, CONDITION_KEYS, file, "rule #" + index + " when");
         String mc = getString(when, "minecraft");
         String loader = getString(when, "loader");
         String loaderVer = getString(when, "loader_version");
@@ -209,10 +222,31 @@ public final class FilterConfigurationReader {
     }
 
     private static String getString(JsonObject obj, String member) {
-        if (obj.has(member) && !obj.get(member).isJsonNull()) {
-            return obj.get(member).getAsString().trim();
+        if (!obj.has(member) || obj.get(member).isJsonNull()) return null;
+        JsonElement value = obj.get(member);
+        if (!value.isJsonPrimitive()) {
+            throw new FilterConfigurationException("Expected scalar value for '" + member + "'");
         }
-        return null;
+        JsonPrimitive primitive = value.getAsJsonPrimitive();
+        if (!primitive.isString() && !primitive.isNumber()) {
+            throw new FilterConfigurationException("Expected string/number value for '" + member + "'");
+        }
+        return primitive.getAsString().trim();
+    }
+
+    private static void validateKeys(
+            JsonObject object,
+            Set<String> allowed,
+            Path file,
+            String context
+    ) {
+        for (String key : object.keySet()) {
+            if (!allowed.contains(key)) {
+                throw new FilterConfigurationException(
+                        "Unknown key '" + key + "' in " + file + " (" + context + ")"
+                );
+            }
+        }
     }
 
     private static List<Path> findJsonFiles(Path dir) throws IOException {
