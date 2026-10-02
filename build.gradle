@@ -141,8 +141,9 @@ tasks.withType(JavaCompile).configureEach { task ->
 
 afterEvaluate {
     publishing.publications.named('pluginMaven') {
-        artifact(tasks.named('shadowJar')) {
-            classifier = null
-        }
+        setArtifacts([
+                tasks.named('shadowJar').get(),
+                tasks.named('sourcesJar').get()
+        ])
     }
 }
