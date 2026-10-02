@@ -10,6 +10,7 @@ import java.nio.file.Path;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class SourceParserTest {
@@ -26,6 +27,21 @@ class SourceParserTest {
 
         assertEquals(1, units.size());
         assertEquals("example/Nested.java", units.get(0).relativePath());
+    }
+
+
+    @Test
+    void rejectsUnreadableClasspathJar(@TempDir Path project) throws Exception {
+        Path broken = project.resolve("broken.jar");
+        Files.writeString(broken, "not a jar");
+
+        IllegalArgumentException failure = assertThrows(
+                IllegalArgumentException.class,
+                () -> new SourceParser(List.of(), List.of(broken))
+        );
+
+        assertTrue(failure.getMessage().contains("Cannot read source classpath JAR"));
+        assertTrue(failure.getMessage().contains("broken.jar"));
     }
 
     @Test

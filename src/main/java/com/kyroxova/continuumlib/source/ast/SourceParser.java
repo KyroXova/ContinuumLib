@@ -35,12 +35,14 @@ public final class SourceParser {
                 .setSymbolResolver(symbolSolver);
 
         for (Path jar : classpathJars) {
+            if (!Files.exists(jar) || Files.isDirectory(jar)) continue;
             try {
-                if (Files.exists(jar) && !Files.isDirectory(jar)) {
-                    typeSolver.add(new JarTypeSolver(jar));
-                }
-            } catch (IOException ignored) {
-                // Ignore unreadable or corrupt supplemental jars in type solver
+                typeSolver.add(new JarTypeSolver(jar));
+            } catch (IOException invalidClasspath) {
+                throw new IllegalArgumentException(
+                        "Cannot read source classpath JAR: " + jar.toAbsolutePath().normalize(),
+                        invalidClasspath
+                );
             }
         }
 
