@@ -58,7 +58,6 @@ public final class ContinuumLibPlugin implements Plugin<Project> {
             task.setGroup("ContinuumLib");
             task.setDescription("Transform developer Java source AST into target-compatible generated source and compile target JAR");
             task.getProjectDirectory().convention(project.getLayout().getProjectDirectory());
-            task.getSourceDirectory().convention(project.getLayout().getProjectDirectory().dir("src/main/java"));
             task.getSourceRoots().from(project.provider(() -> mainSourceSet.getJava().getSrcDirs()));
             task.getResourceFiles().from(mainSourceSet.getResources());
             task.getResourceRoots().from(project.provider(() -> mainSourceSet.getResources().getSrcDirs()));
@@ -153,7 +152,6 @@ public final class ContinuumLibPlugin implements Plugin<Project> {
                 task.dependsOn(validation);
                 task.getTargetId().convention(id);
                 task.getProjectDirectory().convention(project.getLayout().getProjectDirectory());
-                task.getSourceDirectory().convention(project.getLayout().getProjectDirectory().dir("src/main/java"));
                 task.getSourceRoots().from(project.provider(() -> mainSourceSet.getJava().getSrcDirs()));
                 task.getResourceFiles().from(mainSourceSet.getResources());
                 task.getResourceRoots().from(project.provider(() -> mainSourceSet.getResources().getSrcDirs()));

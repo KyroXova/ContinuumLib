@@ -22,6 +22,7 @@ import java.util.stream.Stream;
 
 @CacheableTask
 public abstract class TransformSourceTask extends ArtifactRequestTask {
+    @Optional
     @InputDirectory
     @PathSensitive(PathSensitivity.RELATIVE)
     public abstract DirectoryProperty getSourceDirectory();
@@ -54,14 +55,18 @@ public abstract class TransformSourceTask extends ArtifactRequestTask {
     public void transformSource() throws Exception {
         Path projectRoot = getProjectDirectory().get().getAsFile().toPath();
         Path buildRoot = projectRoot.resolve("build");
-        Path sourceRoot = getSourceDirectory().get().getAsFile().toPath();
         List<Path> sourceRoots = new java.util.ArrayList<>(getSourceRoots().getFiles().stream()
                 .map(file -> file.toPath().toAbsolutePath().normalize())
                 .sorted()
                 .toList());
-        Path normalizedSourceRoot = sourceRoot.toAbsolutePath().normalize();
-        if (!sourceRoots.contains(normalizedSourceRoot)) {
-            sourceRoots.add(normalizedSourceRoot);
+        if (getSourceDirectory().isPresent()) {
+            Path compatibilityRoot = getSourceDirectory().get().getAsFile().toPath().toAbsolutePath().normalize();
+            if (!sourceRoots.contains(compatibilityRoot)) {
+                sourceRoots.add(compatibilityRoot);
+            }
+        }
+        if (sourceRoots.isEmpty()) {
+            sourceRoots.add(projectRoot.resolve("src/main/java").toAbsolutePath().normalize());
         }
         sourceRoots = sourceRoots.stream().distinct().sorted().toList();
 

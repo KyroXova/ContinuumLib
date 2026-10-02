@@ -20,6 +20,7 @@ public abstract class GenerateTargetTask extends ArtifactRequestTask {
     @Input
     public abstract Property<String> getTargetId();
 
+    @Optional
     @InputDirectory
     @PathSensitive(PathSensitivity.RELATIVE)
     public abstract DirectoryProperty getSourceDirectory();
@@ -47,14 +48,18 @@ public abstract class GenerateTargetTask extends ArtifactRequestTask {
         String targetId = getTargetId().get();
         Path projectRoot = getProjectDirectory().get().getAsFile().toPath();
         Path buildRoot = getProjectDirectory().get().dir("build").getAsFile().toPath();
-        Path srcDir = getSourceDirectory().get().getAsFile().toPath();
         List<Path> sourceRoots = new java.util.ArrayList<>(getSourceRoots().getFiles().stream()
                 .map(file -> file.toPath().toAbsolutePath().normalize())
                 .sorted()
                 .toList());
-        Path normalizedSrcDir = srcDir.toAbsolutePath().normalize();
-        if (!sourceRoots.contains(normalizedSrcDir)) {
-            sourceRoots.add(normalizedSrcDir);
+        if (getSourceDirectory().isPresent()) {
+            Path compatibilityRoot = getSourceDirectory().get().getAsFile().toPath().toAbsolutePath().normalize();
+            if (!sourceRoots.contains(compatibilityRoot)) {
+                sourceRoots.add(compatibilityRoot);
+            }
+        }
+        if (sourceRoots.isEmpty()) {
+            sourceRoots.add(projectRoot.resolve("src/main/java").toAbsolutePath().normalize());
         }
         sourceRoots = sourceRoots.stream().distinct().sorted().toList();
 
