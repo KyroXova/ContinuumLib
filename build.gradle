@@ -2,6 +2,7 @@ plugins {
     id 'java-library'
     id 'java-gradle-plugin'
     id 'maven-publish'
+    id 'com.gradleup.shadow' version '8.3.10'
 }
 
 group = 'com.kyroxova'
@@ -20,6 +21,7 @@ repositories {
 
 configurations {
     pinnedJavaParser
+    shadowJavaParser
 }
 
 dependencies {
@@ -29,6 +31,7 @@ dependencies {
     implementation 'org.ow2.asm:asm-analysis:9.10.1'
     implementation 'net.fabricmc:mapping-io:0.9.1'
     pinnedJavaParser 'com.github.javaparser:javaparser-core:3.28.2'
+    shadowJavaParser 'com.github.javaparser:javaparser-symbol-solver-core:3.28.2'
     implementation 'com.github.javaparser:javaparser-core:3.28.2'
     implementation 'com.github.javaparser:javaparser-symbol-solver-core:3.28.2'
     implementation 'com.google.code.gson:gson:2.11.0'
@@ -55,6 +58,19 @@ sourceSets.test.runtimeClasspath = files(
         withoutBundledJavaParser(sourceSets.test.runtimeClasspath)
 )
 
+tasks.named('jar') {
+    archiveClassifier = 'plain'
+}
+
+tasks.named('shadowJar') {
+    archiveClassifier = ''
+    configurations = [project.configurations.shadowJavaParser]
+    relocate 'com.github.javaparser', 'com.kyroxova.continuumlib.internal.javaparser'
+    relocate 'com.google.common', 'com.kyroxova.continuumlib.internal.guava'
+    relocate 'javassist', 'com.kyroxova.continuumlib.internal.javassist'
+    relocate 'org.checkerframework', 'com.kyroxova.continuumlib.internal.checkerframework'
+}
+
 gradlePlugin {
     plugins {
         continuumLib {
@@ -69,6 +85,14 @@ gradlePlugin {
 // A portable Maven repository, including the Gradle plugin marker and dependency metadata.
 // No remote upload or modification of the developer's Maven cache is performed.
 publishing {
+    publications.withType(MavenPublication).configureEach {
+        pom.withXml {
+            asNode().dependencies?.dependency?.findAll {
+                it.groupId?.text() == 'com.github.javaparser'
+            }?.each { it.parent().remove(it) }
+        }
+    }
+
     repositories {
         maven {
             name = 'distribution'
@@ -80,6 +104,9 @@ publishing {
 tasks.named('test') {
     useJUnitPlatform()
     dependsOn 'publishAllPublicationsToDistributionRepository'
+    dependsOn 'shadowJar'
+    systemProperty 'continuumlib.shadowJar',
+            tasks.named('shadowJar').flatMap { it.archiveFile }.get().asFile.absolutePath
     inputs.dir(layout.buildDirectory.dir('repository'))
     systemProperty 'continuumlib.testRepository', layout.buildDirectory.dir('repository').get().asFile.absolutePath
     systemProperty 'continuumlib.testVersion', project.version.toString()
@@ -109,4 +136,13 @@ tasks.named('test') {
 
 tasks.withType(JavaCompile).configureEach { task ->
     options.encoding = 'UTF-8'
+}
+
+
+afterEvaluate {
+    publishing.publications.named('pluginMaven') {
+        artifact(tasks.named('shadowJar')) {
+            classifier = null
+        }
+    }
 }
