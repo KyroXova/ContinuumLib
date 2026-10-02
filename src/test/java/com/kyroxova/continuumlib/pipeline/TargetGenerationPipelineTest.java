@@ -742,27 +742,14 @@ class TargetGenerationPipelineTest {
     void finalAuditRejectsDescriptorOnlyMissingTypes(@TempDir Path root) throws Exception {
         Path jar = root.resolve("missing-type.jar");
 
-        ClassWriter writer = new ClassWriter(0);
-        writer.visit(
-                Opcodes.V17,
-                Opcodes.ACC_PUBLIC,
-                "example/UsesMissing",
-                null,
-                "java/lang/Object",
-                null
-        );
-        writer.visitField(
-                Opcodes.ACC_PUBLIC,
-                "value",
-                "Lmissing/OnlyInDescriptor;",
-                null,
-                null
-        ).visitEnd();
-        writer.visitEnd();
-
+        byte[] first = classWithMissingDescriptorType("example/UsesMissingA");
+        byte[] second = classWithMissingDescriptorType("example/UsesMissingB");
         try (JarOutputStream output = new JarOutputStream(Files.newOutputStream(jar))) {
-            output.putNextEntry(new JarEntry("example/UsesMissing.class"));
-            output.write(writer.toByteArray());
+            output.putNextEntry(new JarEntry("example/UsesMissingA.class"));
+            output.write(first);
+            output.closeEntry();
+            output.putNextEntry(new JarEntry("example/UsesMissingB.class"));
+            output.write(second);
             output.closeEntry();
         }
 
@@ -780,11 +767,34 @@ class TargetGenerationPipelineTest {
                 .build();
 
         var findings = TargetGenerationPipeline.auditTargetArtifact(target, jar);
+        long missingTypeFindings = findings.stream()
+                .filter(finding ->
+                        finding.status() == com.kyroxova.continuumlib.bytecode.TargetReferenceAudit.Status.OWNER_MISSING
+                                && finding.detail().contains("missing/OnlyInDescriptor"))
+                .count();
 
-        assertTrue(findings.stream().anyMatch(finding ->
-                finding.status() == com.kyroxova.continuumlib.bytecode.TargetReferenceAudit.Status.OWNER_MISSING
-                        && finding.detail().contains("missing/OnlyInDescriptor")
-        ), findings.toString());
+        assertEquals(1, missingTypeFindings, findings.toString());
+    }
+
+    private static byte[] classWithMissingDescriptorType(String name) {
+        ClassWriter writer = new ClassWriter(0);
+        writer.visit(
+                Opcodes.V17,
+                Opcodes.ACC_PUBLIC,
+                name,
+                null,
+                "java/lang/Object",
+                null
+        );
+        writer.visitField(
+                Opcodes.ACC_PUBLIC,
+                "value",
+                "Lmissing/OnlyInDescriptor;",
+                null,
+                null
+        ).visitEnd();
+        writer.visitEnd();
+        return writer.toByteArray();
     }
 
 }

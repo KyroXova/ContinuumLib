@@ -512,6 +512,7 @@ public final class TargetGenerationPipeline {
         ReferenceScanner scanner = new ReferenceScanner();
 
         List<TargetReferenceAudit.Finding> findings = new ArrayList<>();
+        Set<String> missingTypes = new LinkedHashSet<>();
         try (var jar = new java.util.jar.JarFile(jarPath.toFile())) {
             for (var entry : Collections.list(jar.entries())) {
                 if (!entry.getName().endsWith(".class") || entry.getName().equals("module-info.class")) continue;
@@ -523,10 +524,12 @@ public final class TargetGenerationPipeline {
                     if (isPlatformOwner(type) || targetApi.containsKey(type)) {
                         continue;
                     }
-                    findings.add(new TargetReferenceAudit.Finding(
-                            TargetReferenceAudit.Status.OWNER_MISSING,
-                            "Referenced type missing from target/linkage index: " + type
-                    ));
+                    if (missingTypes.add(type)) {
+                        findings.add(new TargetReferenceAudit.Finding(
+                                TargetReferenceAudit.Status.OWNER_MISSING,
+                                "Referenced type missing from target/linkage index: " + type
+                        ));
+                    }
                 }
 
                 for (var use : scanner.scan(bytes)) {
