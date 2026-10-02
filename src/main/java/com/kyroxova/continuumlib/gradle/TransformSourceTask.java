@@ -1,5 +1,6 @@
 package com.kyroxova.continuumlib.gradle;
 
+import com.kyroxova.continuumlib.artifact.ArtifactPublisher;
 import com.kyroxova.continuumlib.knowledge.rule.RulePack;
 import com.kyroxova.continuumlib.pipeline.GeneratedWorkspace;
 import com.kyroxova.continuumlib.pipeline.ResolvedTarget;
@@ -142,7 +143,7 @@ public abstract class TransformSourceTask extends ArtifactRequestTask {
 
         syncDirectory(workspace.sourceDir(), generatedSourceOutput);
         syncDirectory(workspace.classesDir(), compiledClassesOutput);
-        copyFile(result.outputJar(), finalTaskJar);
+        ArtifactPublisher.publish(result.outputJar(), finalTaskJar);
 
         getLogger().lifecycle(
                 "ContinuumLib source transformation completed through unified target pipeline. Output: {}",
@@ -169,14 +170,6 @@ public abstract class TransformSourceTask extends ArtifactRequestTask {
                 }
             }
         }
-    }
-
-    private static void copyFile(Path source, Path target) throws IOException {
-        Path normalizedSource = source.toAbsolutePath().normalize();
-        Path normalizedTarget = target.toAbsolutePath().normalize();
-        if (normalizedSource.equals(normalizedTarget)) return;
-        Files.createDirectories(normalizedTarget.getParent());
-        Files.copy(normalizedSource, normalizedTarget, StandardCopyOption.REPLACE_EXISTING);
     }
 
     private static void cleanDirectory(Path directory) throws IOException {
