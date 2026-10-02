@@ -127,6 +127,14 @@ public final class GeneratedWorkspace {
         if (!Files.exists(normalizedStaged) || !Files.isRegularFile(normalizedStaged)) {
             throw new IOException("Staged JAR does not exist: " + stagedJar);
         }
+
+        Path realStagingDir = normalizedStagingDir.toRealPath();
+        Path realStaged = normalizedStaged.toRealPath();
+        if (!realStaged.startsWith(realStagingDir)) {
+            throw new IOException("Staged JAR resolves outside this target workspace: "
+                    + stagedJar + " -> " + realStaged);
+        }
+
         Path finalDest = finalJar(jarName);
         Files.createDirectories(finalDest.getParent());
         try {

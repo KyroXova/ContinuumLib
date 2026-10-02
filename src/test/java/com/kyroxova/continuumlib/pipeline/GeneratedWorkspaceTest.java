@@ -2,6 +2,7 @@ package com.kyroxova.continuumlib.pipeline;
 
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.api.Assumptions;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -67,6 +68,29 @@ class GeneratedWorkspaceTest {
 
         assertThrows(IOException.class, () -> workspace.finalizeJar(unrelated, "mod.jar"));
         assertTrue(Files.exists(unrelated));
+        assertFalse(Files.exists(workspace.finalJar("mod.jar")));
+    }
+
+    @Test
+    void finalizeRejectsFilesReachedThroughSymlinkedStagingDirectory(@TempDir Path root) throws Exception {
+        GeneratedWorkspace workspace = new GeneratedWorkspace(root.resolve("build"), "target");
+        workspace.init();
+
+        Path outside = root.resolve("outside");
+        Files.createDirectories(outside);
+        Path externalJar = outside.resolve("external.jar");
+        Files.writeString(externalJar, "outside");
+
+        Path link = workspace.stagingDir().resolve("linked");
+        try {
+            Files.createSymbolicLink(link, outside);
+        } catch (UnsupportedOperationException | IOException | SecurityException unavailable) {
+            Assumptions.abort("Symbolic links are unavailable in this test environment");
+        }
+
+        Path stagedThroughLink = link.resolve("external.jar");
+        assertThrows(IOException.class, () -> workspace.finalizeJar(stagedThroughLink, "mod.jar"));
+        assertTrue(Files.exists(externalJar));
         assertFalse(Files.exists(workspace.finalJar("mod.jar")));
     }
 
