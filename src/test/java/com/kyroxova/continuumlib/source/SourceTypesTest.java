@@ -45,6 +45,24 @@ class SourceTypesTest {
         assertTrue(unit.ast().toString().contains("record Keep"), unit.ast().toString());
     }
 
+
+    @Test
+    void preservesSourceOrderBeyondIntegerLineOverflowRange() {
+        StringBuilder code = new StringBuilder("package example;\nclass First {}\n");
+        code.append("\n".repeat(3_000));
+        code.append("class Second {}\n");
+
+        var unit = new SourceParser(List.of(), List.of())
+                .parseString("example/Large.java", code.toString());
+
+        assertEquals(
+                List.of("example.First", "example.Second"),
+                SourceTypes.all(unit.ast()).stream()
+                        .map(SourceTypes::qualifiedName)
+                        .toList()
+        );
+    }
+
     @Test
     void discoversNestedMemberTypesButNotMethodLocalTypes() {
         String code = """

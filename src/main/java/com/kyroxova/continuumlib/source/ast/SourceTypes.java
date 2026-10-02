@@ -17,7 +17,7 @@ public final class SourceTypes {
     public static List<TypeDeclaration<?>> all(Node root) {
         List<TypeDeclaration<?>> types = new ArrayList<>();
         collect(root, types);
-        types.sort(Comparator.comparingInt(SourceTypes::sourceOrder));
+        types.sort(Comparator.comparingLong(SourceTypes::sourceOrder));
         return List.copyOf(types);
     }
 
@@ -83,9 +83,9 @@ public final class SourceTypes {
         return type.findCompilationUnit().isPresent();
     }
 
-    private static int sourceOrder(TypeDeclaration<?> type) {
+    private static long sourceOrder(TypeDeclaration<?> type) {
         return type.getBegin()
-                .map(position -> position.line * 1_000_000 + position.column)
-                .orElse(Integer.MAX_VALUE);
+                .map(position -> (long) position.line * 1_000_000L + position.column)
+                .orElse(Long.MAX_VALUE);
     }
 }
