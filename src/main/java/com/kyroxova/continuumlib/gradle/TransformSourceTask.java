@@ -28,6 +28,10 @@ public abstract class TransformSourceTask extends ArtifactRequestTask {
 
     @InputFiles
     @PathSensitive(PathSensitivity.RELATIVE)
+    public abstract ConfigurableFileCollection getSourceRoots();
+
+    @InputFiles
+    @PathSensitive(PathSensitivity.RELATIVE)
     public abstract ConfigurableFileCollection getResourceFiles();
 
     @InputFiles
@@ -51,6 +55,16 @@ public abstract class TransformSourceTask extends ArtifactRequestTask {
         Path projectRoot = getProjectDirectory().get().getAsFile().toPath();
         Path buildRoot = projectRoot.resolve("build");
         Path sourceRoot = getSourceDirectory().get().getAsFile().toPath();
+        List<Path> sourceRoots = new java.util.ArrayList<>(getSourceRoots().getFiles().stream()
+                .map(file -> file.toPath().toAbsolutePath().normalize())
+                .sorted()
+                .toList());
+        Path normalizedSourceRoot = sourceRoot.toAbsolutePath().normalize();
+        if (!sourceRoots.contains(normalizedSourceRoot)) {
+            sourceRoots.add(normalizedSourceRoot);
+        }
+        sourceRoots = sourceRoots.stream().distinct().sorted().toList();
+
         List<Path> resourceRoots = getResourceRoots().getFiles().stream()
                 .map(file -> file.toPath().toAbsolutePath().normalize())
                 .sorted()
@@ -65,7 +79,7 @@ public abstract class TransformSourceTask extends ArtifactRequestTask {
 
         Path workspaceRoot = getTargetWorkspaceDirectory().get().getAsFile().toPath();
         List<Path> consumerInputs = new java.util.ArrayList<>();
-        consumerInputs.add(sourceRoot);
+        consumerInputs.addAll(sourceRoots);
         consumerInputs.addAll(resourceRoots);
 
         List<Path> workspaceInputs = new java.util.ArrayList<>(consumerInputs);
@@ -112,7 +126,7 @@ public abstract class TransformSourceTask extends ArtifactRequestTask {
         ).execute(
                 target,
                 projectRoot,
-                List.of(sourceRoot),
+                sourceRoots,
                 resourceRoots,
                 finalTaskJar.getFileName().toString()
         );

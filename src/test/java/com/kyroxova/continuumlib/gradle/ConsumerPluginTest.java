@@ -51,6 +51,9 @@ class ConsumerPluginTest {
                 plugins { id 'com.kyroxova.continuumlib' }
                 sourceSets {
                     main {
+                        java {
+                            srcDir 'extra-java'
+                        }
                         resources {
                             srcDir 'extra-resources'
                         }
@@ -60,6 +63,9 @@ class ConsumerPluginTest {
                     doLast {
                         ['continuumLibGenerate_demo', 'continuumLibTransformSource'].each { taskName ->
                             def task = tasks.named(taskName).get()
+                            task.sourceRoots.files.each {
+                                println(taskName + ':SOURCE_ROOT=' + project.relativePath(it))
+                            }
                             task.resourceFiles.files.each {
                                 println(taskName + ':RESOURCE_INPUT=' + project.relativePath(it))
                             }
@@ -76,6 +82,10 @@ class ConsumerPluginTest {
         Files.writeString(config.resolve("targets.properties"),
                 "targets=demo\nperVersion=true\nuniversal=false\n");
         Files.writeString(config.resolve("inclusions/source.json"), "{\"rules\":[]}");
+        Path extraSource = project.resolve("extra-java/example/Extra.java");
+        Files.createDirectories(extraSource.getParent());
+        Files.writeString(extraSource, "package example; public class Extra {}");
+
         Path asset = project.resolve("src/main/resources/assets/example/model.json");
         Files.createDirectories(asset.getParent());
         Files.writeString(asset, "{}");
@@ -86,6 +96,12 @@ class ConsumerPluginTest {
         var result = GradleRunner.create().withProjectDir(project.toFile()).withPluginClasspath()
                 .withArguments("printContinuumResourceInputs").build();
 
+        assertTrue(result.getOutput().contains(
+                "continuumLibGenerate_demo:SOURCE_ROOT=src/main/java"));
+        assertTrue(result.getOutput().contains(
+                "continuumLibGenerate_demo:SOURCE_ROOT=extra-java"));
+        assertTrue(result.getOutput().contains(
+                "continuumLibTransformSource:SOURCE_ROOT=extra-java"));
         assertTrue(result.getOutput().contains(
                 "continuumLibGenerate_demo:RESOURCE_INPUT=src/main/resources/assets/example/model.json"));
         assertTrue(result.getOutput().contains(
