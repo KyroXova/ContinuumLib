@@ -18,6 +18,9 @@ public final class SourceCompiler {
             Path outputClassesDir,
             int javaVersion
     ) throws IOException {
+        Objects.requireNonNull(sourceFiles, "sourceFiles");
+        Objects.requireNonNull(classpathJars, "classpathJars");
+        Objects.requireNonNull(outputClassesDir, "outputClassesDir");
         if (sourceFiles.isEmpty()) return;
 
         Files.createDirectories(outputClassesDir);
@@ -28,43 +31,32 @@ public final class SourceCompiler {
         }
 
         DiagnosticCollector<JavaFileObject> diagnostics = new DiagnosticCollector<>();
-        StandardJavaFileManager fileManager = compiler.getStandardFileManager(diagnostics, Locale.ROOT, StandardCharsets.UTF_8);
-
-        List<String> options = new ArrayList<>();
-        options.add("-d");
-        options.add(outputClassesDir.toAbsolutePath().toString());
-        options.add("-encoding");
-        options.add("UTF-8");
-
-        if (javaVersion >= 8) {
+        try (StandardJavaFileManager fileManager =
+                     compiler.getStandardFileManager(diagnostics, Locale.ROOT, StandardCharsets.UTF_8)) {
+            List<String> options = new ArrayList<>();
+            options.add("-d");
+            options.add(outputClassesDir.toAbsolutePath().normalize().toString());
+            options.add("-encoding");
+            options.add("UTF-8");
             options.add("--release");
             options.add(Integer.toString(javaVersion));
-        }
 
-        if (!classpathJars.isEmpty()) {
-            options.add("-classpath");
-            String cp = classpathJars.stream()
-                    .map(p -> p.toAbsolutePath().normalize().toString())
-                    .collect(Collectors.joining(File.pathSeparator));
-            options.add(cp);
-        }
-
-        Iterable<? extends JavaFileObject> compilationUnits = fileManager.getJavaFileObjectsFromPaths(sourceFiles);
-
-        JavaCompiler.CompilationTask task = compiler.getTask(null, fileManager, diagnostics, options, null, compilationUnits);
-        boolean success = Boolean.TRUE.equals(task.call());
-
-        if (!success) {
-            StringBuilder errorLog = new StringBuilder();
-            errorLog.append("Compilation of generated source failed:\n");
-            for (Diagnostic<? extends JavaFileObject> diag : diagnostics.getDiagnostics()) {
-                if (diag.getKind() == Diagnostic.Kind.ERROR) {
-                    errorLog.append("  ").append(diag.getSource() != null ? diag.getSource().getName() : "")
-                            .append(":").append(diag.getLineNumber())
-                            .append(" - ").append(diag.getMessage(Locale.ROOT)).append("\n");
-                }
+            if (!classpathJars.isEmpty()) {
+                options.add("-classpath");
+                String cp = classpathJars.stream()
+                        .map(path -> path.toAbsolutePath().normalize().toString())
+                        .collect(Collectors.joining(File.pathSeparator));
+                options.add(cp);
             }
-            throw new IOException(errorLog.toString());
+
+            Iterable<? extends JavaFileObject> compilationUnits =
+                    fileManager.getJavaFileObjectsFromPaths(sourceFiles);
+            JavaCompiler.CompilationTask task =
+                    compiler.getTask(null, fileManager, diagnostics, options, null, compilationUnits);
+
+            if (!Boolean.TRUE.equals(task.call())) {
+                throw new IOException(formatDiagnostics(diagnostics));
+            }
         }
     }
 
@@ -144,6 +136,20 @@ public final class SourceCompiler {
         } finally {
             Files.deleteIfExists(argFile);
         }
+    }
+
+    private static String formatDiagnostics(DiagnosticCollector<JavaFileObject> diagnostics) {
+        StringBuilder errorLog = new StringBuilder("Compilation of generated source failed:")
+                .append(System.lineSeparator());
+        for (Diagnostic<? extends JavaFileObject> diagnostic : diagnostics.getDiagnostics()) {
+            if (diagnostic.getKind() != Diagnostic.Kind.ERROR) continue;
+            errorLog.append("  ")
+                    .append(diagnostic.getSource() != null ? diagnostic.getSource().getName() : "")
+                    .append(":").append(diagnostic.getLineNumber())
+                    .append(" - ").append(diagnostic.getMessage(Locale.ROOT))
+                    .append(System.lineSeparator());
+        }
+        return errorLog.toString();
     }
 
     private static String portable(Path path) {
