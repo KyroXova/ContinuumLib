@@ -4,6 +4,11 @@ import org.gradle.testkit.runner.GradleRunner;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import java.nio.file.*;
+import java.security.MessageDigest;
+import java.util.HexFormat;
+import java.util.jar.JarEntry;
+import java.util.jar.JarFile;
+import java.util.jar.JarOutputStream;
 import static org.junit.jupiter.api.Assertions.*;
 
 class ConsumerPluginTest {
@@ -119,5 +124,85 @@ class ConsumerPluginTest {
         assertTrue(result.getOutput().contains(
                 "continuumLibTransformSource:RESOURCE_ROOT=extra-resources"));
     }
+
+    @Test void unifiedTargetGenerationBuildsConsumerJarWithoutChangingSource() throws Exception {
+        Files.writeString(project.resolve("settings.gradle"), "rootProject.name = 'consumer'");
+        Files.writeString(project.resolve("build.gradle"), """
+                plugins { id 'com.kyroxova.continuumlib' }
+                jar {
+                    manifest {
+                        attributes 'Implementation-Title': 'Continuum Consumer'
+                    }
+                }
+                """);
+
+        Path apiJar = project.resolve("api.jar");
+        try (JarOutputStream jar = new JarOutputStream(Files.newOutputStream(apiJar));
+             var objectClass = Object.class.getResourceAsStream("/java/lang/Object.class")) {
+            assertNotNull(objectClass);
+            jar.putNextEntry(new JarEntry("java/lang/Object.class"));
+            objectClass.transferTo(jar);
+            jar.closeEntry();
+        }
+        String digest = sha256(apiJar);
+
+        Path config = project.resolve("src/main/resources/continuumlib");
+        Path targets = config.resolve("targets");
+        Path knowledge = config.resolve("knowledge");
+        Files.createDirectories(targets);
+        Files.createDirectories(knowledge);
+
+        Files.writeString(config.resolve("targets.properties"), """
+                targets=demo
+                perVersion=true
+                universal=false
+                """);
+        Files.writeString(targets.resolve("demo.properties"), """
+                pack=fixture
+                source.api=api.jar
+                target.api=api.jar
+                """);
+        Files.writeString(knowledge.resolve("fixture.xml"),
+                "<rules schema='1' id='fixture' evidence='Synthetic fixture'>"
+                        + "<source minecraft='1.20.1' loader='VANILLA' namespace='MOJMAP' java='17'>"
+                        + "<artifact name='api' sha256='" + digest + "'/></source>"
+                        + "<target minecraft='1.20.1' loader='VANILLA' namespace='MOJMAP' java='17'>"
+                        + "<artifact name='api' sha256='" + digest + "'/></target>"
+                        + "</rules>");
+
+        Path source = project.resolve("src/main/java/example/Example.java");
+        Files.createDirectories(source.getParent());
+        String original = "package example; public class Example { public int value() { return 7; } }";
+        Files.writeString(source, original);
+
+        Path resource = project.resolve("src/main/resources/assets/example/value.txt");
+        Files.createDirectories(resource.getParent());
+        Files.writeString(resource, "resource-value");
+
+        var result = GradleRunner.create().withProjectDir(project.toFile()).withPluginClasspath()
+                .withArguments("continuumLibGenerate_demo", "--stacktrace").build();
+
+        assertTrue(result.getOutput().contains("BUILD SUCCESSFUL"), result.getOutput());
+        assertEquals(original, Files.readString(source));
+
+        Path output = project.resolve("build/continuumlib/demo.jar");
+        assertTrue(Files.isRegularFile(output));
+        try (JarFile jar = new JarFile(output.toFile())) {
+            assertNotNull(jar.getJarEntry("example/Example.class"));
+            assertNotNull(jar.getJarEntry("assets/example/value.txt"));
+            assertNull(jar.getJarEntry("continuumlib/targets.properties"));
+            assertEquals(
+                    "Continuum Consumer",
+                    jar.getManifest().getMainAttributes().getValue("Implementation-Title")
+            );
+        }
+    }
+
+    private static String sha256(Path file) throws Exception {
+        MessageDigest digest = MessageDigest.getInstance("SHA-256");
+        digest.update(Files.readAllBytes(file));
+        return HexFormat.of().formatHex(digest.digest());
+    }
+
 
 }
