@@ -20,27 +20,35 @@ public final class SourceApiIndex {
         return new SourceApiIndex(Map.of());
     }
 
-    public Optional<Method> uniqueMethod(String owner, String name) {
+    public List<Method> methods(String owner, String name) {
         Optional<String> resolvedOwner = internal(owner);
-        if (resolvedOwner.isEmpty()) return Optional.empty();
+        if (resolvedOwner.isEmpty()) return List.of();
+
         String internalOwner = resolvedOwner.get();
         LinkedHashMap<String, Method> candidates = new LinkedHashMap<>();
         collectMethods(internalOwner, internalOwner, name, new HashSet<>(), candidates);
-        return candidates.size() == 1
-                ? Optional.of(candidates.values().iterator().next())
-                : Optional.empty();
+        return List.copyOf(candidates.values());
     }
 
-    public Optional<MemberReference> uniqueConstructor(String owner) {
-        Optional<String> resolvedOwner = internal(owner);
-        if (resolvedOwner.isEmpty()) return Optional.empty();
-        ClassInfo type = classes.get(resolvedOwner.get());
-        if (type == null) return Optional.empty();
+    public Optional<Method> uniqueMethod(String owner, String name) {
+        List<Method> candidates = methods(owner, name);
+        return candidates.size() == 1 ? Optional.of(candidates.get(0)) : Optional.empty();
+    }
 
-        List<MemberReference> constructors = type.methods().stream()
+    public List<MemberReference> constructors(String owner) {
+        Optional<String> resolvedOwner = internal(owner);
+        if (resolvedOwner.isEmpty()) return List.of();
+
+        ClassInfo type = classes.get(resolvedOwner.get());
+        if (type == null) return List.of();
+        return type.methods().stream()
                 .filter(member -> member.name().equals("<init>"))
                 .map(member -> new MemberReference(type.name(), member.name(), member.descriptor()))
                 .toList();
+    }
+
+    public Optional<MemberReference> uniqueConstructor(String owner) {
+        List<MemberReference> constructors = constructors(owner);
         return constructors.size() == 1 ? Optional.of(constructors.get(0)) : Optional.empty();
     }
 

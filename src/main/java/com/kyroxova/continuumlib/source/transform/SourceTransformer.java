@@ -192,21 +192,34 @@ public final class SourceTransformer {
                 TypeIdentity sourceType = resolveTypeIdentity(n.getType(), simpleToQualified);
                 super.visit(n, arg);
 
+                String qualified = sourceType.owner();
                 if (resolvedConstructor.isPresent()) {
-                    var exact = plan.findExactConstructorFactory(resolvedConstructor.get());
-                    if (exact.isPresent()) {
+                    MemberReference constructor = resolvedConstructor.get();
+                    Optional<CanonicalMigrationRule> migration =
+                            plan.findExactConstructorFactory(constructor);
+                    if (migration.isEmpty()) {
+                        migration = selectResolvedRule(
+                                plan.findConstructorToFactories(constructor.owner()),
+                                constructor.descriptor()
+                        );
+                    }
+
+                    if (migration.isPresent()) {
+                        CanonicalMigrationRule rule = migration.get();
                         appliedMigrations.add(AppliedMigration.from(
-                                exact.get(),
+                                rule,
                                 MigrationLayer.SOURCE_AST,
                                 MigrationConfidence.SEMANTICALLY_RESOLVED,
                                 sourcePath,
                                 n.getBegin().map(p -> p.line).orElse(-1)
                         ));
-                        return staticCall(ast, exact.get(), List.copyOf(n.getArguments()));
+                        return staticCall(ast, rule, List.copyOf(n.getArguments()));
                     }
+
+                    // Exact constructor identity is known and has no migration.
+                    return n;
                 }
 
-                String qualified = sourceType.owner();
 
                 // Check constructor-to-factory rules with descriptor matching
                 var c2fRules = plan.findConstructorToFactories(qualified);
@@ -265,14 +278,48 @@ public final class SourceTransformer {
                         return staticCall(ast, bridge.get(), arguments);
                     }
 
-                    var exactRename = plan.findExactMemberRename(use.member());
-                    if (exactRename.isPresent()) {
-                        n.setName(exactRename.get().targetName());
+                    if (use.isStatic()) {
+                        Optional<CanonicalMigrationRule> factoryToConstructor = selectResolvedRule(
+                                plan.findFactoryToConstructors(use.member().owner(), use.member().name()),
+                                use.member().descriptor()
+                        );
+                        if (factoryToConstructor.isPresent()) {
+                            CanonicalMigrationRule rule = factoryToConstructor.get();
+                            String constructor = simpleName(rule.targetOwner());
+                            ensureImport(ast, rule.targetOwner().replace('/', '.'));
+                            appliedMigrations.add(AppliedMigration.from(
+                                    rule,
+                                    MigrationLayer.SOURCE_AST,
+                                    MigrationConfidence.SEMANTICALLY_RESOLVED,
+                                    sourcePath,
+                                    n.getBegin().map(p -> p.line).orElse(-1)
+                            ));
+                            return new ObjectCreationExpr(
+                                    null,
+                                    new ClassOrInterfaceType(null, constructor),
+                                    n.getArguments()
+                            );
+                        }
+                    }
+
+                    Optional<CanonicalMigrationRule> rename = plan.findExactMemberRename(use.member());
+                    if (rename.isEmpty()) {
+                        rename = selectResolvedRule(
+                                plan.findMethodRules(use.member().owner(), use.member().name()),
+                                use.member().descriptor()
+                        );
+                    }
+                    if (rename.isPresent()) {
+                        CanonicalMigrationRule rule = rename.get();
+                        n.setName(rule.targetName());
                         if (use.isStatic()) {
-                            replaceStaticOwnerIfTypeName(ast, n, exactRename.get().targetOwner(), simpleToQualified);
+                            String targetOwner = rule.targetOwner() != null
+                                    ? rule.targetOwner()
+                                    : use.member().owner();
+                            replaceStaticOwnerIfTypeName(ast, n, targetOwner, simpleToQualified);
                         }
                         appliedMigrations.add(AppliedMigration.from(
-                                exactRename.get(),
+                                rule,
                                 MigrationLayer.SOURCE_AST,
                                 MigrationConfidence.SEMANTICALLY_RESOLVED,
                                 sourcePath,
@@ -280,6 +327,27 @@ public final class SourceTransformer {
                         ));
                         return n;
                     }
+
+                    if (use.isStatic()) {
+                        plan.findClassRename(use.member().owner()).ifPresent(classRename -> {
+                            replaceStaticOwnerIfTypeName(
+                                    ast,
+                                    n,
+                                    classRename.targetOwner(),
+                                    simpleToQualified
+                            );
+                            appliedMigrations.add(AppliedMigration.from(
+                                    classRename,
+                                    MigrationLayer.SOURCE_AST,
+                                    MigrationConfidence.SEMANTICALLY_RESOLVED,
+                                    sourcePath,
+                                    n.getBegin().map(p -> p.line).orElse(-1)
+                            ));
+                        });
+                    }
+
+                    // Exact method identity is known and has no member migration.
+                    return n;
                 }
 
                 String methodName = n.getNameAsString();
@@ -294,16 +362,31 @@ public final class SourceTransformer {
 
                         var f2cRules = plan.findFactoryToConstructors(qualified, methodName);
                         if (!f2cRules.isEmpty()) {
-                            CanonicalMigrationRule f2c = f2cRules.get(0);
-                            String constrSimple = simpleName(f2c.targetOwner());
-                            ensureImport(ast, f2c.targetOwner().replace('/', '.'));
-                            appliedMigrations.add(AppliedMigration.from(
-                                    f2c,
-                                    MigrationConfidence.STRUCTURALLY_RESOLVED,
+                            CanonicalMigrationRule f2c = selectMethodRule(
+                                    f2cRules,
+                                    n,
+                                    qualified,
+                                    methodName,
                                     sourcePath,
-                                    n.getBegin().map(p -> p.line).orElse(-1)
-                            ));
-                            return new ObjectCreationExpr(null, new ClassOrInterfaceType(null, constrSimple), n.getArguments());
+                                    diagnostics
+                            );
+                            if (f2c != null) {
+                                String constrSimple = simpleName(f2c.targetOwner());
+                                ensureImport(ast, f2c.targetOwner().replace('/', '.'));
+                                appliedMigrations.add(AppliedMigration.from(
+                                        f2c,
+                                        f2c.sourceDescriptor() == null
+                                                ? MigrationConfidence.STRUCTURALLY_RESOLVED
+                                                : MigrationConfidence.SEMANTICALLY_RESOLVED,
+                                        sourcePath,
+                                        n.getBegin().map(p -> p.line).orElse(-1)
+                                ));
+                                return new ObjectCreationExpr(
+                                        null,
+                                        new ClassOrInterfaceType(null, constrSimple),
+                                        n.getArguments()
+                                );
+                            }
                         }
 
                         var methodRules = plan.findMethodRules(qualified, methodName);
@@ -1262,132 +1345,119 @@ public final class SourceTransformer {
     private record ResolvedFieldUse(MemberReference member, boolean isStatic) {
     }
 
-    private static CanonicalMigrationRule selectConstructorRule(
+    private CanonicalMigrationRule selectConstructorRule(
             List<CanonicalMigrationRule> rules,
-            ObjectCreationExpr n,
+            ObjectCreationExpr expression,
             String owner,
             String sourcePath,
             List<Diagnostic> diagnostics
     ) {
-        if (rules.size() == 1 && rules.get(0).sourceDescriptor() == null) {
-            return rules.get(0);
+        Optional<CanonicalMigrationRule> broad = broadRule(rules);
+        if (broad.isPresent()) return broad.get();
+
+        List<MemberReference> constructors = sourceApi.constructors(owner);
+        if (constructors.size() == 1) {
+            return selectResolvedRule(rules, constructors.get(0).descriptor()).orElse(null);
         }
 
-        int argCount = n.getArguments().size();
-        List<CanonicalMigrationRule> matchingCount = new ArrayList<>();
-        for (var rule : rules) {
-            if (rule.sourceDescriptor() != null) {
-                if (DescriptorMatcher.parameterCount(rule.sourceDescriptor()) == argCount) {
-                    matchingCount.add(rule);
-                }
-            } else {
-                matchingCount.add(rule);
-            }
+        if (constructors.isEmpty()) {
+            addUnresolvedMigrationDiagnostic(
+                    diagnostics,
+                    sourcePath,
+                    expression,
+                    "Cannot prove constructor identity for " + owner
+            );
+        } else {
+            addAmbiguousMigrationDiagnostic(
+                    diagnostics,
+                    sourcePath,
+                    expression,
+                    "Constructor invocation is ambiguous for " + owner
+                            + "; source API declares " + constructors.size() + " constructors"
+            );
         }
-
-        if (matchingCount.size() == 1) {
-            return matchingCount.get(0);
-        }
-
-        if (matchingCount.size() > 1) {
-            // Check argument types against descriptors
-            List<CanonicalMigrationRule> typeMatched = new ArrayList<>();
-            for (var rule : matchingCount) {
-                if (rule.sourceDescriptor() != null && matchesArgTypes(rule.sourceDescriptor(), n.getArguments())) {
-                    typeMatched.add(rule);
-                }
-            }
-            if (typeMatched.size() == 1) {
-                return typeMatched.get(0);
-            }
-
-            int line = n.getBegin().map(p -> p.line).orElse(-1);
-            diagnostics.add(Diagnostic.builder()
-                    .code(DiagnosticCode.AMBIGUOUS_MIGRATION)
-                    .severity(Severity.ERROR)
-                    .message("Ambiguous constructor invocation for " + owner + " with " + argCount + " arguments; matches multiple rules")
-                    .path(Path.of(sourcePath))
-                    .line(line)
-                    .build());
-            return null;
-        }
-
         return null;
     }
 
-    private static CanonicalMigrationRule selectMethodRule(
+    private CanonicalMigrationRule selectMethodRule(
             List<CanonicalMigrationRule> rules,
-            MethodCallExpr n,
+            MethodCallExpr expression,
             String owner,
             String methodName,
             String sourcePath,
             List<Diagnostic> diagnostics
     ) {
-        if (rules.size() == 1 && rules.get(0).sourceDescriptor() == null) {
-            return rules.get(0);
+        Optional<CanonicalMigrationRule> broad = broadRule(rules);
+        if (broad.isPresent()) return broad.get();
+
+        List<SourceApiIndex.Method> methods = sourceApi.methods(owner, methodName);
+        if (methods.size() == 1) {
+            return selectResolvedRule(rules, methods.get(0).reference().descriptor()).orElse(null);
         }
 
-        int argCount = n.getArguments().size();
-        List<CanonicalMigrationRule> matchingCount = new ArrayList<>();
-        for (var rule : rules) {
-            if (rule.sourceDescriptor() != null) {
-                if (DescriptorMatcher.parameterCount(rule.sourceDescriptor()) == argCount) {
-                    matchingCount.add(rule);
-                }
-            } else {
-                matchingCount.add(rule);
-            }
+        if (methods.isEmpty()) {
+            addUnresolvedMigrationDiagnostic(
+                    diagnostics,
+                    sourcePath,
+                    expression,
+                    "Cannot prove method identity for " + owner + "#" + methodName
+            );
+        } else {
+            addAmbiguousMigrationDiagnostic(
+                    diagnostics,
+                    sourcePath,
+                    expression,
+                    "Method invocation is ambiguous for " + owner + "#" + methodName
+                            + "; source API declares " + methods.size() + " overloads"
+            );
         }
-
-        if (matchingCount.size() == 1) {
-            return matchingCount.get(0);
-        }
-
-        if (matchingCount.size() > 1) {
-            List<CanonicalMigrationRule> typeMatched = new ArrayList<>();
-            for (var rule : matchingCount) {
-                if (rule.sourceDescriptor() != null && matchesArgTypes(rule.sourceDescriptor(), n.getArguments())) {
-                    typeMatched.add(rule);
-                }
-            }
-            if (typeMatched.size() == 1) {
-                return typeMatched.get(0);
-            }
-
-            int line = n.getBegin().map(p -> p.line).orElse(-1);
-            diagnostics.add(Diagnostic.builder()
-                    .code(DiagnosticCode.AMBIGUOUS_MIGRATION)
-                    .severity(Severity.ERROR)
-                    .message("Ambiguous method invocation " + methodName + " on " + owner + " with " + argCount + " arguments; matches multiple overloads")
-                    .path(Path.of(sourcePath))
-                    .line(line)
-                    .build());
-            return null;
-        }
-
         return null;
     }
 
-    private static boolean matchesArgTypes(String descriptor, NodeList<Expression> args) {
-        List<String> paramTypes = DescriptorMatcher.parseParameterTypes(descriptor);
-        if (paramTypes.size() != args.size()) return false;
-        for (int i = 0; i < args.size(); i++) {
-            Expression arg = args.get(i);
-            String expected = paramTypes.get(i);
-            if (arg instanceof StringLiteralExpr && !expected.equals("java.lang.String")) {
-                return false;
-            }
-            if (arg instanceof IntegerLiteralExpr && !expected.equals("int") && !expected.equals("long")) {
-                return false;
-            }
-            if (arg instanceof BooleanLiteralExpr && !expected.equals("boolean")) {
-                return false;
-            }
-            if (arg instanceof DoubleLiteralExpr && !expected.equals("double") && !expected.equals("float")) {
-                return false;
-            }
-        }
-        return true;
+    private static Optional<CanonicalMigrationRule> broadRule(List<CanonicalMigrationRule> rules) {
+        return rules.stream()
+                .filter(rule -> rule.sourceDescriptor() == null)
+                .findFirst();
+    }
+
+    private static Optional<CanonicalMigrationRule> selectResolvedRule(
+            List<CanonicalMigrationRule> rules,
+            String descriptor
+    ) {
+        return rules.stream()
+                .filter(rule -> rule.sourceDescriptor() == null
+                        || Objects.equals(rule.sourceDescriptor(), descriptor))
+                .findFirst();
+    }
+
+    private static void addUnresolvedMigrationDiagnostic(
+            List<Diagnostic> diagnostics,
+            String sourcePath,
+            com.github.javaparser.ast.Node node,
+            String message
+    ) {
+        diagnostics.add(Diagnostic.builder()
+                .code(DiagnosticCode.MIGRATION_UNRESOLVED)
+                .severity(Severity.ERROR)
+                .message(message)
+                .path(Path.of(sourcePath))
+                .line(node.getBegin().map(position -> position.line).orElse(-1))
+                .build());
+    }
+
+    private static void addAmbiguousMigrationDiagnostic(
+            List<Diagnostic> diagnostics,
+            String sourcePath,
+            com.github.javaparser.ast.Node node,
+            String message
+    ) {
+        diagnostics.add(Diagnostic.builder()
+                .code(DiagnosticCode.AMBIGUOUS_MIGRATION)
+                .severity(Severity.ERROR)
+                .message(message)
+                .path(Path.of(sourcePath))
+                .line(node.getBegin().map(position -> position.line).orElse(-1))
+                .build());
     }
 
     private static Optional<String> findVariableType(com.github.javaparser.ast.Node node, String varName) {
