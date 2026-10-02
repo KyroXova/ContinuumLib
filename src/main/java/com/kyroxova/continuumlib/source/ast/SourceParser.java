@@ -40,7 +40,7 @@ public final class SourceParser {
         }
 
         var config = new ParserConfiguration()
-                .setLanguageLevel(ParserConfiguration.LanguageLevel.CURRENT)
+                .setLanguageLevel(ParserConfiguration.LanguageLevel.BLEEDING_EDGE)
                 .setSymbolResolver(new JavaSymbolSolver(typeSolver));
         this.parser = new JavaParser(config);
     }

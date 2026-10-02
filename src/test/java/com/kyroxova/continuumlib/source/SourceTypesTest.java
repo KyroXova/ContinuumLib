@@ -1,6 +1,7 @@
 package com.kyroxova.continuumlib.source;
 
 import com.kyroxova.continuumlib.source.ast.SourceParser;
+import com.github.javaparser.ast.body.RecordDeclaration;
 import com.kyroxova.continuumlib.source.ast.SourceTypes;
 import org.junit.jupiter.api.Test;
 
@@ -21,6 +22,8 @@ class SourceTypesTest {
 
         var unit = new SourceParser(List.of(), List.of())
                 .parseString("example/Outer.java", code);
+
+        assertEquals(2, unit.ast().findAll(RecordDeclaration.class).size(), unit.ast().toString());
 
         var types = SourceTypes.all(unit.ast());
         assertEquals(
