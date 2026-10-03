@@ -1,6 +1,8 @@
 package com.kyroxova.continuumlib.pipeline.report;
 
+import com.kyroxova.continuumlib.filter.registry.RegistryEntry;
 import com.kyroxova.continuumlib.knowledge.rule.RulePack;
+import com.kyroxova.continuumlib.model.diagnostic.Diagnostic;
 import com.kyroxova.continuumlib.pipeline.TargetGenerationResult;
 import com.kyroxova.continuumlib.pipeline.migration.AppliedMigration;
 import com.kyroxova.continuumlib.pipeline.migration.MigrationLayer;
@@ -9,9 +11,41 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Comparator;
 import java.util.List;
 
 public final class GenerationReportWriter {
+    private static final Comparator<AppliedMigration> MIGRATION_ORDER =
+            Comparator.comparing(AppliedMigration::file, Comparator.nullsFirst(String::compareTo))
+                    .thenComparingInt(AppliedMigration::line)
+                    .thenComparing(migration -> migration.type().name())
+                    .thenComparing(AppliedMigration::sourceOwner, Comparator.nullsFirst(String::compareTo))
+                    .thenComparing(AppliedMigration::sourceName, Comparator.nullsFirst(String::compareTo))
+                    .thenComparing(AppliedMigration::sourceDescriptor, Comparator.nullsFirst(String::compareTo))
+                    .thenComparing(AppliedMigration::targetOwner, Comparator.nullsFirst(String::compareTo))
+                    .thenComparing(AppliedMigration::targetName, Comparator.nullsFirst(String::compareTo))
+                    .thenComparing(AppliedMigration::targetDescriptor, Comparator.nullsFirst(String::compareTo))
+                    .thenComparing(AppliedMigration::rulePackId, Comparator.nullsFirst(String::compareTo));
+
+    private static final Comparator<RegistryEntry> REGISTRY_ORDER =
+            Comparator.comparing((RegistryEntry entry) -> entry.registryType().name())
+                    .thenComparing(RegistryEntry::fullId)
+                    .thenComparing(RegistryEntry::ownerClass)
+                    .thenComparing(RegistryEntry::fieldName)
+                    .thenComparing(RegistryEntry::sourcePath)
+                    .thenComparingInt(RegistryEntry::lineNumber);
+
+    private static final Comparator<Diagnostic> DIAGNOSTIC_ORDER =
+            Comparator.comparing((Diagnostic diagnostic) -> diagnostic.severity().name())
+                    .thenComparing(diagnostic -> diagnostic.code().name())
+                    .thenComparing(Diagnostic::stage, Comparator.nullsFirst(String::compareTo))
+                    .thenComparing(diagnostic -> diagnostic.path() == null ? null : diagnostic.path().toString(),
+                            Comparator.nullsFirst(String::compareTo))
+                    .thenComparingInt(Diagnostic::line)
+                    .thenComparingInt(Diagnostic::column)
+                    .thenComparing(Diagnostic::ruleId, Comparator.nullsFirst(String::compareTo))
+                    .thenComparing(Diagnostic::message);
+
     public Path write(TargetGenerationResult result) throws IOException {
         Path reportFile = result.workspace().reportsDir().resolve("generation.txt");
         Files.createDirectories(reportFile.getParent());
@@ -33,40 +67,40 @@ public final class GenerationReportWriter {
         sb.append("Output Mode: ").append(result.resolvedTarget().outputMode()).append("\n\n");
 
         sb.append("--- Selected Rule Packs ---\n");
-        for (RulePack pack : result.resolvedTarget().rulePacks()) {
-            sb.append("  * ").append(pack.id())
-                    .append(" (evidence: ").append(pack.evidence()).append(")\n");
-        }
+        result.resolvedTarget().rulePacks().stream()
+                .sorted(Comparator.comparing(RulePack::id))
+                .forEach(pack -> sb.append("  * ").append(pack.id())
+                        .append(" (evidence: ").append(pack.evidence()).append(")\n"));
         sb.append("\n");
 
         sb.append("--- Source File Selection ---\n");
         sb.append("Discovered: ").append(result.discoveredSourceFiles().size()).append("\n");
         sb.append("Included:   ").append(result.includedSourceFiles().size()).append("\n");
         sb.append("Excluded:   ").append(result.excludedSourceFiles().size()).append("\n");
-        for (Path path : result.excludedSourceFiles()) {
-            sb.append("  [EXCLUDED] ").append(path).append("\n");
-        }
+        result.excludedSourceFiles().stream()
+                .sorted(Comparator.comparing(Path::toString))
+                .forEach(path -> sb.append("  [EXCLUDED] ").append(path).append("\n"));
         sb.append("\n");
 
         sb.append("--- Resource Selection ---\n");
         sb.append("Discovered: ").append(result.discoveredResources().size()).append("\n");
         sb.append("Included:   ").append(result.includedResources().size()).append("\n");
         sb.append("Excluded:   ").append(result.excludedResources().size()).append("\n");
-        for (String resource : result.excludedResources().keySet()) {
-            sb.append("  [EXCLUDED] ").append(resource).append("\n");
-        }
+        result.excludedResources().keySet().stream()
+                .sorted()
+                .forEach(resource -> sb.append("  [EXCLUDED] ").append(resource).append("\n"));
         sb.append("\n");
 
         sb.append("--- Registry Exclusions ---\n");
         sb.append("Total Excluded Declarations: ")
                 .append(result.excludedRegistryEntries().size()).append("\n");
-        for (var entry : result.excludedRegistryEntries()) {
-            sb.append("  [EXCLUDED REGISTRY] ").append(entry.registryType()).append(" ")
-                    .append(entry.id()).append(" in ")
-                    .append(entry.ownerClass()).append("#").append(entry.fieldName())
-                    .append(" (").append(entry.sourcePath()).append(":")
-                    .append(entry.lineNumber()).append(")\n");
-        }
+        result.excludedRegistryEntries().stream()
+                .sorted(REGISTRY_ORDER)
+                .forEach(entry -> sb.append("  [EXCLUDED REGISTRY] ").append(entry.registryType()).append(" ")
+                        .append(entry.fullId()).append(" in ")
+                        .append(entry.ownerClass()).append("#").append(entry.fieldName())
+                        .append(" (").append(entry.sourcePath()).append(":")
+                        .append(entry.lineNumber()).append(")\n"));
         sb.append("\n");
 
         appendMigrationSection(sb, "Applied Source Migrations", result.appliedMigrations(), MigrationLayer.SOURCE_AST);
@@ -81,19 +115,21 @@ public final class GenerationReportWriter {
 
         sb.append("--- Audit Verification ---\n");
         sb.append("Total Audit Findings: ").append(result.auditFindings().size()).append("\n");
-        for (var finding : result.auditFindings()) {
-            sb.append("  [").append(finding.status()).append("] ")
-                    .append(finding.detail()).append("\n");
-        }
+        result.auditFindings().stream()
+                .sorted(Comparator.comparing((com.kyroxova.continuumlib.bytecode.TargetReferenceAudit.Finding finding)
+                                -> finding.status().name())
+                        .thenComparing(com.kyroxova.continuumlib.bytecode.TargetReferenceAudit.Finding::detail))
+                .forEach(finding -> sb.append("  [").append(finding.status()).append("] ")
+                        .append(finding.detail()).append("\n"));
         sb.append("\n");
 
         sb.append("--- Diagnostics ---\n");
         sb.append("Total Diagnostics: ").append(result.diagnostics().size()).append("\n");
-        for (var diagnostic : result.diagnostics()) {
-            sb.append("  [").append(diagnostic.severity()).append("] ")
-                    .append(diagnostic.code()).append(": ")
-                    .append(diagnostic.message()).append("\n");
-        }
+        result.diagnostics().stream()
+                .sorted(DIAGNOSTIC_ORDER)
+                .forEach(diagnostic -> sb.append("  [").append(diagnostic.severity()).append("] ")
+                        .append(diagnostic.code()).append(": ")
+                        .append(diagnostic.message()).append("\n"));
         sb.append("\n");
 
         sb.append("================================================================================\n");
@@ -115,6 +151,7 @@ public final class GenerationReportWriter {
     ) {
         List<AppliedMigration> selected = migrations.stream()
                 .filter(migration -> migration.layer() == layer)
+                .sorted(MIGRATION_ORDER)
                 .toList();
 
         sb.append("--- ").append(title).append(" ---\n");
