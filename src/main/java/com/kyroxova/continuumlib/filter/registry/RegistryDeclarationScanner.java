@@ -383,74 +383,14 @@ public final class RegistryDeclarationScanner {
         }
 
         Map<String, String> ownerConstants(String owner) {
-            String normalizedOwner = owner.replace('            String key = owner + "." + field;
-            String exact = qualified.get(key);
-            if (exact != null) return Optional.of(exact);
-
-            String suffix = uniqueSuffixes.get(key);
-            if (suffix != null) return Optional.of(suffix);
-
-            List<Map.Entry<String, String>> matches = qualified.entrySet().stream()
-                    .filter(entry -> entry.getKey().endsWith("." + key))
-                    .toList();
-            return matches.size() == 1
-                    ? Optional.of(matches.get(0).getValue())
-                    : Optional.empty();
-        }
-    }
-
-    private static Optional<String> directLiteralString(Expression expression) {
-        if (expression instanceof StringLiteralExpr string) {
-            return Optional.of(string.getValue());
-        }
-        if (expression instanceof BinaryExpr binary && binary.getOperator() == BinaryExpr.Operator.PLUS) {
-            Optional<String> left = directLiteralString(binary.getLeft());
-            Optional<String> right = directLiteralString(binary.getRight());
-            if (left.isPresent() && right.isPresent()) {
-                return Optional.of(left.get() + right.get());
-            }
-        }
-        return Optional.empty();
-    }
-}
-, '.');
+            String normalizedOwner = owner.replace('$', '.');
             Map<String, String> values = new HashMap<>();
             for (var entry : qualified.entrySet()) {
                 String key = entry.getKey();
                 int separator = key.lastIndexOf('.');
                 if (separator <= 0 || separator == key.length() - 1) continue;
 
-                String entryOwner = key.substring(0, separator).replace('            String key = owner + "." + field;
-            String exact = qualified.get(key);
-            if (exact != null) return Optional.of(exact);
-
-            String suffix = uniqueSuffixes.get(key);
-            if (suffix != null) return Optional.of(suffix);
-
-            List<Map.Entry<String, String>> matches = qualified.entrySet().stream()
-                    .filter(entry -> entry.getKey().endsWith("." + key))
-                    .toList();
-            return matches.size() == 1
-                    ? Optional.of(matches.get(0).getValue())
-                    : Optional.empty();
-        }
-    }
-
-    private static Optional<String> directLiteralString(Expression expression) {
-        if (expression instanceof StringLiteralExpr string) {
-            return Optional.of(string.getValue());
-        }
-        if (expression instanceof BinaryExpr binary && binary.getOperator() == BinaryExpr.Operator.PLUS) {
-            Optional<String> left = directLiteralString(binary.getLeft());
-            Optional<String> right = directLiteralString(binary.getRight());
-            if (left.isPresent() && right.isPresent()) {
-                return Optional.of(left.get() + right.get());
-            }
-        }
-        return Optional.empty();
-    }
-}
-, '.');
+                String entryOwner = key.substring(0, separator).replace('$', '.');
                 if (entryOwner.equals(normalizedOwner)) {
                     values.put(key.substring(separator + 1), entry.getValue());
                 }
