@@ -30,22 +30,28 @@ public abstract class ArtifactRequestTask extends DefaultTask {
     protected abstract JavaToolchainService getJavaToolchainService();
 
     protected SourceCompilationStrategy targetCompilationStrategy(int targetJavaVersion) {
-        int compilerJavaVersion = Math.max(17, targetJavaVersion);
+        if (targetJavaVersion < 8) {
+            throw new org.gradle.api.GradleException(
+                    "ContinuumLib does not support target Java versions below 8: " + targetJavaVersion
+            );
+        }
+
         Path javac;
         try {
             javac = getJavaToolchainService()
-                    .compilerFor(spec -> spec.getLanguageVersion().set(JavaLanguageVersion.of(compilerJavaVersion)))
+                    .compilerFor(spec -> spec.getLanguageVersion().set(JavaLanguageVersion.of(targetJavaVersion)))
                     .get()
                     .getExecutablePath()
                     .getAsFile()
                     .toPath();
         } catch (RuntimeException unavailable) {
             throw new org.gradle.api.GradleException(
-                    "ContinuumLib requires a Java " + compilerJavaVersion
+                    "ContinuumLib requires a Java " + targetJavaVersion
                             + " compiler toolchain to build target Java " + targetJavaVersion,
                     unavailable
             );
         }
+
         return (sources, classpath, output, release) ->
                 SourceCompiler.compileWithJavac(
                         javac,
@@ -53,7 +59,7 @@ public abstract class ArtifactRequestTask extends DefaultTask {
                         classpath,
                         output,
                         release,
-                        compilerJavaVersion
+                        targetJavaVersion
                 );
     }
 
