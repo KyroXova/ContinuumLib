@@ -14,7 +14,6 @@ import com.kyroxova.continuumlib.filter.rule.InclusionRuleSet;
 import com.kyroxova.continuumlib.filter.rule.RuleSet;
 import com.kyroxova.continuumlib.filter.validation.ExclusionConflictDetector;
 import com.kyroxova.continuumlib.source.ast.SourceTypes;
-import com.kyroxova.continuumlib.source.ast.SourceTypes;
 import com.kyroxova.continuumlib.source.ast.SourceUnit;
 
 import java.io.IOException;

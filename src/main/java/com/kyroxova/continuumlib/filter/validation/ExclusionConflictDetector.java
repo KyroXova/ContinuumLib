@@ -5,12 +5,10 @@ import com.github.javaparser.ast.ImportDeclaration;
 import com.github.javaparser.ast.Node;
 import com.github.javaparser.ast.body.FieldDeclaration;
 import com.github.javaparser.ast.body.TypeDeclaration;
-import com.github.javaparser.ast.body.TypeDeclaration;
 import com.github.javaparser.ast.expr.FieldAccessExpr;
 import com.github.javaparser.ast.expr.NameExpr;
 import com.kyroxova.continuumlib.filter.condition.TargetContext;
 import com.kyroxova.continuumlib.filter.registry.RegistryEntry;
-import com.kyroxova.continuumlib.source.ast.SourceTypes;
 import com.kyroxova.continuumlib.source.ast.SourceTypes;
 import com.kyroxova.continuumlib.source.ast.SourceUnit;
 

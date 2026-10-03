@@ -641,6 +641,85 @@ class FilterSystemTest {
     }
 
     @Test
+    void deferredRegisterNamespaceCanComeFromStaticImportedConstant() {
+        String mod = """
+                package com.example;
+                class BuildScape {
+                    static final String MOD_ID = "buildscape";
+                }
+                """;
+        String blocks = """
+                package com.example;
+                import static com.example.BuildScape.MOD_ID;
+                import net.minecraftforge.registries.DeferredRegister;
+                import net.minecraftforge.registries.RegistryObject;
+                import net.minecraft.world.level.block.Block;
+
+                class ModBlocks {
+                    static final DeferredRegister<Block> BLOCKS =
+                            DeferredRegister.create(null, MOD_ID);
+                    static final RegistryObject<Block> MANGROVE =
+                            BLOCKS.register("mangrove_planks", () -> null);
+                }
+                """;
+
+        SourceParser parser = new SourceParser(List.of(), List.of());
+        SourceUnit modUnit = parser.parseString("com/example/BuildScape.java", mod);
+        SourceUnit blockUnit = parser.parseString("com/example/ModBlocks.java", blocks);
+
+        var entry = new com.kyroxova.continuumlib.filter.registry.RegistryDeclarationScanner()
+                .scan(List.of(modUnit, blockUnit))
+                .entries()
+                .get(0);
+
+        assertEquals("buildscape:mangrove_planks", entry.fullId());
+    }
+
+    @Test
+    void ambiguousStaticWildcardConstantsDoNotInventNamespace() {
+        String first = """
+                package first;
+                class BuildScape {
+                    static final String MOD_ID = "first";
+                }
+                """;
+        String second = """
+                package second;
+                class BuildScape {
+                    static final String MOD_ID = "second";
+                }
+                """;
+        String blocks = """
+                package consumer;
+                import static first.BuildScape.*;
+                import static second.BuildScape.*;
+                import net.minecraftforge.registries.DeferredRegister;
+                import net.minecraftforge.registries.RegistryObject;
+                import net.minecraft.world.level.block.Block;
+
+                class ModBlocks {
+                    static final DeferredRegister<Block> BLOCKS =
+                            DeferredRegister.create(null, MOD_ID);
+                    static final RegistryObject<Block> MANGROVE =
+                            BLOCKS.register("mangrove_planks", () -> null);
+                }
+                """;
+
+        SourceParser parser = new SourceParser(List.of(), List.of());
+        var entry = new com.kyroxova.continuumlib.filter.registry.RegistryDeclarationScanner()
+                .scan(List.of(
+                        parser.parseString("first/BuildScape.java", first),
+                        parser.parseString("second/BuildScape.java", second),
+                        parser.parseString("consumer/ModBlocks.java", blocks)
+                ))
+                .entries()
+                .get(0);
+
+        assertNull(entry.namespace());
+        assertEquals("mangrove_planks", entry.fullId());
+    }
+
+    @Test
     void namespacedRegistryRuleDoesNotMatchUnknownNamespace() {
         var rules = com.kyroxova.continuumlib.filter.rule.RuleSet.builder()
                 .addRegistry(new RegistryFilterRule(

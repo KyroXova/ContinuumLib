@@ -54,7 +54,7 @@ public final class RegistryDeclarationScanner {
             com.github.javaparser.ast.body.TypeDeclaration<?> type,
             GlobalConstants globalConstants
     ) {
-        Map<String, String> constants = new HashMap<>();
+        Map<String, String> constants = importedStaticConstants(type, globalConstants);
         for (FieldDeclaration field : SourceTypes.fields(type)) {
             for (VariableDeclarator variable : field.getVariables()) {
                 variable.getInitializer()
@@ -71,6 +71,40 @@ public final class RegistryDeclarationScanner {
             }
         }
         return new ClassContext(Map.copyOf(constants), Map.copyOf(registryNamespaces));
+    }
+
+    private static Map<String, String> importedStaticConstants(
+            com.github.javaparser.ast.body.TypeDeclaration<?> type,
+            GlobalConstants globalConstants
+    ) {
+        Map<String, List<String>> candidates = new HashMap<>();
+        type.findCompilationUnit().ifPresent(ast -> {
+            for (var imported : ast.getImports()) {
+                if (!imported.isStatic()) continue;
+
+                String name = imported.getNameAsString();
+                if (imported.isAsterisk()) {
+                    globalConstants.ownerConstants(name).forEach((field, value) ->
+                            candidates.computeIfAbsent(field, ignored -> new ArrayList<>()).add(value));
+                    continue;
+                }
+
+                int separator = name.lastIndexOf('.');
+                if (separator <= 0 || separator == name.length() - 1) continue;
+                String owner = name.substring(0, separator);
+                String field = name.substring(separator + 1);
+                globalConstants.lookup(owner, field).ifPresent(value ->
+                        candidates.computeIfAbsent(field, ignored -> new ArrayList<>()).add(value));
+            }
+        });
+
+        Map<String, String> constants = new HashMap<>();
+        candidates.forEach((field, values) -> {
+            if (values.size() == 1) {
+                constants.put(field, values.get(0));
+            }
+        });
+        return constants;
     }
 
     private static Optional<String> inferRegistryNamespace(
@@ -346,6 +380,82 @@ public final class RegistryDeclarationScanner {
                 }
             }
             return new GlobalConstants(Map.copyOf(qualified), Map.copyOf(uniqueSuffixes));
+        }
+
+        Map<String, String> ownerConstants(String owner) {
+            String normalizedOwner = owner.replace('            String key = owner + "." + field;
+            String exact = qualified.get(key);
+            if (exact != null) return Optional.of(exact);
+
+            String suffix = uniqueSuffixes.get(key);
+            if (suffix != null) return Optional.of(suffix);
+
+            List<Map.Entry<String, String>> matches = qualified.entrySet().stream()
+                    .filter(entry -> entry.getKey().endsWith("." + key))
+                    .toList();
+            return matches.size() == 1
+                    ? Optional.of(matches.get(0).getValue())
+                    : Optional.empty();
+        }
+    }
+
+    private static Optional<String> directLiteralString(Expression expression) {
+        if (expression instanceof StringLiteralExpr string) {
+            return Optional.of(string.getValue());
+        }
+        if (expression instanceof BinaryExpr binary && binary.getOperator() == BinaryExpr.Operator.PLUS) {
+            Optional<String> left = directLiteralString(binary.getLeft());
+            Optional<String> right = directLiteralString(binary.getRight());
+            if (left.isPresent() && right.isPresent()) {
+                return Optional.of(left.get() + right.get());
+            }
+        }
+        return Optional.empty();
+    }
+}
+, '.');
+            Map<String, String> values = new HashMap<>();
+            for (var entry : qualified.entrySet()) {
+                String key = entry.getKey();
+                int separator = key.lastIndexOf('.');
+                if (separator <= 0 || separator == key.length() - 1) continue;
+
+                String entryOwner = key.substring(0, separator).replace('            String key = owner + "." + field;
+            String exact = qualified.get(key);
+            if (exact != null) return Optional.of(exact);
+
+            String suffix = uniqueSuffixes.get(key);
+            if (suffix != null) return Optional.of(suffix);
+
+            List<Map.Entry<String, String>> matches = qualified.entrySet().stream()
+                    .filter(entry -> entry.getKey().endsWith("." + key))
+                    .toList();
+            return matches.size() == 1
+                    ? Optional.of(matches.get(0).getValue())
+                    : Optional.empty();
+        }
+    }
+
+    private static Optional<String> directLiteralString(Expression expression) {
+        if (expression instanceof StringLiteralExpr string) {
+            return Optional.of(string.getValue());
+        }
+        if (expression instanceof BinaryExpr binary && binary.getOperator() == BinaryExpr.Operator.PLUS) {
+            Optional<String> left = directLiteralString(binary.getLeft());
+            Optional<String> right = directLiteralString(binary.getRight());
+            if (left.isPresent() && right.isPresent()) {
+                return Optional.of(left.get() + right.get());
+            }
+        }
+        return Optional.empty();
+    }
+}
+, '.');
+                if (entryOwner.equals(normalizedOwner)) {
+                    values.put(key.substring(separator + 1), entry.getValue());
+                }
+            }
+            return Map.copyOf(values);
         }
 
         Optional<String> lookup(String owner, String field) {
