@@ -49,8 +49,6 @@ public final class ContinuumLibPlugin implements Plugin<Project> {
             task.getProjectDirectory().convention(project.getLayout().getProjectDirectory());
             task.getInputJar().convention(jar.flatMap(Jar::getArchiveFile));
             task.getConfigFile().convention(project.getLayout().file(project.provider(transformCfg::toFile)));
-            task.getRuleFiles().from(project.fileTree("src/main/resources/continuumlib/knowledge", tree -> tree.include("**/*.xml")));
-            task.getRuleFiles().from(project.fileTree("src/main/resources/data/continuumlib/knowledge", tree -> tree.include("**/*.xml")));
             task.getOutputJar().convention(project.getLayout().getBuildDirectory().file("continuumlib/" + project.getName() + "-transformed.jar"));
         });
 
@@ -71,8 +69,6 @@ public final class ContinuumLibPlugin implements Plugin<Project> {
             }));
             task.getTargetWorkspaceDirectory().convention(project.getLayout().getBuildDirectory().dir("continuum/targets/source"));
             task.getConfigFile().convention(project.getLayout().file(project.provider(transformCfg::toFile)));
-            task.getRuleFiles().from(project.fileTree("src/main/resources/continuumlib/knowledge", tree -> tree.include("**/*.xml")));
-            task.getRuleFiles().from(project.fileTree("src/main/resources/data/continuumlib/knowledge", tree -> tree.include("**/*.xml")));
             task.getGeneratedSourceDirectory().convention(project.getLayout().getBuildDirectory().dir("continuum/generated-src"));
             task.getCompiledClassesDirectory().convention(project.getLayout().getBuildDirectory().dir("continuum/classes"));
             task.getOutputJar().convention(project.getLayout().getBuildDirectory().file("continuumlib/" + project.getName() + "-source-adapted.jar"));
@@ -172,8 +168,6 @@ public final class ContinuumLibPlugin implements Plugin<Project> {
                     return attributes;
                 }));
                 task.getConfigFile().convention(project.getLayout().file(project.provider(finalTargetConfigFile::toFile)));
-                task.getRuleFiles().from(project.fileTree("src/main/resources/continuumlib/knowledge", tree -> tree.include("**/*.xml")));
-                task.getRuleFiles().from(project.fileTree("src/main/resources/data/continuumlib/knowledge", tree -> tree.include("**/*.xml")));
                 task.getTargetWorkspaceDirectory().convention(project.getLayout().getBuildDirectory().dir("continuum/targets/" + id));
                 task.getOutputJar().convention(project.getLayout().getBuildDirectory().file("continuumlib/" + id + ".jar"));
             });
@@ -187,8 +181,6 @@ public final class ContinuumLibPlugin implements Plugin<Project> {
                 task.getProjectDirectory().convention(project.getLayout().getProjectDirectory());
                 task.getInputJar().convention(jar.flatMap(Jar::getArchiveFile));
                 task.getConfigFile().convention(project.getLayout().file(project.provider(finalTargetConfigFile::toFile)));
-                task.getRuleFiles().from(project.fileTree("src/main/resources/continuumlib/knowledge", tree -> tree.include("**/*.xml")));
-                task.getRuleFiles().from(project.fileTree("src/main/resources/data/continuumlib/knowledge", tree -> tree.include("**/*.xml")));
                 task.getOutputJar().convention(project.getLayout().getBuildDirectory().file("continuum/legacy-bytecode/" + id + ".jar"));
             });
 
