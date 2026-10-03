@@ -7,16 +7,13 @@ import com.kyroxova.continuumlib.filter.config.ContinuumProjectConfiguration;
 import com.kyroxova.continuumlib.filter.config.FilterConfigurationReader;
 import com.kyroxova.continuumlib.filter.engine.FilterEngine;
 import com.kyroxova.continuumlib.filter.registry.RegistryDeclarationScanner;
-import com.kyroxova.continuumlib.filter.registry.RegistryEntry;
-import com.kyroxova.continuumlib.filter.registry.RegistryIndex;
 import com.kyroxova.continuumlib.filter.rule.ExclusionRuleSet;
 import com.kyroxova.continuumlib.filter.rule.InclusionRuleSet;
-import com.kyroxova.continuumlib.filter.rule.RegistryFilterRule;
-import com.kyroxova.continuumlib.filter.validation.ExclusionConflictDetector;
 import com.kyroxova.continuumlib.filter.validation.ExclusionConflictException;
 import com.kyroxova.continuumlib.model.diagnostic.Diagnostic;
 import com.kyroxova.continuumlib.model.diagnostic.DiagnosticCode;
 import com.kyroxova.continuumlib.model.diagnostic.Severity;
+import com.kyroxova.continuumlib.model.project.ProjectModel;
 import com.kyroxova.continuumlib.pipeline.config.ProjectConfigurationLocator;
 import com.kyroxova.continuumlib.pipeline.migration.*;
 import com.kyroxova.continuumlib.pipeline.report.GenerationReportWriter;
@@ -235,6 +232,35 @@ public final class TargetGenerationPipeline {
             resultBuilder.includedSourceFiles(includedSources);
             resultBuilder.excludedSourceFiles(excludedSources);
             resultBuilder.excludedRegistryEntries(filterResult.excludedRegistryEntries());
+
+            Map<String, Path> modelExcludedResources = new TreeMap<>(excludedResources);
+            modelExcludedResources.putAll(filterResult.excludedResources());
+
+            ProjectModel.Builder projectModelBuilder = ProjectModel.builder()
+                    .projectRoot(projectRoot.toAbsolutePath().normalize())
+                    .candidateSourceFiles(discoveredSources)
+                    .activeSourceFiles(includedSources)
+                    .excludedSourceFiles(excludedSources)
+                    .candidateResources(discoveredResources)
+                    .activeResources(filterResult.activeResources())
+                    .excludedResources(modelExcludedResources)
+                    .sourceUnits(activeUnits)
+                    .registryEntries(new RegistryDeclarationScanner().scan(activeUnits).entries())
+                    .excludedRegistryEntries(filterResult.excludedRegistryEntries())
+                    .configuration(projConfig)
+                    .sourceEnvironment(target.sourceEnvironment())
+                    .targetEnvironment(target.targetEnvironment());
+
+            sourceRoots.stream()
+                    .map(path -> path.toAbsolutePath().normalize())
+                    .distinct()
+                    .forEach(projectModelBuilder::addSourceRoot);
+            resourceRoots.stream()
+                    .map(path -> path.toAbsolutePath().normalize())
+                    .distinct()
+                    .forEach(projectModelBuilder::addResourceRoot);
+
+            resultBuilder.projectModel(projectModelBuilder.build());
 
             // Stage 12: Resolve Canonical Verified Migration Plan
             stage = "MIGRATION_PLAN";

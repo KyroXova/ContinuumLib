@@ -171,6 +171,19 @@ class TargetGenerationPipelineTest {
         assertEquals(1, result.excludedResources().size());
         assertTrue(result.excludedResources().containsKey("assets/mymod/excluded.json"));
 
+        var projectModel = result.projectModel();
+        assertNotNull(projectModel);
+        assertEquals(projectRoot.toAbsolutePath().normalize(), projectModel.projectRoot());
+        assertEquals(srcEnv, projectModel.sourceEnvironment());
+        assertEquals(tgtEnv, projectModel.targetEnvironment());
+        assertEquals(2, projectModel.candidateSourceFiles().size());
+        assertEquals(1, projectModel.activeSourceFiles().size());
+        assertEquals(1, projectModel.excludedSourceFiles().size());
+        assertEquals(2, projectModel.candidateResources().size());
+        assertEquals(1, projectModel.activeResources().size());
+        assertEquals(1, projectModel.excludedResources().size());
+        assertEquals(1, projectModel.sourceUnits().size());
+
         // Verify AST transformation was applied
         assertEquals(1, result.appliedMigrations().size());
         AppliedMigration migration = result.appliedMigrations().get(0);

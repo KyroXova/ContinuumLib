@@ -4,18 +4,17 @@ import com.kyroxova.continuumlib.bytecode.TargetReferenceAudit;
 import com.kyroxova.continuumlib.filter.registry.RegistryEntry;
 import com.kyroxova.continuumlib.model.diagnostic.Diagnostic;
 import com.kyroxova.continuumlib.model.diagnostic.Severity;
+import com.kyroxova.continuumlib.model.project.ProjectModel;
 import com.kyroxova.continuumlib.pipeline.migration.AppliedMigration;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.*;
 
-/**
- * Structured, inspectable result of running the target generation pipeline on a resolved target.
- */
 public record TargetGenerationResult(
         ResolvedTarget resolvedTarget,
         GeneratedWorkspace workspace,
+        ProjectModel projectModel,
         List<Path> discoveredSourceFiles,
         List<Path> includedSourceFiles,
         List<Path> excludedSourceFiles,
@@ -46,6 +45,45 @@ public record TargetGenerationResult(
         diagnostics = List.copyOf(diagnostics);
     }
 
+    public TargetGenerationResult(
+            ResolvedTarget resolvedTarget,
+            GeneratedWorkspace workspace,
+            List<Path> discoveredSourceFiles,
+            List<Path> includedSourceFiles,
+            List<Path> excludedSourceFiles,
+            Map<String, Path> discoveredResources,
+            Map<String, Path> includedResources,
+            Map<String, Path> excludedResources,
+            List<RegistryEntry> excludedRegistryEntries,
+            List<AppliedMigration> appliedMigrations,
+            boolean compilationSuccess,
+            int compiledClassesCount,
+            int bytecodeAdaptedCount,
+            List<TargetReferenceAudit.Finding> auditFindings,
+            List<Diagnostic> diagnostics,
+            Path outputJar
+    ) {
+        this(
+                resolvedTarget,
+                workspace,
+                null,
+                discoveredSourceFiles,
+                includedSourceFiles,
+                excludedSourceFiles,
+                discoveredResources,
+                includedResources,
+                excludedResources,
+                excludedRegistryEntries,
+                appliedMigrations,
+                compilationSuccess,
+                compiledClassesCount,
+                bytecodeAdaptedCount,
+                auditFindings,
+                diagnostics,
+                outputJar
+        );
+    }
+
     public boolean isSuccess() {
         return compilationSuccess
                 && outputJar != null
@@ -60,6 +98,7 @@ public record TargetGenerationResult(
     public static final class Builder {
         private ResolvedTarget resolvedTarget;
         private GeneratedWorkspace workspace;
+        private ProjectModel projectModel;
         private final List<Path> discoveredSourceFiles = new ArrayList<>();
         private final List<Path> includedSourceFiles = new ArrayList<>();
         private final List<Path> excludedSourceFiles = new ArrayList<>();
@@ -77,6 +116,7 @@ public record TargetGenerationResult(
 
         public Builder resolvedTarget(ResolvedTarget target) { this.resolvedTarget = target; return this; }
         public Builder workspace(GeneratedWorkspace ws) { this.workspace = ws; return this; }
+        public Builder projectModel(ProjectModel model) { this.projectModel = model; return this; }
         public Builder discoveredSourceFiles(Collection<Path> paths) { this.discoveredSourceFiles.addAll(paths); return this; }
         public Builder includedSourceFiles(Collection<Path> paths) { this.includedSourceFiles.addAll(paths); return this; }
         public Builder excludedSourceFiles(Collection<Path> paths) { this.excludedSourceFiles.addAll(paths); return this; }
@@ -108,6 +148,7 @@ public record TargetGenerationResult(
             return new TargetGenerationResult(
                     resolvedTarget,
                     workspace,
+                    projectModel,
                     discoveredSourceFiles,
                     includedSourceFiles,
                     excludedSourceFiles,
