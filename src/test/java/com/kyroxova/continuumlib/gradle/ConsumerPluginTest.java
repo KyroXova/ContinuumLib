@@ -198,6 +198,39 @@ class ConsumerPluginTest {
         }
     }
 
+    @Test
+    void newProjectsDefaultTaskConfigPathsToCanonicalRoot() throws Exception {
+        Files.writeString(project.resolve("settings.gradle"), "rootProject.name = 'consumer'");
+        Files.writeString(project.resolve("build.gradle"), """
+                plugins { id 'com.kyroxova.continuumlib' }
+
+                tasks.register('printContinuumConfigPaths') {
+                    doLast {
+                        def transform = tasks.named('continuumLibTransformSource').get()
+                        def targets = tasks.named('continuumLibValidateOutputModes').get()
+                        println('TRANSFORM_CONFIG=' + project.relativePath(transform.configFile.get().asFile))
+                        println('TARGETS_CONFIG=' + project.relativePath(targets.configFile.get().asFile))
+                    }
+                }
+                """);
+
+        var result = GradleRunner.create()
+                .withProjectDir(project.toFile())
+                .withPluginClasspath()
+                .withArguments("printContinuumConfigPaths")
+                .build();
+
+        assertTrue(result.getOutput().contains(
+                "TRANSFORM_CONFIG=src/main/resources/continuumlib/transform.properties"),
+                result.getOutput());
+        assertTrue(result.getOutput().contains(
+                "TARGETS_CONFIG=src/main/resources/continuumlib/targets.properties"),
+                result.getOutput());
+        assertFalse(result.getOutput().contains(
+                "src/main/resources/data/continuumlib/transform.properties"),
+                result.getOutput());
+    }
+
     private static String sha256(Path file) throws Exception {
         MessageDigest digest = MessageDigest.getInstance("SHA-256");
         digest.update(Files.readAllBytes(file));

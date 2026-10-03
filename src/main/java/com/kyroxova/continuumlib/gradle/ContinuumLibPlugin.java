@@ -31,9 +31,7 @@ public final class ContinuumLibPlugin implements Plugin<Project> {
                 .getByType(JavaPluginExtension.class)
                 .getSourceSets()
                 .getByName(SourceSet.MAIN_SOURCE_SET_NAME);
-        Path transformCfg = config.transformFile().toFile().isFile()
-                ? config.transformFile()
-                : project.getProjectDir().toPath().resolve("src/main/resources/data/continuumlib/transform.properties");
+        Path transformCfg = config.transformFile();
 
         project.getTasks().register("continuumLibCompareApis", CompareApisTask.class, task -> {
             task.setGroup("ContinuumLib");
@@ -109,9 +107,7 @@ public final class ContinuumLibPlugin implements Plugin<Project> {
             ProjectConfigurationLocator.DiscoveredConfiguration config,
             SourceSet mainSourceSet
     ) {
-        Path targetsPath = config.targetsFile().toFile().isFile()
-                ? config.targetsFile()
-                : project.getProjectDir().toPath().resolve("src/main/resources/data/continuumlib/targets.properties");
+        Path targetsPath = config.targetsFile();
 
         var validation = project.getTasks().register("continuumLibValidateOutputModes", ValidateOutputModesTask.class, task -> {
             task.setGroup("ContinuumLib");
@@ -144,11 +140,7 @@ public final class ContinuumLibPlugin implements Plugin<Project> {
         if (!outputs.perVersion()) return;
 
         for (String id : outputs.targets()) {
-            Path targetConfigFile = config.targetsDir().resolve(id + ".properties");
-            if (!Files.isRegularFile(targetConfigFile)) {
-                targetConfigFile = project.getProjectDir().toPath().resolve("src/main/resources/data/continuumlib/targets/" + id + ".properties");
-            }
-            Path finalTargetConfigFile = targetConfigFile;
+            Path finalTargetConfigFile = config.targetsDir().resolve(id + ".properties");
 
             var generate = project.getTasks().register("continuumLibGenerate_" + id, GenerateTargetTask.class, task -> {
                 task.setGroup("ContinuumLib");
